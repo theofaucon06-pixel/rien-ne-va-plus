@@ -43,7 +43,7 @@ export const ui = {
     const debtTotal = s.debt + Math.max(0, -s.bank);
     this.el.debt.hidden = debtTotal <= 0;
     this.el.debt.textContent = 'Dette ' + fmt(debtTotal);
-    this.el.revCount.textContent = `${s.revealed.size}/10`;
+    this.el.revCount.textContent = `${s.revealed.size}/${REVELATIONS.length}`;
     const showTime = !inside;
     this.el.timeHud.hidden = !showTime;
     if (showTime) this.el.timeHud.textContent = this.fmtTime(s.timeMin);
@@ -172,7 +172,7 @@ export const ui = {
       audio.reveal();
       const text = rev.text(stats || {}).split('\n\n').map(p => `<p>${p}</p>`).join('');
       m.innerHTML = `<div class="modal-inner">
-        <div class="m-kicker">Révélation ${rev.n} / 10</div>
+        <div class="m-kicker">Révélation ${rev.n} / ${REVELATIONS.length}</div>
         <h2>${rev.title}<span>.</span></h2>
         <div class="m-sub">${rev.sub}</div>
         <div class="m-text">${text}</div>
@@ -218,7 +218,7 @@ export const ui = {
       return `<div class="cx-card ${on ? 'on' : ''}"><div class="cx-p" style="--c:${w.color}">${on ? w.name[0] : '?'}</div><div><div class="cx-t">${on ? w.name : 'Inconnu·e'}</div><div class="cx-s">${on ? w.sub : w.where}</div>${on ? `<div class="cx-k">${w.lines[w.lines.length - 1]}</div>` : ''}</div></div>`;
     }).join('');
     c.innerHTML = `<div class="codex-inner">
-      <header><h2>Le carnet</h2><div class="tabs"><button data-t="mecaniques" class="${tab === 'mecaniques' ? 'on' : ''}">Mécaniques ${s.revealed.size}/10</button><button data-t="temoins" class="${tab === 'temoins' ? 'on' : ''}">Témoins ${s.witnesses.size}/${WITNESSES.length}</button><button data-t="soir" class="${tab === 'soir' ? 'on' : ''}">Ce soir</button></div><button class="p-close">Fermer</button></header>
+      <header><h2>Le carnet</h2><div class="tabs"><button data-t="mecaniques" class="${tab === 'mecaniques' ? 'on' : ''}">Mécaniques ${s.revealed.size}/${REVELATIONS.length}</button><button data-t="temoins" class="${tab === 'temoins' ? 'on' : ''}">Témoins ${s.witnesses.size}/${WITNESSES.length}</button><button data-t="soir" class="${tab === 'soir' ? 'on' : ''}">Ce soir</button></div><button class="p-close">Fermer</button></header>
       <div class="cx-body">
         <div class="cx-tab" data-t="mecaniques" ${tab !== 'mecaniques' ? 'hidden' : ''}>${revs}</div>
         <div class="cx-tab" data-t="temoins" ${tab !== 'temoins' ? 'hidden' : ''}>${wits}</div>
@@ -248,7 +248,8 @@ export const ui = {
   // ------------------------------------------------------------- intro / epilogue
   intro(onStart) {
     const el = this.el.intro; el.hidden = false; this.stack.push('intro');
-    el.querySelector('#intro-controls').innerHTML = STORY.controls.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('');
+    const list = document.body.dataset.mode === '3d' ? STORY.controls3d : STORY.controls;
+    el.querySelector('#intro-controls').innerHTML = list.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('');
     const btn = el.querySelector('#btn-start');
     let started = false;
     const go = () => {

@@ -10,7 +10,15 @@ const REDS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32,
 const SYMS = [
   { g: '🍒', k: 'cerise' }, { g: '🍋', k: 'citron' }, { g: '🔔', k: 'cloche' }, { g: '⭐', k: 'etoile' }, { g: '7', k: 'sept', seven: true }, { g: '💎', k: 'diamant' }
 ];
-const EDGE = { slot: 0.10, mega: 0.13, roulette: 0.027, baccarat: 0.012, phone: 0.08 };
+const EDGE = { slot: 0.10, mega: 0.13, roulette: 0.027, baccarat: 0.012, phone: 0.08, blackjack: 0.02, wheel: 0.16, insurance: 0.074 };
+// Pay tables: [probability, multiplier] tiers, highest first. Remaining probability = loss.
+export const SLOT_CFG = {
+  lucky:   { name: 'Lucky 7',    kicker: 'Machine à sous · 1 ligne · jackpot 100×',            lines: 1,  near: 0.30, table: [[0.001, 100], [0.006, 30], [0.05, 6], [0.16, 2]] },
+  fruits:  { name: "Fruits d'or", kicker: 'Machine à sous · 1 ligne · « ça paie souvent »',     lines: 1,  near: 0.25, table: [[0.0005, 50], [0.01, 10], [0.09, 4], [0.26, 1.5]] },
+  presque: { name: 'Presque !',   kicker: 'Machine à sous · 1 ligne · « la chance est proche »', lines: 1,  near: 0.60, table: [[0.001, 100], [0.006, 30], [0.05, 6], [0.16, 2]] },
+  pharaon: { name: 'Pharaon',     kicker: 'Machine à sous · 1 ligne · jackpot 500× · haute volatilité', lines: 1, near: 0.30, table: [[0.0006, 500], [0.004, 40], [0.025, 8], [0.07, 3]] },
+  mega:    { name: 'Mégalignes',  kicker: 'Machine à sous · 20 lignes · jackpot 100×',          lines: 20, near: 0, table: [[0.001, 100], [0.01, 15], [0.045, 5], [0.10, 2]], ldw: 0.33 }
+};
 
 export class Games {
   constructor(state, api) { this.s = state; this.api = api; }
@@ -40,13 +48,15 @@ export class Games {
   payout(amount) { this.s.stats.returned += amount; this.s.stats.net = this.s.stats.returned - this.s.stats.wagered; }
 
   // ---------------------------------------------------------------- SLOTS
-  singleOutcome(nearMissP) {
+  singleOutcome(nearMissP, table = SLOT_CFG.lucky.table) {
     const r = Math.random();
-    let mult = 0, reels;
-    if (r < 0.001) { mult = 100; reels = [4, 4, 4]; }
-    else if (r < 0.007) { mult = 30; reels = [5, 5, 5]; }
-    else if (r < 0.057) { mult = 6; const k = [0, 1, 2, 3][Math.floor(Math.random() * 4)]; reels = [k, k, k]; }
-    else if (r < 0.217) { mult = 2; let k; do { k = Math.floor(Math.random() * 6); } while (k === 0); reels = [0, 0, k]; }
+    let acc = 0, tier = -1, mult = 0;
+    for (let i = 0; i < table.length; i++) { acc += table[i][0]; if (r < acc) { tier = i; mult = table[i][1]; break; } }
+    let reels;
+    if (tier === 0) reels = [4, 4, 4];
+    else if (tier === 1) reels = [5, 5, 5];
+    else if (tier === 2) { const k = [0, 1, 2, 3][Math.floor(Math.random() * 4)]; reels = [k, k, k]; }
+    else if (tier === 3) { let k; do { k = Math.floor(Math.random() * 6); } while (k === 0); reels = [0, 0, k]; }
     else {
       if (Math.random() < nearMissP) { let k; do { k = Math.floor(Math.random() * 6); } while (k === 4); reels = Math.random() < 0.5 ? [4, 4, k] : [4, k, 4]; return { mult: 0, reels, near: true }; }
       do { reels = [0, 0, 0].map(() => Math.floor(Math.random() * 6)); } while ((reels[0] === reels[1] && reels[1] === reels[2]) || (reels[0] === 0 && reels[1] === 0));
@@ -54,10 +64,10 @@ export class Games {
     return { mult, reels, near: false };
   }
 
-  openSlot(kind) {
-    const s = this.s; const mega = kind === 'mega';
-    const names = { lucky: 'Lucky 7', mega: 'Mégalignes', presque: 'Presque !' };
-    const kick = { lucky: 'Machine à sous · 1 ligne · jackpot 100×', mega: 'Machine à sous · 20 lignes · jackpot 100×', presque: 'Machine à sous · 1 ligne · « la chance est proche »' };
+  openSlot(kind, label) {
+    const s = this.s; const cfg = SLOT_CFG[kind] || SLOT_CFG.lucky; const mega = cfg.lines > 1;
+    const names = { [kind]: label || cfg.name };
+    const kick = { [kind]: cfg.kicker };
     const session = { spins: 0, wagered: 0, returned: 0, near: 0, celebrations: 0, trueWins: 0 };
     let bet = 1, busy = false;
     const reelsHTML = mega
@@ -101,13 +111,13 @@ export class Games {
       let payout = 0, near = false, ldw = false, reelsOut = [];
       if (mega) {
         const r = Math.random();
-        let mult = 0;
-        if (r < 0.001) mult = 100; else if (r < 0.011) mult = 15; else if (r < 0.056) mult = 5; else if (r < 0.156) mult = 2;
-        else if (r < 0.486) { mult = [0.2, 0.3, 0.4, 0.5, 0.6, 0.8][Math.floor(Math.random() * 6)]; ldw = true; }
+        let mult = 0, acc = 0;
+        for (const [p, m] of cfg.table) { acc += p; if (r < acc) { mult = m; break; } }
+        if (!mult && r < acc + cfg.ldw) { mult = [0.2, 0.3, 0.4, 0.5, 0.6, 0.8][Math.floor(Math.random() * 6)]; ldw = true; }
         payout = Math.round(mult * bet * 100) / 100;
         await this.animateGrid(root, mult > 0);
       } else {
-        const o = this.singleOutcome(kind === 'presque' ? 0.6 : 0.3);
+        const o = this.singleOutcome(cfg.near, cfg.table);
         payout = o.mult * bet; near = o.near; reelsOut = o.reels;
         await this.animateReels(root, o.reels);
       }
@@ -137,7 +147,7 @@ export class Games {
   slotChecks(kind, session, bet) {
     const s = this.s;
     if (!s.revealed.has('avantage') && session.spins >= 12 && kind !== 'mega') {
-      const projected = 1000 * bet * (kind === 'mega' ? EDGE.mega : EDGE.slot);
+      const projected = 1000 * bet * EDGE.slot;
       this.api.reveal('avantage', { spins: session.spins, wagered: session.wagered, returned: session.returned, projected });
       return;
     }
@@ -145,7 +155,7 @@ export class Games {
       this.api.reveal('ldw', { celebrations: session.celebrations, trueWins: session.trueWins, net: session.returned - session.wagered });
       return;
     }
-    if (!s.revealed.has('zone') && (session.spins >= 24 || (kind === 'presque' && session.spins >= 18))) {
+    if (!s.revealed.has('zone') && (session.spins >= 24 || (SLOT_CFG[kind] && SLOT_CFG[kind].near >= 0.5 && session.spins >= 18))) {
       this.api.reveal('zone', { spins: session.spins, near: session.near });
     }
   }
@@ -398,6 +408,156 @@ export class Games {
     deal.addEventListener('click', () => play(amount));
     ref.addEventListener('click', () => play(Math.min(lastBet * 2, 500), true));
     root._spin = () => play(amount);
+  }
+
+  // ---------------------------------------------------------------- BLACKJACK
+  openBlackjack() {
+    const s = this.s;
+    const session = { hands: 0, net: 0, insurance: 0 };
+    let amount = 25, bet = 0, busy = false, inPlay = false;
+    let P = [], D = [];
+    const root = ui.panel.open(`
+      <div class="bj">
+        <div class="bj-table">
+          <div class="hand"><div class="label">Croupier</div><div class="cards" id="g-dc"></div><div class="tot" id="g-dt"></div></div>
+          <div class="bj-rule">Le croupier reste à 17 · Blackjack paie 3 pour 2 · Assurance 2 pour 1</div>
+          <div class="hand"><div class="label">Toi</div><div class="cards" id="g-pc"></div><div class="tot" id="g-pt"></div></div>
+        </div>
+        <div class="bacc-res" id="g-res">Choisis ta mise, puis distribue.</div>
+        <div class="bacc-ctrl">
+          ${this.chipsHTML()}
+          <div class="bets">Mise <button class="bet" data-b="10">10</button><button class="bet on" data-b="25">25</button><button class="bet" data-b="50">50</button><button class="bet" data-b="100">100</button><button class="bet" data-b="250">250</button></div>
+          <div class="bj-actions">
+            <button class="btn spin" id="g-deal">Distribuer <kbd>Espace</kbd></button>
+            <button class="btn" id="g-hit" hidden>Tirer</button>
+            <button class="btn" id="g-stand" hidden>Rester</button>
+            <button class="btn" id="g-double" hidden>Doubler</button>
+          </div>
+          <div class="insure" id="g-insure" hidden><span>Le croupier montre un As. Assurance (${'½'} de la mise, payée 2 pour 1) ?</span><button class="btn" id="g-ins-yes">Oui</button><button class="btn ghost" id="g-ins-no">Non</button></div>
+          ${this.insertHTML()}
+        </div>
+      </div>`, { title: 'Blackjack', kicker: 'Six paquets · le seul jeu que l\'on peut battre — en théorie', cls: 'bacc-panel' });
+    this.bindInsert(root);
+    root.querySelectorAll('.bet').forEach(b => b.addEventListener('click', () => { if (inPlay) return; amount = +b.dataset.b; root.querySelectorAll('.bet').forEach(x => x.classList.toggle('on', x === b)); audio.click(); }));
+    const el = (id) => root.querySelector(id);
+    const res = el('#g-res'), dc = el('#g-dc'), pc = el('#g-pc'), dt = el('#g-dt'), pt = el('#g-pt');
+    const bDeal = el('#g-deal'), bHit = el('#g-hit'), bStand = el('#g-stand'), bDouble = el('#g-double'), ins = el('#g-insure');
+    const SUITS = ['♠', '♥', '♦', '♣'];
+    const draw = () => { const v = 1 + Math.floor(Math.random() * 13); const su = SUITS[Math.floor(Math.random() * 4)]; return { v, su, val: v === 1 ? 11 : v >= 10 ? 10 : v, label: v === 1 ? 'A' : v === 11 ? 'J' : v === 12 ? 'Q' : v === 13 ? 'K' : String(v) }; };
+    const total = (h) => { let t = h.reduce((a, c) => a + c.val, 0); let aces = h.filter(c => c.v === 1).length; while (t > 21 && aces > 0) { t -= 10; aces--; } return t; };
+    const soft = (h) => { let t = h.reduce((a, c) => a + c.val, 0); let aces = h.filter(c => c.v === 1).length; while (t > 21 && aces > 0) { t -= 10; aces--; } return aces > 0; };
+    const cardHTML = (c, hidden = false) => hidden ? `<div class="card back"></div>` : `<div class="card ${c.su === '♥' || c.su === '♦' ? 'red' : ''}"><span>${c.label}</span><small>${c.su}</small></div>`;
+    const render = (hideHole) => {
+      dc.innerHTML = D.map((c, i) => cardHTML(c, hideHole && i === 1)).join('');
+      pc.innerHTML = P.map(c => cardHTML(c)).join('');
+      dt.textContent = hideHole ? (D[0] ? D[0].val : '') : total(D);
+      pt.textContent = P.length ? total(P) : '';
+    };
+    const setActions = (play) => { inPlay = play; bDeal.hidden = play; bHit.hidden = !play; bStand.hidden = !play; bDouble.hidden = !(play && P.length === 2 && s.chips >= bet); };
+    const finish = (payout, text, cls) => {
+      if (payout > 0) { s.chips += payout; this.payout(payout); }
+      if (payout > bet) { s.stats.trueWins++; s.stats.celebrations++; audio.fanfare(payout >= bet * 2.4); } else if (payout === 0) audio.lose();
+      session.net += payout - bet; session.hands++; s.stats.rounds++;
+      res.innerHTML = `<span class="${cls}">${text}</span> · <span class="muted">Table : ${fmtSignedPlain(session.net)}</span>`;
+      this.refreshCredits(root); this.checkInsert(root, amount); setActions(false); busy = false;
+      if (!s.revealed.has('competence') && session.hands >= 10) this.api.reveal('competence', { net: session.net, insurance: session.insurance });
+    };
+    const dealerPlay = async () => {
+      render(false); await wait(500);
+      while (total(D) < 17) { D.push(draw()); audio.card(); render(false); await wait(500); }
+      const p = total(P), d = total(D);
+      if (d > 21) finish(bet * 2, `Le croupier saute (${d}). Gagné +${bet}`, 'ok');
+      else if (p > d) finish(bet * 2, `${p} contre ${d}. Gagné +${bet}`, 'ok');
+      else if (p < d) finish(0, `${p} contre ${d}. Perdu −${bet}`, 'ko');
+      else finish(bet, `Égalité à ${p}. Mise rendue`, '');
+    };
+    const deal = async () => {
+      if (busy || inPlay) return;
+      if (s.chips < amount) { this.checkInsert(root, amount); return; }
+      busy = true; bet = amount; s.chips -= bet; this.wager(bet, 'blackjack'); this.refreshCredits(root); this.api.addTime(1.5);
+      P = []; D = []; res.textContent = '…';
+      P.push(draw()); D.push(draw()); P.push(draw()); D.push(draw());
+      render(true); audio.card(); await wait(400);
+      const pBJ = total(P) === 21, dBJ = total(D) === 21;
+      if (D[0].v === 1 && s.chips >= bet / 2) {
+        ins.hidden = false;
+        const choice = await new Promise(r => { el('#g-ins-yes').onclick = () => r(true); el('#g-ins-no').onclick = () => r(false); });
+        ins.hidden = true;
+        if (choice) { const ib = bet / 2; s.chips -= ib; this.wager(ib, 'insurance'); session.insurance++; this.refreshCredits(root); if (dBJ) { s.chips += ib * 3; this.payout(ib * 3); res.textContent = 'Assurance payée 2 pour 1.'; } else { res.textContent = 'Pas de blackjack. Assurance perdue.'; } }
+      }
+      if (dBJ) { render(false); await wait(300); if (pBJ) finish(bet, 'Deux blackjacks. Mise rendue', ''); else finish(0, `Blackjack du croupier. Perdu −${bet}`, 'ko'); return; }
+      if (pBJ) { render(false); finish(bet * 2.5, `Blackjack ! Gagné +${bet * 1.5}`, 'ok'); return; }
+      busy = false; setActions(true);
+    };
+    bHit.addEventListener('click', async () => { if (busy || !inPlay) return; busy = true; P.push(draw()); audio.card(); render(true); bDouble.hidden = true; this.api.addTime(0.5); if (total(P) > 21) { await wait(300); render(false); finish(0, `Tu sautes à ${total(P)}. Perdu −${bet}`, 'ko'); return; } busy = false; });
+    bStand.addEventListener('click', async () => { if (busy || !inPlay) return; busy = true; await dealerPlay(); });
+    bDouble.addEventListener('click', async () => { if (busy || !inPlay || s.chips < bet) return; busy = true; s.chips -= bet; this.wager(bet, 'blackjack'); bet *= 2; this.refreshCredits(root); P.push(draw()); audio.card(); render(true); await wait(400); if (total(P) > 21) { render(false); finish(0, `Doublé, et tu sautes à ${total(P)}. Perdu −${bet}`, 'ko'); return; } await dealerPlay(); });
+    bDeal.addEventListener('click', deal);
+    root._spin = () => { if (inPlay) return; deal(); };
+  }
+
+  // ---------------------------------------------------------------- BIG SIX WHEEL
+  openWheel() {
+    const s = this.s;
+    const SEG = []; // 54 segments in casino order (approximate)
+    const pattern = ['1', '2', '1', '5', '1', '2', '1', '10', '1', '2', '1', '5', '1', '2', '1', '20', '1', '2', '1', '5', '1', '2', '1', '10', '1', '2', '1', 'J', '1', '2', '1', '5', '1', '2', '1', '10', '1', '2', '1', '5', '1', '2', '1', '20', '1', '2', '1', '5', '1', '2', '1', '10', '1', 'L'];
+    pattern.forEach(v => SEG.push(v));
+    const PAY = { '1': 1, '2': 2, '5': 5, '10': 10, '20': 20, 'J': 40, 'L': 40 };
+    const COL = { '1': '#f5f1e8', '2': '#c6a14f', '5': '#b3261e', '10': '#1e7a4c', '20': '#1565c0', 'J': '#7b1fa2', 'L': '#ff6f00' };
+    const count = (v) => SEG.filter(x => x === v).length;
+    const session = { spins: 0, wagered: 0, returned: 0 };
+    let pick = '1', amount = 5, spinning = false, angle = 0;
+    const root = ui.panel.open(`
+      <div class="wheel">
+        <div class="wheel-left"><canvas id="g-bigwheel" width="300" height="300"></canvas><div class="roul-res" id="g-res">Choisis un symbole.</div></div>
+        <div class="wheel-right">
+          ${this.chipsHTML()}
+          <div class="wheel-picks">${['1', '2', '5', '10', '20', 'J', 'L'].map(v => `<button class="wp ${v === '1' ? 'on' : ''}" data-v="${v}" style="--c:${COL[v]}"><b>${v === 'J' ? 'Joker' : v === 'L' ? 'Logo' : v}</b><small>paie ${PAY[v]} pour 1 · ${count(v)} case${count(v) > 1 ? 's' : ''} sur 54</small></button>`).join('')}</div>
+          <div class="bets">Mise <button class="bet on" data-b="5">5</button><button class="bet" data-b="10">10</button><button class="bet" data-b="25">25</button><button class="bet" data-b="50">50</button></div>
+          <button class="btn spin" id="g-turn">Tourner la roue <kbd>Espace</kbd></button>
+          ${this.insertHTML()}
+        </div>
+      </div>`, { title: 'La roue de la fortune', kicker: 'Big Six · 54 cases · un geste', cls: 'roul-panel' });
+    this.bindInsert(root);
+    root.querySelectorAll('.wp').forEach(b => b.addEventListener('click', () => { pick = b.dataset.v; root.querySelectorAll('.wp').forEach(x => x.classList.toggle('on', x === b)); audio.click(); }));
+    root.querySelectorAll('.bet').forEach(b => b.addEventListener('click', () => { amount = +b.dataset.b; root.querySelectorAll('.bet').forEach(x => x.classList.toggle('on', x === b)); audio.click(); }));
+    const cv = root.querySelector('#g-bigwheel'), g = cv.getContext('2d'), res = root.querySelector('#g-res'), turn = root.querySelector('#g-turn');
+    const drawWheel = () => {
+      g.clearRect(0, 0, 300, 300); g.save(); g.translate(150, 150); g.rotate(angle);
+      const n = SEG.length, R = 138;
+      for (let i = 0; i < n; i++) { const a0 = i / n * TAU - Math.PI / 2, a1 = (i + 1) / n * TAU - Math.PI / 2; g.fillStyle = COL[SEG[i]]; g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R, a0, a1); g.closePath(); g.fill(); g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1; g.stroke();
+        const am = (a0 + a1) / 2; g.save(); g.translate(Math.cos(am) * (R - 18), Math.sin(am) * (R - 18)); g.rotate(am + Math.PI / 2); g.fillStyle = SEG[i] === '1' || SEG[i] === '2' ? '#141210' : '#fff'; g.font = 'bold 11px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(SEG[i], 0, 0); g.restore(); }
+      g.fillStyle = '#3b2412'; g.beginPath(); g.arc(0, 0, 40, 0, TAU); g.fill(); g.strokeStyle = '#c6a14f'; g.lineWidth = 3; g.stroke(); g.beginPath(); g.arc(0, 0, R, 0, TAU); g.stroke();
+      g.restore();
+      g.fillStyle = '#f5f1e8'; g.beginPath(); g.moveTo(150, 4); g.lineTo(140, 24); g.lineTo(160, 24); g.closePath(); g.fill();
+    };
+    drawWheel();
+    const play = () => {
+      if (spinning) return;
+      if (s.chips < amount) { this.checkInsert(root, amount); return; }
+      spinning = true; turn.disabled = true;
+      s.chips -= amount; this.wager(amount, 'wheel'); this.refreshCredits(root); session.spins++; session.wagered += amount; s.stats.rounds++; this.api.addTime(1);
+      const k = Math.floor(Math.random() * SEG.length);
+      const target = -((k + 0.5) / SEG.length) * TAU; // segment k under the pointer at top
+      const a0 = angle; const D = TAU * 4 + (((target - a0) % TAU) + TAU) % TAU;
+      const T = 3600, t0 = performance.now(); let lastSeg = -1;
+      const anim = (now) => {
+        const u = Math.min(1, (now - t0) / T); const e = 1 - Math.pow(1 - u, 3);
+        angle = a0 + D * e; drawWheel();
+        const seg = Math.floor(((-angle / TAU * SEG.length) % SEG.length + SEG.length) % SEG.length); if (seg !== lastSeg) { lastSeg = seg; if (u < 0.95) audio.ballTick(); }
+        if (u < 1) requestAnimationFrame(anim); else {
+          const v = SEG[k]; const won = v === pick; const payout = won ? amount * (PAY[v] + 1) : 0;
+          if (payout) { s.chips += payout; this.payout(payout); s.stats.trueWins++; s.stats.celebrations++; audio.fanfare(PAY[v] >= 10); } else audio.lose();
+          session.returned += payout;
+          res.innerHTML = `La roue s'arrête sur <b>${v === 'J' ? 'Joker' : v === 'L' ? 'Logo' : v}</b>. ${won ? `<span class="ok">Gagné +${payout - amount}</span>` : `<span class="ko">Perdu −${amount}</span>`}`;
+          this.refreshCredits(root); this.checkInsert(root, amount); spinning = false; turn.disabled = false;
+          if (!s.revealed.has('simplicite') && session.spins >= 6) this.api.reveal('simplicite', { spins: session.spins, wagered: session.wagered, returned: session.returned });
+        }
+      };
+      requestAnimationFrame(anim);
+    };
+    turn.addEventListener('click', play);
+    root._spin = play;
   }
 
   // ---------------------------------------------------------------- PHONE

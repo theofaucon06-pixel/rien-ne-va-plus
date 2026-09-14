@@ -75,7 +75,31 @@ Le problème est arithmétique : l'avantage s'applique à chaque jeton misé. Mi
     keep: '« Se refaire » n\'est pas un plan. C\'est le nom que prend la perte quand elle demande à continuer.'
   },
   {
-    id: 'maison', n: 7,
+    id: 'competence', n: 7,
+    title: 'Le jeu où on a une chance',
+    sub: "L'illusion de compétence",
+    hint: 'Joue une dizaine de mains de blackjack.',
+    text: (s) => `Dix mains de blackjack. Résultat : ${fmtSigned(s.net)}.${s.insurance ? ` Tu as pris l'assurance ${s.insurance} fois : c'est le pari le plus cher de la table, 7,4 % pour la maison.` : ''}
+
+Le blackjack est le jeu « où l'on peut gagner » : avec la stratégie de base parfaite, l'avantage de la maison tombe à 0,5 %. Presque personne ne la joue parfaitement. Le joueur moyen laisse 2 %, et chaque écart — tirer sur 16 face à un 6, ne pas doubler, prendre l'assurance — ajoute sa dîme.
+
+Et si tu deviens vraiment bon ? Ken Uston comptait les cartes. Il a gagné. Les casinos l'ont interdit, puis ont multiplié les paquets et mélangé plus tôt. Le seul moyen de battre la maison, c'est qu'elle te mette dehors.`,
+    keep: 'Le jeu qui donne une chance est celui qui fait croire que les autres en donnent une aussi.'
+  },
+  {
+    id: 'simplicite', n: 8,
+    title: 'Le prix de la simplicité',
+    sub: 'La roue de la fortune',
+    hint: 'Fais tourner la grande roue du hall.',
+    text: (s) => `${s.spins} tours de roue. Tu as misé ${fmt(s.wagered)}, la roue t'a rendu ${fmt(s.returned)}.
+
+Cinquante-quatre cases, une aiguille, un seul geste : c'est le jeu le plus simple du casino. C'est aussi le plus cher. Selon la case, la maison garde entre 11 % et 24 % de chaque mise — dix fois la roulette, quarante fois un blackjack bien joué.
+
+Ce n'est pas un hasard qu'elle soit près de l'entrée, brillante et bruyante. Plus un jeu est simple à comprendre, plus il peut se permettre d'être mauvais : personne ne calcule ce qu'il n'a pas besoin de comprendre.`,
+    keep: "Quand un jeu n'exige aucune réflexion, c'est qu'il a déjà réfléchi à ta place."
+  },
+  {
+    id: 'maison', n: 9,
     title: 'Une maison sans horloges',
     sub: "L'architecture, les jetons, l'alcool",
     hint: "Trouve l'architecte dans les couloirs.",
@@ -87,7 +111,7 @@ On ne perd pas la notion du temps dans un casino. On te l'enlève, et c'est un m
     keep: "Quand tout est fait pour que tu restes, rester n'est plus une décision."
   },
   {
-    id: 'tapis', n: 8,
+    id: 'tapis', n: 10,
     title: 'Le tapis rouge',
     sub: 'Les hôtes, les cadeaux, le crédit',
     hint: 'Fais-toi inviter au salon VIP.',
@@ -99,7 +123,7 @@ Harry Kakavas était un joueur pathologique connu, exclu d'un autre casino. Le C
     keep: 'Quand un casino t\'offre quelque chose, demande-toi ce qu\'il a estimé que tu valais.'
   },
   {
-    id: 'poche', n: 9,
+    id: 'poche', n: 11,
     title: 'Le casino dans la poche',
     sub: 'Le casino en ligne',
     hint: 'Regarde ton téléphone aux toilettes.',
@@ -111,13 +135,13 @@ Tout ce que tu as vu dans ce bâtiment tient dans ton téléphone. Sans horloge,
     keep: "Le casino n'a plus besoin que tu viennes. Il est déjà là, dans ta poche."
   },
   {
-    id: 'sortie', n: 10,
+    id: 'sortie', n: 12,
     title: 'Rien ne va plus',
     sub: 'La sortie',
     hint: 'Sors du casino et parle à quelqu\'un.',
     text: (s) => `Il est ${s.time}. Tu es entré à 21 h. Tu es ressorti avec ${fmtSigned(s.net)}${s.debt ? `, et une dette de ${fmt(s.debt)}` : ''}.
 
-Neuf mécaniques, empilées sur la même personne. À la fin, ce n'est plus un jeu de hasard : c'est un dispositif, et le résultat est écrit d'avance.
+Onze mécaniques, empilées sur la même personne. À la fin, ce n'est plus un jeu de hasard : c'est un dispositif, et le résultat est écrit d'avance.
 
 Les signes : rejouer pour se refaire, miser plus pour ressentir la même chose, mentir sur le temps ou l'argent, y penser quand on ne joue pas. Un seul mérite une conversation. Deux méritent un appel. Joueurs Info Service : 09 74 75 13 13, tous les jours de 8 h à 2 h, anonyme, non surtaxé.`,
     keep: 'Le casino gagne toujours à la fin. La seule chose qu\'il ne contrôle pas, c\'est quand tu décides que c\'est la fin.'
@@ -214,6 +238,17 @@ export const WITNESSES = [
     ]
   },
   {
+    id: 'uston', name: 'Ken Uston', sub: 'Las Vegas, Atlantic City, 1975-1987', color: '#80CBC4',
+    where: 'La salle des tables',
+    lines: [
+      "Assieds-toi, mais regarde le sabot, pas le croupier. Six paquets. Tu vois ? Ils ont changé ça à cause de moi.",
+      "Je comptais les cartes. Ce n'est pas tricher : c'est se souvenir. Quand le sabot est riche en figures, on mise gros. Sinon, on mise petit. Avec ça, j'ai gagné. Beaucoup.",
+      "Alors ils m'ont interdit. Partout. Déguisements, faux noms, perruques : je revenais, ils me reconnaissaient, ils me sortaient.",
+      "En 1982, j'ai gagné mon procès dans le New Jersey : un casino ne pouvait plus m'exclure pour avoir trop bien joué. Ils ont répondu en ajoutant des paquets et en mélangeant plus tôt. Mon avantage a fondu.",
+      "Retiens ça : le blackjack est le seul jeu de cette salle où l'on peut battre la maison. Et le jour où tu y arrives, la maison change les règles."
+    ]
+  },
+  {
     id: 'architecte', name: "L'architecte", sub: 'Consultant, Las Vegas, 2000', color: '#B0BEC5',
     where: 'Les couloirs',
     lines: [
@@ -247,7 +282,7 @@ export const STAFF = {
       "Votre ami ? Il n'est pas encore arrivé. Il vous rejoindra à l'intérieur, sûrement.",
       "La sortie ? Vous verrez. C'est indiqué. Quelque part."
     ],
-    again: ["Bonne soirée. Les portes d'entrée ne s'ouvrent que dans un sens, c'est le tourniquet."]
+    again: ["Bonne soirée. La sortie ? C'est indiqué. Quelque part."]
   },
   caissier: { name: 'La caissière' },
   hotesse: { name: "L'hôtesse" },
@@ -262,6 +297,15 @@ export const STORY = {
     "Tu as 500 € sur toi. C'est ce qu'il te reste jusqu'à la fin du mois.",
     "Un ami t'a donné rendez-vous au casino. Il n'est pas encore là.",
     "Ce soir, tu vas voir comment la maison gagne. Ressors avec ce que tu peux."
+  ],
+  controls3d: [
+    ['Souris', 'Regarder autour de toi'],
+    ['Z Q S D / W A S D / Flèches', 'Marcher'],
+    ['Maj', 'Courir'],
+    ['E / clic', 'Parler, jouer, examiner'],
+    ['C', 'Ouvrir le carnet des révélations'],
+    ['M', 'Couper le son'],
+    ['Échap', 'Fermer, libérer la souris']
   ],
   controls: [
     ['Z Q S D / W A S D / Flèches', 'Se déplacer'],

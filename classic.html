@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Rien ne va plus — version 2D</title>
+<meta name="description" content="Un monde à explorer pour comprendre, mécanique par mécanique, pourquoi la maison gagne toujours.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='46' fill='%230E2A20' stroke='%23C6A14F' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='12' fill='%23C6A14F'/%3E%3C/svg%3E">
+</head>
+<body data-mode="2d">
+<canvas id="game"></canvas>
+<div id="flash"></div>
+
+<div id="hud">
+  <div class="hud-money">
+    <span id="money-label">Portefeuille</span>
+    <b id="money-val">500 €</b>
+    <div id="debt" hidden>Dette</div>
+    <div id="time-hud" hidden>21:00</div>
+  </div>
+  <div id="room-name"></div>
+  <div class="hud-right">
+    <button id="btn-codex" title="Carnet (C)">Carnet <span id="rev-count">0/10</span></button>
+    <button id="btn-sound" title="Son (M)">Son : on</button>
+  </div>
+  <div id="prompt" hidden><kbd>E</kbd> <span id="prompt-text"></span></div>
+  <div id="banner"></div>
+  <div id="toast"></div>
+  <div id="pad">
+    <div class="dpad">
+      <button data-k="ArrowUp" aria-label="Haut">▲</button>
+      <button data-k="ArrowLeft" aria-label="Gauche">◀</button>
+      <button data-k="ArrowRight" aria-label="Droite">▶</button>
+      <button data-k="ArrowDown" aria-label="Bas">▼</button>
+    </div>
+    <button class="ebtn" data-k="E">E</button>
+  </div>
+</div>
+
+<div id="dialog" hidden>
+  <div class="dialog-box">
+    <div class="portrait"></div>
+    <div class="dialog-main">
+      <div class="who"></div>
+      <div class="text"></div>
+      <div class="choices"></div>
+    </div>
+    <div class="next" hidden>▼</div>
+  </div>
+</div>
+
+<div id="panel" hidden></div>
+<div id="modal" hidden></div>
+<div id="codex" hidden></div>
+<div id="epilogue" hidden></div>
+
+<div id="intro">
+  <div class="intro-wheel"></div>
+  <div class="intro-inner">
+    <div class="kicker">Version 2D · <a href="./" style="color:var(--gold-2)">passer à la 3D →</a></div>
+    <h1>Rien<br>ne va<br>plus<span>.</span></h1>
+    <p class="tag">Un soir dans un casino. Dix mécaniques à découvrir en les vivant, dix personnes qui y ont tout laissé. Et une seule fin possible.</p>
+    <div class="intro-actions">
+      <button id="btn-start" class="primary">Entrer</button>
+      <button id="btn-continue" hidden>Continuer la soirée</button>
+    </div>
+    <div id="intro-controls" class="controls"></div>
+    <p class="intro-foot">Ce jeu est une simulation de prévention. Les mises sont fictives, les probabilités sont réelles. Si le jeu est un problème pour toi ou un proche : <b>Joueurs Info Service, 09 74 75 13 13</b> (8 h – 2 h, anonyme, non surtaxé).</p>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

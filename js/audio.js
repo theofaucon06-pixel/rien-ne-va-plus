@@ -92,7 +92,16 @@ class AudioEngine {
     o.start(t); o.stop(t + dur + 0.05);
   }
   click() { this.bleep(0.15, 1200, 0, 0.05, 'triangle'); }
-  step() { }
+  step() {
+    if (!this.ctx || this.muted) return;
+    const c = this.ctx, t = c.currentTime;
+    const buf = c.createBuffer(1, 1200, c.sampleRate); const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+    const src = c.createBufferSource(); src.buffer = buf;
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500 + Math.random() * 300;
+    const g = c.createGain(); g.gain.value = 0.16;
+    src.connect(f); f.connect(g); g.connect(this.sfx); src.start(t);
+  }
   coin() {
     if (!this.ctx) return;
     this.bleep(0.18, 2200, 0, 0.09, 'sine');

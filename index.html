@@ -6,11 +6,14 @@
 <title>Rien ne va plus — le casino, de l'intérieur</title>
 <meta name="description" content="Un monde à explorer pour comprendre, mécanique par mécanique, pourquoi la maison gagne toujours.">
 <link rel="stylesheet" href="css/style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='46' fill='%230E2A20' stroke='%23C6A14F' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='12' fill='%23C6A14F'/%3E%3C/svg%3E">
 </head>
-<body>
+<body data-mode="3d">
 <canvas id="game"></canvas>
 <div id="flash"></div>
+<div id="crosshair"></div>
+<div id="lock" hidden><div class="lock-inner"><b>Clique pour reprendre</b><span>Souris pour regarder · Z Q S D pour marcher · E pour agir · Échap pour libérer la souris</span></div></div>
 
 <div id="hud">
   <div class="hud-money">
@@ -58,9 +61,9 @@
 <div id="intro">
   <div class="intro-wheel"></div>
   <div class="intro-inner">
-    <div class="kicker">Un monde à explorer · les vraies probabilités · aucun vrai argent</div>
+    <div class="kicker">Simulation 3D à la première personne · les vraies probabilités · aucun vrai argent</div>
     <h1>Rien<br>ne va<br>plus<span>.</span></h1>
-    <p class="tag">Un soir dans un casino. Dix mécaniques à découvrir en les vivant, dix personnes qui y ont tout laissé. Et une seule fin possible.</p>
+    <p class="tag">Un soir dans un casino. Douze mécaniques à découvrir en les vivant, onze personnes qui y ont tout laissé. Et une seule fin possible.</p>
     <div class="intro-actions">
       <button id="btn-start" class="primary">Entrer</button>
       <button id="btn-continue" hidden>Continuer la soirée</button>
@@ -70,6 +73,7 @@
   </div>
 </div>
 
-<script type="module" src="js/main.js"></script>
+<script type="module" src="js/g3/main3d.js"></script>
+<p class="alt-link"><a href="classic.html">Version 2D (ordinateur peu puissant ou tactile)</a></p>
 </body>
 </html>

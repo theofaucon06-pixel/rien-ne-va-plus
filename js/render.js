@@ -251,7 +251,7 @@ export class Renderer {
 
   drawWalls(state) {
     const ctx = this.ctx;
-    const walls = WALLS.concat(state.dynamicWalls || []);
+    const walls = WALLS;
     for (const w of walls) {
       if (!this.visible(w)) continue;
       ctx.fillStyle = '#1b1b22'; ctx.fillRect(w.x, w.y, w.w, w.h);
@@ -276,7 +276,7 @@ export class Renderer {
       for (let i = 0; i < 20; i++) { const on = Math.floor(t * 8 + i) % 4 !== 0; ctx.fillStyle = on ? '#ffe082' : '#4d3d1f'; ctx.beginPath(); ctx.arc(1406 + i * 12.2, 268, 2, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.arc(1406 + i * 12.2, 310, 2, 0, TAU); ctx.fill(); }
       // turnstile
       ctx.fillStyle = '#8c8c94'; ctx.fillRect(1478, 318, 6, 26); ctx.fillRect(1556, 318, 6, 26);
-      if (state.flags.entered) { ctx.fillStyle = '#b3261e'; ctx.fillRect(1484, 328, 72, 5); }
+
     }
     // façade clock
     if (this.visible({ x: 1230, y: 280, w: 80, h: 60 })) {
@@ -396,10 +396,17 @@ export class Renderer {
         this.chip(x + 200, y + 100, '#c6a14f'); this.chip(x + 40, y + 100, '#1565c0');
         break;
       }
-      case 'bj': {
+      case 'blackjack': {
         this.felt(x, y, w, h, '#1e5b41');
         ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.ellipse(x + w / 2, y + 30, 80, 20, 0, 0, Math.PI); ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '600 7px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('TABLE FERMÉE', x + w / 2, y + h / 2 + 8);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '600 7px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('BLACKJACK PAIE 3 POUR 2', x + w / 2, y + h / 2 + 8);
+        this.card(x + 40, y + 60); this.card(x + 56, y + 62, true); this.card(x + 140, y + 60, true);
+        break;
+      }
+      case 'wheel': {
+        ctx.fillStyle = '#3b2412'; ctx.fillRect(x + w / 2 - 6, y + 10, 12, h - 10);
+        ctx.save(); ctx.translate(x + w / 2, y + 8); ctx.rotate(t * 0.6); ctx.drawImage(this.wheelSprite, -26, -26, 52, 52); ctx.restore();
+        ctx.fillStyle = '#f5f1e8'; ctx.beginPath(); ctx.moveTo(x + w / 2, y - 22); ctx.lineTo(x + w / 2 - 4, y - 30); ctx.lineTo(x + w / 2 + 4, y - 30); ctx.closePath(); ctx.fill();
         break;
       }
       case 'viptable': {

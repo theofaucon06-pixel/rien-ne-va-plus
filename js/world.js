@@ -77,7 +77,7 @@ export const WALLS = [
 
 // Slot machine banks (decorative + special)
 export const SLOTS = [];
-const rowsY = [440, 600, 760, 920, 1080];
+const rowsY = [440, 600, 760, 920, 1080, 1230];
 rowsY.forEach((y, r) => {
   for (let i = 0; i < 7; i++) SLOTS.push({ x: 280 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40) % 360 });
   for (let i = 0; i < 7; i++) SLOTS.push({ x: 740 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40 + 180) % 360 });
@@ -87,10 +87,24 @@ function mark(x, y, kind, label) { const m = SLOTS.find(s => s.x === x && s.y ==
 mark(392, 440, 'lucky', 'Lucky 7');
 mark(852, 600, 'mega', 'Mégalignes');
 mark(504, 920, 'presque', 'Presque !');
-// slot bank in the tables room (decorative)
+// slot bank in the tables room
 for (let i = 0; i < 6; i++) SLOTS.push({ x: 2320 + i * 56, y: 1230, w: 44, h: 56, hue: (i * 50 + 20) % 360 });
-// labyrinth alcove machines (decorative)
+// labyrinth alcove machines
 [[248, 1372], [560, 1372], [1160, 1444], [800, 1528], [1560, 1604], [940, 1684], [1480, 1760], [1700, 1840]].forEach(([x, y], i) => SLOTS.push({ x, y, w: 44, h: 56, hue: (i * 70) % 360, laby: true }));
+// every machine is playable: assign a game kind and a marquee name
+export const SLOT_KINDS = ['lucky', 'fruits', 'presque', 'pharaon', 'mega'];
+const SLOT_NAMES = {
+  lucky: ['Lucky 7', 'Diamond Rush', 'Étoile filante', 'Golden Bell'],
+  fruits: ["Fruits d'or", 'Cerises !', 'Juicy Jackpot', 'Tutti Frutti'],
+  presque: ['Presque !', 'Hot Streak', 'Jackpot Fever', 'Encore !'],
+  pharaon: ['Pharaon', 'Cléopâtre', 'Sphinx', 'Nil sacré'],
+  mega: ['Mégalignes', 'Dragon 40', 'Neptune Lines', 'Big Bang 20']
+};
+SLOTS.forEach((m, i) => {
+  if (m.special) return;
+  m.kind = SLOT_KINDS[(i * 7 + Math.floor(i / 7)) % SLOT_KINDS.length];
+  m.label = SLOT_NAMES[m.kind][i % 4];
+});
 
 // Interactable / solid objects
 export const OBJECTS = [
@@ -103,12 +117,13 @@ export const OBJECTS = [
   { id: 'fidelite', x: 1690, y: 470, w: 130, h: 36, solid: true, type: 'fidelite', label: 'Carte de fidélité', r: 60 },
   { id: 'fountain', x: 1560, y: 500, w: 80, h: 80, solid: true, type: 'fountain' },
   { id: 'atm', x: 1700, y: 704, w: 44, h: 32, solid: true, type: 'atm', label: 'Distributeur', r: 56 },
+  { id: 'wheel', x: 1400, y: 610, w: 56, h: 40, solid: true, type: 'wheel', label: 'La roue de la fortune', r: 66 },
   // tables
   { id: 'roulette', x: 2010, y: 460, w: 250, h: 130, solid: true, type: 'roulette', label: 'La roulette', r: 70 },
   { id: 'plaque', x: 2460, y: 344, w: 120, h: 14, solid: false, type: 'plaque', label: 'Une plaque de 1913', r: 60 },
   { id: 'baccarat', x: 2440, y: 830, w: 240, h: 130, solid: true, type: 'baccarat', label: 'La table haute', r: 70 },
-  { id: 'bj1', x: 2720, y: 470, w: 200, h: 110, solid: true, type: 'bj', label: 'Blackjack — table fermée', r: 60 },
-  { id: 'bj2', x: 2070, y: 880, w: 200, h: 110, solid: true, type: 'bj', label: 'Blackjack — table fermée', r: 60 },
+  { id: 'bj1', x: 2720, y: 470, w: 200, h: 110, solid: true, type: 'blackjack', label: 'Blackjack', r: 66 },
+  { id: 'bj2', x: 2070, y: 880, w: 200, h: 110, solid: true, type: 'blackjack', label: 'Blackjack', r: 66 },
   { id: 'vipdoor', x: 2100, y: 1344, w: 80, h: 24, solid: true, type: 'vipdoor', label: 'Salon VIP — membres', r: 60 },
   // bar
   { id: 'bar', x: 1400, y: 1060, w: 400, h: 36, solid: true, type: 'barcounter', label: 'Le bar', r: 60 },
@@ -153,6 +168,7 @@ export const NPCS = [
   { id: 'croupier2', name: 'La croupière', kind: 'staff', x: 2560, y: 818, color: '#212121', r: 0, behind: true },
   { id: 'dosto', name: 'Fiodor Dostoïevski', kind: 'ghost', x: 1950, y: 660, witness: 'dosto', r: 70 },
   { id: 'karas', name: 'Archie Karas', kind: 'ghost', x: 2780, y: 980, witness: 'karas', r: 70 },
+  { id: 'uston', name: 'Ken Uston', kind: 'ghost', x: 2960, y: 640, witness: 'uston', r: 70 },
   { id: 'barman', name: 'Le barman', kind: 'staff', x: 1600, y: 1126, color: '#5D4037', r: 0, behind: true },
   { id: 'sami', name: 'Un jeune homme', kind: 'person', x: 1300, y: 1044, witness: 'sami', color: '#4FC3F7', r: 64 },
   { id: 'architecte', name: "L'architecte", kind: 'ghost', x: 1000, y: 1600, witness: 'architecte', r: 70 },
@@ -185,7 +201,9 @@ LIGHTS.push({ x: 88, y: 900, r: 220, color: '#ffe0a8', a: 0.5, glow: 0.05 }); //
 LIGHTS.push({ x: 1600, y: 540, r: 420, color: '#ffe9c4', a: 1, glow: 0.06 });
 LIGHTS.push({ x: 1260, y: 540, r: 160, color: '#ffe9c4', a: 0.8 });
 // machines: each screen glows
-SLOTS.forEach(s => LIGHTS.push({ x: s.x + s.w / 2, y: s.y + s.h + 6, r: s.special ? 150 : 95, color: `hsl(${s.hue} 90% 65%)`, a: s.special ? 0.9 : 0.55, glow: s.special ? 0.16 : 0.07 }));
+SLOTS.forEach(s => LIGHTS.push({ x: s.x + s.w / 2, y: s.y + s.h + 6, r: s.special ? 150 : 95, color: `hsl(${s.hue} 90% 65%)`, a: s.special ? 0.9 : 0.55, glow: s.special ? 0.16 : 0.07, slot: true }));
+// aisle lights for the 3D machine hall
+[[500, 560], [900, 560], [500, 880], [900, 880], [500, 1200], [900, 1200]].forEach(([x, y]) => LIGHTS.push({ x, y, r: 260, color: '#ff9ac8', a: 0.5, aisle: true }));
 // tables chandeliers
 [[2135, 520], [2560, 890], [2820, 520], [2170, 930]].forEach(([x, y]) => LIGHTS.push({ x, y, r: 330, color: '#ffd9a0', a: 0.95, glow: 0.08 }));
 LIGHTS.push({ x: 2520, y: 360, r: 120, color: '#ffd9a0', a: 0.6 });
