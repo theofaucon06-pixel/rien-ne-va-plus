@@ -103,7 +103,11 @@ export function textTexture(text, { w = 512, h = 128, font = 'bold 64px Inter, s
     g.fillStyle = bg; g.fillRect(0, 0, w, h);
     g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle';
     if (glow) { g.shadowColor = glow; g.shadowBlur = 24; }
-    g.fillStyle = color; g.fillText(text, w / 2, h / 2 + pad);
+    g.fillStyle = color;
+    // long labels are squeezed to fit the canvas rather than clipped
+    const tw = g.measureText(text).width, maxW = w - 24;
+    if (tw > maxW) { g.save(); g.translate(w / 2, h / 2 + pad); g.scale(maxW / tw, 1); g.fillText(text, 0, 0); g.restore(); }
+    else g.fillText(text, w / 2, h / 2 + pad);
   });
   const t = tex(c, { repeat: false }); t.minFilter = THREE.LinearFilter; return t;
 }

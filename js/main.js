@@ -1,5 +1,5 @@
 // 2D (top-down) client: input, collision, camera, interaction targets. Story logic lives in story.js.
-import { WORLD, WALLS, SLOTS, OBJECTS, rectsOverlap } from './world.js';
+import { WORLD, WALLS, SLOTS, OBJECTS, rectsOverlap, slotSeat } from './world.js';
 import { Renderer } from './render.js';
 import { ui } from './ui.js';
 import { createStory } from './story.js';
@@ -47,7 +47,7 @@ if (pad) {
 function solidObjects() {
   const arr = [];
   for (const o of OBJECTS) { if (!o.solid) continue; if (o.type === 'vipdoor' && state.flags.vipOpen) continue; arr.push(o); }
-  for (const s of SLOTS) arr.push({ x: s.x, y: s.y + 8, w: s.w, h: s.h + 10 });
+  for (const s of SLOTS) { if (s.rot === 'north') arr.push({ x: s.x, y: s.y - 6, w: s.w, h: s.h + 4 }); else if (s.rot) arr.push({ x: s.x, y: s.y + 8, w: s.w, h: s.h - 8 }); else arr.push({ x: s.x, y: s.y + 8, w: s.w, h: s.h + 10 }); }
   return arr;
 }
 function collides(box) {
@@ -67,7 +67,7 @@ function nearestTarget() {
     const cx = Math.max(o.x, Math.min(p.x, o.x + o.w)), cy = Math.max(o.y, Math.min(p.y, o.y + o.h));
     consider({ kind: 'object', o }, cx, cy, o.r || 60);
   }
-  for (const s of SLOTS) if (s.kind) consider({ kind: 'slot', s }, s.x + s.w / 2, s.y + s.h + 10, 52);
+  for (const s of SLOTS) if (s.kind) { const seat = slotSeat(s); consider({ kind: 'slot', s }, seat.x, seat.y, 52); }
   for (const n of state.npcs) { if (n.hidden || !n.r) continue; consider({ kind: 'npc', n }, n.x, n.y, n.r); }
   return best;
 }

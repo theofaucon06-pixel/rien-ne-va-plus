@@ -328,6 +328,26 @@ export class Renderer {
     const ctx = this.ctx, t = this.time;
     const { x, y, w, h } = s;
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x + 2, y + h - 2, w, 6);
+    if (s.rot === 'north') { // seen from behind: plain cabinet back, the stool sits above it
+      ctx.fillStyle = '#3e2723'; ctx.beginPath(); ctx.arc(x + w / 2, y - 12, 7, 0, TAU); ctx.fill();
+      const gb = ctx.createLinearGradient(x, y, x + w, y); gb.addColorStop(0, '#26262d'); gb.addColorStop(0.5, '#3a3a44'); gb.addColorStop(1, '#1e1e24');
+      ctx.fillStyle = gb; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = s.special ? '#c6a14f' : '#55555f'; ctx.fillRect(x + 4, y, w - 8, 6);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; for (let i = 0; i < 4; i++) ctx.fillRect(x + 8, y + 14 + i * 8, w - 16, 3);
+      ctx.fillStyle = `hsl(${s.hue} 85% 55%)`; ctx.fillRect(x + 1, y + 8, 2, h - 16); ctx.fillRect(x + w - 3, y + 8, 2, h - 16);
+      return;
+    }
+    if (s.rot === 'west' || s.rot === 'east') { // side view: the screen glows toward the seat
+      const seatX = s.rot === 'west' ? x - 12 : x + w + 12;
+      ctx.fillStyle = '#3e2723'; ctx.beginPath(); ctx.arc(seatX, y + h / 2 + 6, 7, 0, TAU); ctx.fill();
+      const gs = ctx.createLinearGradient(x, y, x, y + h); gs.addColorStop(0, '#45454f'); gs.addColorStop(1, '#232329');
+      ctx.fillStyle = gs; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = s.special ? '#c6a14f' : '#55555f'; ctx.fillRect(x, y + 4, w, 6);
+      const sx = s.rot === 'west' ? x + 4 : x + w - 10;
+      ctx.fillStyle = `hsl(${s.hue} 85% ${55 + 12 * Math.sin(t * 3 + s.y * 0.05)}%)`; ctx.fillRect(sx, y + 14, 6, h - 28);
+      ctx.fillStyle = '#e53935'; ctx.beginPath(); ctx.arc(s.rot === 'west' ? x + 14 : x + w - 14, y + h / 2, 3, 0, TAU); ctx.fill();
+      return;
+    }
     const g = ctx.createLinearGradient(x, y, x + w, y); g.addColorStop(0, '#2c2c34'); g.addColorStop(0.5, '#45454f'); g.addColorStop(1, '#232329');
     ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
     // topper

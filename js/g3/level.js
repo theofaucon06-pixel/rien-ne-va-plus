@@ -1,6 +1,6 @@
 // Builds the 3D casino from the shared 2D layout (world.js). 1 world px = 1/40 m.
 import * as THREE from 'three';
-import { ROOMS, WALLS, SLOTS, OBJECTS, LIGHTS, WORLD } from '../world.js';
+import { ROOMS, WALLS, SLOTS, OBJECTS, LIGHTS, WORLD, roomAt } from '../world.js';
 import { patternTexture, textTexture, wheelTexture, bigSixTexture, feltTexture, slotScreen, clockTexture, screenTexture, gradientSky, blobTexture, artTexture, posterTexture, tickerTexture, tvTexture, historyBoardTexture, neonTexture, upgradeMaterial, loadAsset } from './textures.js';
 
 export const S = 1 / 40;
@@ -18,7 +18,7 @@ function cyl(rt, rb, h, material, x, y, z, seg = 24) { const m = new THREE.Mesh(
 function plane(w, h, material, x, y, z, ry = 0, rx = 0) { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), material); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); return m; }
 function floorMat(name) { const key = 'floor-' + name; const fresh = !mats[key]; const m = std(key, { map: patternTexture(name, 512), roughness: name === 'marble' ? 0.55 : 0.92, metalness: 0, envMapIntensity: name === 'marble' ? 0.25 : 0.1 }); if (fresh) upgradeMaterial(m, name); return m; }
 function scaledUV(geo, w, h, size) { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / size, uv.getY(i) * h / size); uv.needsUpdate = true; }
-const YAW = { east: -Math.PI / 2, west: Math.PI / 2, north: Math.PI, south: 0 };
+const YAW = { east: Math.PI / 2, west: -Math.PI / 2, north: Math.PI, south: 0 }; // direction the front (+z local) faces
 
 export function buildLevel(scene, state) {
   const L = { colliders: [], hits: [], wallMeshes: [], updaters: [], lightSpots: [], dynamic: {}, rouletteBoards: [] };
@@ -106,6 +106,37 @@ export function buildLevel(scene, state) {
     bx += bw + 1.5;
   }
   L.colliders.push({ x0: -50, z0: -12, x1: 200, z1: -6.5 });
+  const farWalk = plane(WORLD.w * S + 40, 1.6, floorMat('concrete'), WORLD.w * S / 2, 0.02, -7.2, 0, -Math.PI / 2); scaledUV(farWalk.geometry, WORLD.w * S + 40, 1.6, 1.5); root.add(farWalk);
+  root.add(box(WORLD.w * S + 40, 0.06, 0.25, std('curb', { color: 0x5a5d63 }), WORLD.w * S / 2, 0.03, -6.4));
+  for (const x of [200, 1300, 2400, 3200]) { const lx = x * S, lz = -6.9; root.add(cyl(0.05, 0.08, 4.5, darkMetal, lx, 2.25, lz, 10)); root.add(box(0.5, 0.08, 0.3, darkMetal, lx, 4.5, lz)); root.add(box(0.4, 0.05, 0.22, basic('lampbulb', { color: 0xffe0a8, toneMapped: false }), lx, 4.44, lz)); L.lightSpots.push({ x: lx, y: 4.3, z: lz, color: new THREE.Color(0xffe0a8), intensity: 30, distance: 12 }); }
+  // façade cornice and parapet
+  root.add(box((3000 - 200) * S, 0.25, 0.3, std('cornice', { color: 0xd8cfbf, roughness: 0.8 }), 1600 * S, WALL_H - 0.12, 320 * S - 0.15));
+  root.add(box((3000 - 200) * S, 0.5, 0.2, std('parapet', { color: 0x3a3a46, roughness: 0.9 }), 1600 * S, WALL_H + 0.45, 320 * S - 0.1));
+  for (let x = 220; x < 3000; x += 160) root.add(box(0.5, 0.6, 0.3, std('cornice', {}), x * S, WALL_H - 0.55, 320 * S - 0.15));
+
+  // ------------------------------------------------------------ door frames (gold jambs + lintel on every opening)
+  // a text sign readable from both sides (two front-facing planes back to back)
+  const sign2 = (w, h, tex, x, y, z, ry = 0) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; const m = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }); g.add(plane(w, h, m, 0, 0, 0.011)); g.add(plane(w, h, m, 0, 0, -0.011, Math.PI)); return g; };
+  const doorFrame = (x0, y0, x1, y1, label = null) => {
+    const ax = x0 * S, az = y0 * S, bx = x1 * S, bz = y1 * S; const alongX = (bx - ax) > (bz - az);
+    // keep the lintel and the sign under the lowest ceiling on either side of the opening
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    const sides = alongX ? [[mx, y0 - 30], [mx, y1 + 30]] : [[x0 - 30, my], [x1 + 30, my]];
+    const lim = Math.min(...sides.map(([x, y]) => { const r = roomAt(x, y); return r && CEIL[r.id] ? CEIL[r.id] : WALL_H; }));
+    const H = Math.min(2.3, lim - (label ? 0.5 : 0.2));
+    if (alongX) { const zc = (az + bz) / 2, t = bz - az; root.add(box(0.14, H, t + 0.1, gold, ax - 0.07, H / 2, zc)); root.add(box(0.14, H, t + 0.1, gold, bx + 0.07, H / 2, zc)); root.add(box(bx - ax + 0.28, 0.16, t + 0.1, gold, (ax + bx) / 2, H + 0.08, zc)); if (label) root.add(sign2(bx - ax, 0.3, textTexture(label, { w: Math.round(96 * (bx - ax) / 0.3), h: 96, font: 'bold 52px Inter, sans-serif', color: '#ffd08a', bg: '#101018' }), (ax + bx) / 2, H + 0.35, zc)); }
+    else { const xc = (ax + bx) / 2, t = bx - ax; root.add(box(t + 0.1, H, 0.14, gold, xc, H / 2, az - 0.07)); root.add(box(t + 0.1, H, 0.14, gold, xc, H / 2, bz + 0.07)); root.add(box(t + 0.1, 0.16, bz - az + 0.28, gold, xc, H + 0.08, (az + bz) / 2)); if (label) root.add(sign2(bz - az, 0.3, textTexture(label, { w: Math.round(96 * (bz - az) / 0.3), h: 96, font: 'bold 52px Inter, sans-serif', color: '#ffd08a', bg: '#101018' }), xc, H + 0.35, (az + bz) / 2, Math.PI / 2)); }
+  };
+  doorFrame(1480, 320, 1560, 344);            // entrance
+  doorFrame(1336, 496, 1360, 584, 'MACHINES'); // hall → corridor
+  doorFrame(1160, 496, 1184, 584);            // corridor → machines
+  doorFrame(1840, 496, 1864, 584, 'TABLES');   // hall → tables
+  doorFrame(1560, 744, 1640, 768, 'BAR');      // hall → bar
+  doorFrame(1336, 940, 1360, 1020, 'WC');      // bar → toilets
+  doorFrame(1560, 1168, 1640, 1192);          // bar → hallway
+  doorFrame(1560, 1344, 1640, 1368);          // hallway → labyrinth
+  doorFrame(700, 1344, 780, 1368, 'RESTAURANT · SPECTACLE'); // machines → labyrinth
+  doorFrame(2100, 1344, 2180, 1368, 'SALON VIP'); // tables → vip
 
   // ------------------------------------------------------------ pillars
   const pillar = (px, py, h, mat = marbleWhite, r = 0.32) => { const x = px * S, z = py * S; root.add(cyl(r, r, h, mat, x, h / 2, z, 20)); root.add(cyl(r + 0.08, r + 0.08, 0.16, gold, x, 0.08, z, 20)); root.add(cyl(r + 0.1, r + 0.02, 0.22, gold, x, h - 0.11, z, 20)); L.colliders.push({ x0: x - r, z0: z - r, x1: x + r, z1: z + r }); blob(x, z, 1.4); };
@@ -121,7 +152,7 @@ export function buildLevel(scene, state) {
   putChand(1600, 540, CEIL.hall, 1.2);
   [[2135, 520], [2480, 520], [2820, 520], [2560, 900], [2170, 940], [2620, 1200]].forEach(([x, y]) => putChand(x, y, CEIL.tables, 0.8));
   [[2200, 1420], [2600, 1400], [2880, 1420]].forEach(([x, y]) => putChand(x, y, CEIL.vip, 0.6));
-  for (const y of [505, 655, 805, 955, 1105, 1255]) for (let x = 300; x < 1120; x += 200) fixture(x * S, y * S, CEIL.machines, 0xffd8f0, 2.5, 0.25);
+  for (const y of [540, 760, 980, 1210]) for (let x = 300; x < 1120; x += 200) fixture(x * S, y * S, CEIL.machines, 0xffd8f0, 2.5, 0.25);
   [1450, 1600, 1750].forEach(x => { root.add(cyl(0.02, 0.02, 0.9, black, x * S, CEIL.bar - 0.45, 1075 * S)); root.add(cyl(0.12, 0.28, 0.25, std('shade', { color: 0x3b2412, side: THREE.DoubleSide }), x * S, CEIL.bar - 1.0, 1075 * S)); const b = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), basic('bulbw', { color: 0xffc37a, toneMapped: false })); b.position.set(x * S, CEIL.bar - 1.08, 1075 * S); root.add(b); });
   fixture(1260 * S, 980 * S, CEIL.toilettes, 0xe9f2ff, 1.6, 0.6); fixture(1600 * S, 1260 * S, CEIL.hallway, 0xffd0a0, 0.6, 0.6); fixture(1260 * S, 540 * S, CEIL.corridor, 0xffe9c4, 0.6, 0.6); fixture(2220 * S, 1720 * S, CEIL.bureau, 0xe9f2ff, 1.8, 0.6);
   LIGHTS.filter(l => l.y > 1368 && l.x < 2000).forEach(l => fixture(l.x * S, l.y * S, CEIL.labyrinth, 0xffc78a, 0.5, 0.5));
@@ -169,7 +200,7 @@ export function buildLevel(scene, state) {
     const cs = Math.cos(yaw), sn = Math.sin(yaw);
     const toW = (lx, lz) => [cx + lx * cs + lz * sn, cz - lx * sn + lz * cs];
     const [bx2, bz2] = toW(0, 0.88);
-    const half = s.rot ? [0.35, 0.52] : [0.52, 0.35];
+    const half = (s.rot === 'east' || s.rot === 'west') ? [0.35, 0.52] : [0.52, 0.35];
     L.colliders.push({ x0: cx - half[0], z0: cz - half[1], x1: cx + half[0], z1: cz + half[1] });
     L.colliders.push({ x0: bx2 - 0.25, z0: bz2 - 0.25, x1: bx2 + 0.25, z1: bz2 + 0.25 });
     const hit = box(1.05, 2.3, 0.8, basic('hit', { visible: false }), cx, 1.15, cz); hit.rotation.y = yaw; hit.visible = false; hit.userData = { target: { kind: 'slot', s } }; root.add(hit); L.hits.push(hit);
@@ -288,7 +319,8 @@ export function buildLevel(scene, state) {
         L.updaters.push((t) => { disc.rotation.y = t * 0.25; });
         const pointer = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 8), white); pointer.position.set(0, 2.7, 0.12); pointer.rotation.x = Math.PI; g.add(pointer);
         for (let i = 0; i < 16; i++) { const a = i / 16 * TAU; const b = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), basic('bulb', { color: 0xffe9b8, toneMapped: false })); b.position.set(Math.cos(a) * 0.98, 1.75 + Math.sin(a) * 0.98, 0.12); g.add(b); }
-        g.add(plane(1.6, 0.3, new THREE.MeshBasicMaterial({ map: textTexture('ROUE DE LA FORTUNE', { w: 768, h: 128, font: 'bold 60px "Bodoni 72", Georgia, serif', color: '#ffd98a', bg: '#101018', glow: '#ffb46a' }), toneMapped: false, side: THREE.DoubleSide }), 0, 3.0, 0.1));
+        g.add(sign2(1.6, 0.3, textTexture('ROUE DE LA FORTUNE', { w: 768, h: 128, font: 'bold 60px "Bodoni 72", Georgia, serif', color: '#ffd98a', bg: '#101018', glow: '#ffb46a' }), 0, 3.0, 0.1));
+        g.rotation.y = o.face === 'south' ? 0 : Math.PI; // the wheel looks toward the entrance
         root.add(g); blob(cx, cz, 1.6);
         L.colliders.push({ x0: cx - 0.5, z0: cz - 0.3, x1: cx + 0.5, z1: cz + 0.3 }); hitSize = [1.9, 2.8, 0.7];
         break;
@@ -454,7 +486,7 @@ export function buildLevel(scene, state) {
 
   // ------------------------------------------------------------ interior dressing
   const plant = (x, z, big = false) => { const g = new THREE.Group(); g.position.set(x, 0, z); const sc = big ? 1.5 : 1; g.add(cyl(0.22 * sc, 0.18 * sc, 0.4 * sc, std('pot', { color: 0x5d4037 }), 0, 0.2 * sc, 0, 12)); for (let i = 0; i < 7; i++) { const a = i / 7 * TAU; const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.16 * sc, 0.95 * sc, 6), std('leaf', { color: 0x2e7d32, roughness: 1 })); leaf.position.set(Math.cos(a) * 0.2 * sc, 0.78 * sc, Math.sin(a) * 0.2 * sc); leaf.rotation.set(Math.sin(a) * 0.55, 0, -Math.cos(a) * 0.55); g.add(leaf); } root.add(g); blob(x, z, 0.9 * sc); L.colliders.push({ x0: x - 0.3, z0: z - 0.3, x1: x + 0.3, z1: z + 0.3 }); };
-  [[1560, 720], [1640, 720], [1960, 1300], [2980, 1300], [2060, 1560], [2960, 1560], [220, 380], [1130, 380], [2200, 1900], [300, 1900]].forEach(([x, y], i) => plant(x * S, y * S, i < 6));
+  [[1560, 720], [1640, 720], [1960, 1300], [2980, 1300], [2060, 1560], [2960, 1560], [222, 360], [1134, 360], [2200, 1900], [300, 1900]].forEach(([x, y], i) => plant(x * S, y * S, i < 6));
   const frame = (x, y, z, ry, i, w = 1.0, h = 1.3) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; g.add(box(w + 0.12, h + 0.12, 0.05, gold, 0, 0, -0.02)); const m = new THREE.MeshStandardMaterial({ map: artTexture(i), roughness: 0.8 }); loadAsset('art' + (1 + (i % 3)), (t) => { m.map = t; m.needsUpdate = true; }, { repeat: false }); g.add(plane(w, h, m, 0, 0, 0.01)); root.add(g); };
   frame(2300 * S, 1.9, 1368 * S + 0.03, 0, 0); frame(2700 * S, 1.9, 1368 * S + 0.03, 0, 1); frame(2500 * S, 1.9, 1600 * S - 0.03, Math.PI, 2, 1.6, 1.0);
   frame(1400 * S, 1.9, 768 * S + 0.03, 0, 3, 0.9, 1.2); frame(2350 * S, 1.8, 1624 * S + 0.03, 0, 1, 0.8, 1.0);

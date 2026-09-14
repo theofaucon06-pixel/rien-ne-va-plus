@@ -77,18 +77,23 @@ export const WALLS = [
 
 // Slot machine banks (decorative + special)
 export const SLOTS = [];
-// six rows, two blocks, a 3.75 m central aisle that stays clear of the south door (700..780)
-const rowsY = [430, 580, 730, 880, 1030, 1180];
-rowsY.forEach((y, r) => {
-  for (let i = 0; i < 7; i++) SLOTS.push({ x: 250 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40) % 360 });
-  for (let i = 0; i < 6; i++) SLOTS.push({ x: 780 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40 + 180) % 360 });
+// Real casino banks: a row along the north wall, then three back-to-back islands (a north-facing
+// row glued to a south-facing one) and a last row against the south wall. Walkways of 2.3 m run
+// between the islands; the 3.5 m central aisle (x 642..780) stays clear of the south door (700..780)
+// and the corridor door (y 496..584) opens onto the wide entrance walkway.
+// `rot` is the direction the machine's screen faces (default: south).
+const ROWS = [[380, 'south'], [600, 'north'], [640, 'south'], [820, 'north'], [860, 'south'], [1040, 'north'], [1080, 'south'], [1270, 'north']];
+ROWS.forEach(([y, face], r) => {
+  const rot = face === 'south' ? undefined : face;
+  for (let i = 0; i < 7; i++) SLOTS.push({ x: 250 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40) % 360, rot });
+  for (let i = 0; i < 5; i++) SLOTS.push({ x: 780 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40 + 180) % 360, rot });
 });
-// mark the three special machines
+// mark the three special machines (all on south-facing rows, seen when walking in from the corridor)
 function mark(x, y, kind, label) { const m = SLOTS.find(s => s.x === x && s.y === y); m.kind = kind; m.label = label; m.special = true; }
-mark(362, 430, 'lucky', 'Lucky 7');
-mark(892, 580, 'mega', 'Mégalignes');
-mark(474, 880, 'presque', 'Presque !');
-// small bank along the east wall of the tables room, facing west
+mark(362, 380, 'lucky', 'Lucky 7');
+mark(892, 640, 'mega', 'Mégalignes');
+mark(474, 860, 'presque', 'Presque !');
+// small bank along the east wall of the tables room, screens facing west (the seats are on the room side)
 for (let i = 0; i < 5; i++) SLOTS.push({ x: 2950, y: 1000 + i * 66, w: 44, h: 56, hue: (i * 50 + 20) % 360, rot: 'west' });
 // every machine is playable: assign a game kind and a marquee name
 export const SLOT_KINDS = ['lucky', 'fruits', 'presque', 'pharaon', 'mega'];
@@ -162,14 +167,25 @@ export const OBJECTS = [
   { id: 'dumpster', x: 40, y: 1700, w: 70, h: 40, solid: true, type: 'dumpster' },
 ];
 
+// where a player sits in front of a machine (px), and which way they look
+export function slotSeat(m) {
+  const cx = m.x + m.w / 2, cy = m.y + m.h / 2;
+  switch (m.rot) {
+    case 'north': return { x: cx, y: cy - 44, facing: 'down' };
+    case 'west': return { x: cx - 44, y: cy, facing: 'right' };
+    case 'east': return { x: cx + 44, y: cy, facing: 'left' };
+    default: return { x: cx, y: cy + 44, facing: 'up' };
+  }
+}
 // seated players at roughly a third of the machines
 function machinePatrons() {
   const out = []; const cols = ['#6d5c7a', '#4e6b5a', '#7a6a4e', '#5a5a7a', '#7a4e5c', '#4e5a6b', '#6b4e3a', '#3a5a6b'];
   SLOTS.forEach((m, i) => {
-    if (m.laby || m.rot) return;
+    if (m.laby) return;
     if ((i * 7 + 3) % 3 !== 0) return;
     if (m.special) return;
-    out.push({ id: 'mp' + i, name: '', kind: 'patron', x: m.x + 22, y: m.y + 72, color: cols[i % cols.length], r: 44, facing: 'up', seat: i });
+    const seat = slotSeat(m);
+    out.push({ id: 'mp' + i, name: '', kind: 'patron', x: seat.x, y: seat.y, color: cols[i % cols.length], r: 44, facing: seat.facing, seat: i });
   });
   return out;
 }
@@ -179,8 +195,8 @@ export const NPCS = [
   { id: 'wells', name: 'Charles Wells', kind: 'ghost', x: 1520, y: 650, witness: 'wells', r: 70 },
   { id: 'caissier', name: 'La caissière', kind: 'staff', x: 1445, y: 452, color: '#8D6E63', r: 0, behind: true },
   { id: 'hotesse', name: "L'hôtesse", kind: 'staff', x: 1755, y: 452, color: '#AD1457', r: 0, behind: true },
-  { id: 'mollie', name: 'Mollie', kind: 'ghost', x: 900, y: 822, witness: 'mollie', r: 66 },
-  { id: 'bookman', name: 'Katrina Bookman', kind: 'ghost', x: 1010, y: 690, witness: 'bookman', r: 66 },
+  { id: 'mollie', name: 'Mollie', kind: 'ghost', x: 900, y: 758, witness: 'mollie', r: 66 },
+  { id: 'bookman', name: 'Katrina Bookman', kind: 'ghost', x: 1000, y: 528, witness: 'bookman', r: 66 },
   { id: 'croupier', name: 'Le croupier', kind: 'staff', x: 2135, y: 448, color: '#212121', r: 0, behind: true },
   { id: 'croupier2', name: 'La croupière', kind: 'staff', x: 2560, y: 818, color: '#212121', r: 0, behind: true },
   { id: 'dosto', name: 'Fiodor Dostoïevski', kind: 'ghost', x: 1950, y: 660, witness: 'dosto', r: 70 },
@@ -207,11 +223,11 @@ export const NPCS = [
   { id: 'q10', name: '', kind: 'patron', x: 2620, y: 1572, color: '#7a4e4e', r: 44, facing: 'up', standing: true },
   { id: 'q11', name: '', kind: 'patron', x: 1445, y: 565, color: '#4e6b7a', r: 44, facing: 'up', standing: true },
   { id: 'q12', name: '', kind: 'patron', x: 1452, y: 692, color: '#6b6b4e', r: 44, facing: 'up', standing: true },
-  { id: 'q13', name: '', kind: 'patron', x: 2906, y: 1094, color: '#5a3a3a', r: 44, facing: 'right' },
-  { id: 'q14', name: '', kind: 'patron', x: 2906, y: 1226, color: '#3a5a3a', r: 44, facing: 'right' },
+  { id: 'q13', name: '', kind: 'patron', x: 2928, y: 1094, color: '#5a3a3a', r: 44, facing: 'right' },
+  { id: 'q14', name: '', kind: 'patron', x: 2928, y: 1226, color: '#3a5a3a', r: 44, facing: 'right' },
   // walkers follow a path (px), looping or bouncing
   { id: 'w1', name: '', kind: 'walker', x: 705, y: 470, color: '#4e5a6b', r: 44, path: [[705, 470], [705, 1310]], bounce: true, speed: 42 },
-  { id: 'w2', name: '', kind: 'walker', x: 300, y: 655, color: '#6b5a4e', r: 44, path: [[300, 655], [1100, 655], [1100, 955], [300, 955]], speed: 38 },
+  { id: 'w2', name: '', kind: 'walker', x: 300, y: 655, color: '#6b5a4e', r: 44, path: [[225, 540], [1132, 540], [1132, 980], [225, 980]], speed: 38 },
   { id: 'w3', name: '', kind: 'walker', x: 1900, y: 700, color: '#3a3a4e', r: 44, path: [[1900, 700], [2700, 700], [2700, 1010], [2350, 1010], [2350, 700]], speed: 40 },
   { id: 'w4', name: 'La serveuse', kind: 'walker', x: 1600, y: 620, color: '#1b1b22', r: 44, path: [[1600, 620], [1600, 1010], [1520, 1010], [1520, 800]], bounce: true, speed: 34, tray: true },
   { id: 'w5', name: '', kind: 'walker', x: 400, y: 1590, color: '#5a4e6b', r: 44, path: [[400, 1590], [1900, 1590]], bounce: true, speed: 36 },
@@ -234,9 +250,9 @@ LIGHTS.push({ x: 88, y: 900, r: 220, color: '#ffe0a8', a: 0.5, glow: 0.05 }); //
 LIGHTS.push({ x: 1600, y: 540, r: 420, color: '#ffe9c4', a: 1, glow: 0.06 });
 LIGHTS.push({ x: 1260, y: 540, r: 160, color: '#ffe9c4', a: 0.8 });
 // machines: each screen glows
-SLOTS.forEach(s => LIGHTS.push({ x: s.x + s.w / 2, y: s.y + s.h + 6, r: s.special ? 150 : 95, color: `hsl(${s.hue} 90% 65%)`, a: s.special ? 0.9 : 0.55, glow: s.special ? 0.16 : 0.07, slot: true }));
+SLOTS.forEach(s => { const seat = slotSeat(s); LIGHTS.push({ x: (s.x + s.w / 2 + seat.x) / 2, y: (s.y + s.h / 2 + seat.y) / 2, r: s.special ? 150 : 95, color: `hsl(${s.hue} 90% 65%)`, a: s.special ? 0.9 : 0.55, glow: s.special ? 0.16 : 0.07, slot: true }); });
 // aisle lights for the 3D machine hall
-[[500, 560], [900, 560], [500, 880], [900, 880], [500, 1200], [900, 1200]].forEach(([x, y]) => LIGHTS.push({ x, y, r: 260, color: '#ff9ac8', a: 0.5, aisle: true }));
+[[450, 540], [900, 540], [450, 760], [900, 760], [450, 980], [900, 980], [450, 1210], [900, 1210]].forEach(([x, y]) => LIGHTS.push({ x, y, r: 260, color: '#ff9ac8', a: 0.5, aisle: true }));
 // tables chandeliers
 [[2135, 520], [2560, 890], [2820, 520], [2170, 930]].forEach(([x, y]) => LIGHTS.push({ x, y, r: 330, color: '#ffd9a0', a: 0.95, glow: 0.08 }));
 LIGHTS.push({ x: 2520, y: 360, r: 120, color: '#ffd9a0', a: 0.6 });
