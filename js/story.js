@@ -4,7 +4,7 @@ import { NPCS, roomAt, PLAYER_START } from './world.js';
 import { ui } from './ui.js';
 import { audio } from './audio.js';
 import { Games } from './games.js';
-import { REVELATIONS, WITNESSES, STAFF, STORY, fmt, fmtSigned } from './content.js';
+import { REVELATIONS, WITNESSES, STAFF, STORY, PATRON_LINES, STAFF_LINES, NARRATIONS, fmt, fmtSigned } from './content.js';
 
 export const ROOM_HINTS = {
   street: 'Vendredi, 21 h. Ton ami est en retard.',
@@ -60,14 +60,42 @@ export function createStory(ctx = {}) {
   const say = (lines, who, opts = {}) => ui.dialog.run(lines, { speaker: who, ...opts });
   const narr = (lines) => ui.dialog.run(lines, { speaker: '', initial: '·', color: '#c6a14f' });
 
+  const visits = {};
   async function talkWitness(n) {
     const w = WITNESSES.find(w => w.id === n.witness);
     const first = !state.witnesses.has(w.id);
-    await ui.dialog.run(w.lines, { speaker: w.name, color: w.color, ghost: n.kind === 'ghost', initial: w.name[0] });
-    if (first) { state.witnesses.add(w.id); await ui.witnessCard(w); save(); }
+    const opts = { speaker: w.name, color: w.color, ghost: n.kind === 'ghost', initial: w.name[0] };
+    if (first) {
+      await ui.dialog.run(w.lines, opts);
+      if (w.ask) {
+        let picked = null;
+        await ui.dialog.run([{ text: w.ask.q, choices: w.ask.choices.map(c => ({ label: c.label, run: () => { picked = c; } })).concat([{ label: 'Rien. Merci.', run: () => {} }]) }], opts);
+        if (picked) await ui.dialog.run(picked.lines, opts);
+      }
+      state.witnesses.add(w.id); await ui.witnessCard(w); save();
+    } else {
+      const k = (visits[w.id] = (visits[w.id] || 0) + 1);
+      const pool = w.more && w.more.length ? w.more : [w.lines.slice(-1)];
+      await ui.dialog.run(pool[(k - 1) % pool.length], opts);
+      if (w.ask && k % 2 === 0) {
+        let picked = null;
+        await ui.dialog.run([{ text: w.ask.q, choices: w.ask.choices.map(c => ({ label: c.label, run: () => { picked = c; } })).concat([{ label: 'Rien. Merci.', run: () => {} }]) }], opts);
+        if (picked) await ui.dialog.run(picked.lines, opts);
+      }
+    }
     if (w.id === 'nour' && !state.revealed.has('sortie')) {
       await reveal('sortie', { time: ui.fmtTime(state.timeMin), net: state.stats.net, debt: state.debt + Math.max(0, -state.bank) });
     }
+  }
+  const said = {};
+  function pick(id, arr) { const k = (said[id] = (said[id] || 0) + 1); return arr[(k - 1 + Math.floor(id.length * 7)) % arr.length]; }
+  async function talkPatron(n) {
+    const r = roomAt(n.x, n.y); const pool = PATRON_LINES[r ? r.id : 'default'] || PATRON_LINES.default;
+    const line = pick(n.id, pool);
+    const [a, b] = line.split(' — ');
+    const who = n.name || (n.kind === 'walker' ? 'Un passant' : 'Un joueur');
+    await ui.dialog.run([a], { speaker: who, color: n.color || '#9e9e9e', initial: who[0] });
+    if (b) await ui.dialog.run([b], { speaker: '', initial: '·', color: '#c6a14f' });
   }
 
   // target: { kind: 'slot', s } | { kind: 'npc', n } | { kind: 'object', o }
@@ -83,12 +111,13 @@ export function createStory(ctx = {}) {
     if (t.kind === 'slot') return `Jouer — ${t.s.label}`;
     if (t.kind === 'npc') return `Parler — ${t.n.name}`;
     const o = t.o;
-    const verbs = { caisse: 'Changer — ', cage: 'Changer — ', fidelite: '', atm: 'Retirer — ', roulette: 'Jouer — ', baccarat: 'Jouer — ', blackjack: 'Jouer — ', wheel: 'Jouer — ', poker: 'Regarder — ', craps: 'Regarder — ', phone: '', exitdoor: 'Ouvrir — ', staffdoor: 'Entrer — ', theo: 'Lire — ', board: 'Lire — ', poster: 'Lire — ', plaque: 'Lire — ', busstop: '', clock: 'Regarder — ', entrance: '' };
+    const verbs = { narr: 'Regarder — ', caisse: 'Changer — ', cage: 'Changer — ', fidelite: '', atm: 'Retirer — ', roulette: 'Jouer — ', baccarat: 'Jouer — ', blackjack: 'Jouer — ', wheel: 'Jouer — ', poker: 'Regarder — ', craps: 'Regarder — ', phone: '', exitdoor: 'Ouvrir — ', staffdoor: 'Entrer — ', theo: 'Lire — ', board: 'Lire — ', poster: 'Lire — ', plaque: 'Lire — ', busstop: '', clock: 'Regarder — ', entrance: '' };
     return (verbs[o.type] ?? '') + o.label;
   }
 
   async function interactNPC(n) {
     if (n.witness) return talkWitness(n);
+    if (n.kind === 'patron' || n.kind === 'walker') return talkPatron(n);
     switch (n.id) {
       case 'vigile': {
         if (!state.flags.vigile) { state.flags.vigile = true; await say(STAFF.vigile.intro, STAFF.vigile.name, { color: '#9fa8da' }); }
@@ -107,11 +136,14 @@ export function createStory(ctx = {}) {
         ], 'Vincent, hôte VIP', { color: '#ef9a9a' });
         break;
       }
-      case 'caissier': games.openCaisse(); break;
+      case 'caissier': { await say([pick('caissier', STAFF_LINES.caissier)], STAFF.caissier.name, { color: '#bcaaa4' }); games.openCaisse(); break; }
       case 'hotesse': return interactObject({ type: 'fidelite' });
       case 'barman': return interactObject({ type: 'barcounter' });
-      case 'croupier': games.openRoulette(); break;
-      case 'croupier2': games.openBaccarat(); break;
+      case 'croupier': case 'croupier2': {
+        const open = n.id === 'croupier' ? () => games.openRoulette() : () => games.openBaccarat();
+        await ui.dialog.run([pick(n.id, STAFF_LINES[n.id]), { text: n.id === 'croupier' ? 'Vous prenez place ?' : 'Une main ?', choices: [{ label: 'Jouer', run: open }, { label: 'Plus tard', run: () => {} }] }], { speaker: n.name, color: '#e0e0e0', initial: 'C' });
+        break;
+      }
     }
   }
 
@@ -186,6 +218,7 @@ export function createStory(ctx = {}) {
       case 'theo': games.openTheo(); break;
       case 'board': games.openBoard(); break;
       case 'poster': await narr(['Joueurs Info Service — 09 74 75 13 13. Tous les jours, 8 h – 2 h.', 'Quelqu\'un a ajouté au marqueur : « ça marche ».']); break;
+      case 'narr': await narr(NARRATIONS[o.key] || ['…']); break;
     }
   }
 

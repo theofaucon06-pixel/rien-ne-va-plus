@@ -40,6 +40,7 @@ export function buildLevel(scene, state) {
   const mirrorMat = std('mirror', { color: 0xc8dbe8, metalness: 1, roughness: 0.05, envMapIntensity: 1.2 });
   const blobMat = new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false, opacity: 0.75 });
   const blob = (x, z, sx, sz = sx) => { const m = plane(1, 1, blobMat, x, 0.012, z, 0, -Math.PI / 2); m.scale.set(sx, sz, 1); m.renderOrder = 1; root.add(m); return m; };
+  const narrHit = (key, label, x, y, z, w, h, d) => { const hit = box(w, h, d, basic('hit', { visible: false }), x, y, z); hit.visible = false; hit.userData = { target: { kind: 'object', o: { type: 'narr', key, label } } }; root.add(hit); L.hits.push(hit); return hit; };
 
   // ------------------------------------------------------------ sky & ground
   const sky = gradientSky(); scene.add(sky); L.sky = sky;
@@ -247,7 +248,7 @@ export function buildLevel(scene, state) {
         root.add(cyl(0.12, 0.18, 0.9, gold, cx, 0.9, cz, 12)); root.add(cyl(0.45, 0.3, 0.1, gold, cx, 1.3, cz, 24)); const orb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), gold); orb.position.set(cx, 1.5, cz); root.add(orb);
         const drops = []; for (let k = 0; k < 8; k++) { const dm = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), std('drop', { color: 0x9fd0ff, transparent: true, opacity: 0.7 })); root.add(dm); drops.push(dm); }
         L.updaters.push((t) => { water.material.emissiveIntensity = 0.5 + 0.25 * Math.sin(t * 2); drops.forEach((dm, k) => { const ph = (t * 1.6 + k / 8) % 1; const a = k / 8 * TAU; dm.position.set(cx + Math.cos(a) * (0.2 + ph * 0.7), 1.5 + Math.sin(ph * Math.PI) * 0.5 - ph * 0.9, cz + Math.sin(a) * (0.2 + ph * 0.7)); }); });
-        blob(cx, cz, 3.0);
+        blob(cx, cz, 3.0); narrHit('fountain', 'La fontaine', cx, 0.8, cz, 2.6, 1.6, 2.6);
         L.colliders.push({ x0: cx - 1.25, z0: cz - 1.25, x1: cx + 1.25, z1: cz + 1.25 });
         break;
       }
@@ -294,9 +295,9 @@ export function buildLevel(scene, state) {
         break;
       }
       case 'barcounter': {
-        root.add(box(w, 1.05, d, wood, cx, 0.525, cz)); root.add(box(w + 0.2, 0.06, d + 0.2, std('bartop', { color: 0x2b1a0e, roughness: 0.25, metalness: 0.1 }), cx, 1.08, cz));
+        root.add(box(w, 1.05, d, wood, cx, 0.525, cz)); root.add(box(w + 0.2, 0.06, d + 0.2, std('bartop', { color: 0x2b1a0e, roughness: 0.6, metalness: 0.05, envMapIntensity: 0.15 }), cx, 1.08, cz));
         root.add(box(w, 0.04, 0.04, basic('barled', { color: 0xffb46a, toneMapped: false }), cx, 0.98, cz + d / 2 + 0.01)); root.add(box(w, 0.06, 0.06, chrome, cx, 0.3, cz + d / 2 + 0.2));
-        const shelfZ = (1168 - 6) * S; root.add(box(w, 2.3, 0.3, std('shelfbg', { color: 0x1a0f0a }), cx, 1.15, shelfZ)); root.add(box(w, 0.6, 0.3, basic('shelflight', { color: 0xff9a5a, toneMapped: false }), cx, 1.2, shelfZ - 0.02)); root.add(box(w, 0.04, 0.3, chrome, cx, 1.5, shelfZ - 0.1)); root.add(box(w, 0.04, 0.3, chrome, cx, 1.95, shelfZ - 0.1));
+        const shelfZ = (1168 - 6) * S; root.add(box(w, 2.3, 0.3, std('shelfbg', { color: 0x1a0f0a }), cx, 1.15, shelfZ)); root.add(box(w, 0.6, 0.3, basic('shelflight', { color: 0xc97a45 }), cx, 1.2, shelfZ - 0.02)); root.add(box(w, 0.04, 0.3, chrome, cx, 1.5, shelfZ - 0.1)); root.add(box(w, 0.04, 0.3, chrome, cx, 1.95, shelfZ - 0.1));
         const cols = [0xff7043, 0xffca28, 0x29b6f6, 0xab47bc, 0x66bb6a, 0xef5350, 0x26c6da, 0xf5f1e8];
         for (let i = 0; i < 26; i++) { root.add(cyl(0.04, 0.05, 0.3 + (i % 3) * 0.06, new THREE.MeshStandardMaterial({ color: cols[i % cols.length], transparent: true, opacity: 0.85, roughness: 0.1, metalness: 0.1 }), cx - w / 2 + 0.3 + i * (w - 0.6) / 25, 1.68, shelfZ - 0.2, 10)); root.add(cyl(0.045, 0.05, 0.28, new THREE.MeshStandardMaterial({ color: cols[(i + 3) % cols.length], transparent: true, opacity: 0.85, roughness: 0.1 }), cx - w / 2 + 0.45 + i * (w - 0.9) / 25, 2.12, shelfZ - 0.2, 10)); }
         for (let i = 0; i < 5; i++) root.add(cyl(0.04, 0.03, 0.12, glass, cx - w / 2 + 1 + i * 2, 1.17, cz - 0.15, 10));
@@ -338,6 +339,7 @@ export function buildLevel(scene, state) {
         root.add(box(0.6, 0.4, 0.04, black, cx - 0.5, 1.05, cz)); root.add(plane(0.55, 0.34, new THREE.MeshBasicMaterial({ map: screenTexture('board'), toneMapped: false }), cx - 0.5, 1.05, cz + 0.025)); root.add(box(0.3, 0.02, 0.4, white, cx + 0.5, 0.8, cz)); root.add(cyl(0.05, 0.05, 0.12, black, cx + 1.0, 0.85, cz - 0.3, 10));
         const chair = new THREE.Group(); chair.position.set(cx, 0, cz - 1.0); chair.add(box(0.5, 0.08, 0.5, leather, 0, 0.5, 0)); chair.add(box(0.5, 0.6, 0.08, leather, 0, 0.85, -0.22)); chair.add(cyl(0.04, 0.04, 0.5, chrome, 0, 0.25, 0, 8)); root.add(chair);
         root.add(box(2.4, 2.2, 0.35, std('shelf', { color: 0x2b1a0e }), 2080 * S, 1.1, 1624 * S + 0.2)); for (let sh = 0; sh < 3; sh++) for (let b = 0; b < 12; b++) root.add(box(0.14, 0.32 + (b % 3) * 0.06, 0.24, new THREE.MeshStandardMaterial({ color: [0x7a1f22, 0x1b4636, 0xc6a14f, 0x3a3a4e, 0x8d6e63][(b + sh) % 5] }), 2080 * S - 1.05 + b * 0.19, 0.5 + sh * 0.65, 1624 * S + 0.2));
+        narrHit('bookshelf', 'La bibliothèque', 2080 * S, 1.1, 1624 * S + 0.5, 2.4, 2.2, 0.8);
         L.colliders.push({ x0: cx - w / 2, z0: cz - d / 2, x1: cx + w / 2, z1: cz + d / 2 }); L.colliders.push({ x0: 2080 * S - 1.2, z0: 1624 * S, x1: 2080 * S + 1.2, z1: 1624 * S + 0.4 });
         break;
       }
@@ -348,7 +350,7 @@ export function buildLevel(scene, state) {
         root.add(plane(0.9, 0.6, new THREE.MeshBasicMaterial({ map: textTexture('BUS', { w: 256, h: 170, font: 'bold 90px Inter, sans-serif', color: '#fff', bg: '#1565c0' }), toneMapped: false, side: THREE.DoubleSide }), px, 2.8, pz));
         root.add(box(1.8, 0.06, 0.4, wood, 9.9, 0.45, 4.0)); root.add(box(0.06, 0.45, 0.4, darkMetal, 9.1, 0.22, 4.0)); root.add(box(0.06, 0.45, 0.4, darkMetal, 10.7, 0.22, 4.0));
         root.add(box(3.2, 0.06, 1.6, glass, 9.9, 2.6, 4.0)); root.add(cyl(0.03, 0.03, 2.6, darkMetal, 8.4, 1.3, 4.7, 8)); root.add(cyl(0.03, 0.03, 2.6, darkMetal, 11.4, 1.3, 4.7, 8)); root.add(plane(3.0, 1.8, glass, 9.9, 1.6, 4.75));
-        { const pm = new THREE.MeshStandardMaterial({ map: posterTexture(['SPECTACLE', 'CE SOIR 22 H', 'GRAND CASINO']), roughness: 0.9, side: THREE.DoubleSide }); loadAsset('poster_show', (t) => { pm.map = t; pm.needsUpdate = true; }, { repeat: false }); root.add(plane(0.9, 1.3, pm, 11.2, 1.6, 4.72)); }
+        { const pm = new THREE.MeshStandardMaterial({ map: posterTexture(['SPECTACLE', 'CE SOIR 22 H', 'GRAND CASINO']), roughness: 0.9, side: THREE.DoubleSide }); loadAsset('poster_show', (t) => { pm.map = t; pm.needsUpdate = true; }, { repeat: false }); root.add(plane(0.9, 1.3, pm, 11.2, 1.6, 4.72)); narrHit('showposter', "L'affiche du spectacle", 11.2, 1.6, 4.5, 1.0, 1.4, 0.6); }
         L.colliders.push({ x0: 9.0, z0: 3.8, x1: 10.8, z1: 4.2 }); L.colliders.push({ x0: px - 0.1, z0: pz - 0.1, x1: px + 0.1, z1: pz + 0.1 });
         hitSize = [2.4, 3, 1.6]; hx = 9.9; hz = 4.0;
         break;
@@ -383,7 +385,7 @@ export function buildLevel(scene, state) {
         root.add(plane(1.6, 0.4, new THREE.MeshBasicMaterial({ map: textTexture(o.text, { w: 512, h: 128, font: 'bold 60px Inter, sans-serif', color: '#ffd08a', bg: '#101018', glow: 'rgba(255,180,106,0.9)' }), toneMapped: false, side: THREE.DoubleSide }), cx, 2.15, cz + (face > 0 ? 0.02 : -0.02), face > 0 ? 0 : Math.PI));
         break;
       }
-      case 'mirror': { root.add(plane(w, 1.6, mirrorMat, cx, 1.5, o.y * S - 0.04)); root.add(box(w + 0.1, 1.7, 0.03, gold, cx, 1.5, o.y * S - 0.06)); break; }
+      case 'mirror': { root.add(plane(w, 1.6, mirrorMat, cx, 1.5, o.y * S - 0.04)); root.add(box(w + 0.1, 1.7, 0.03, gold, cx, 1.5, o.y * S - 0.06)); narrHit('mirror', 'Le miroir', cx, 1.5, o.y * S + 0.3, w, 1.7, 0.8); break; }
       case 'staffdoor': {
         const dz = (o.y + o.h / 2) * S, dx = (o.x + o.w / 2) * S;
         root.add(box(0.1, 2.1, o.h * S - 0.1, std('door', { color: 0x5a5f66, roughness: 0.7 }), dx, 1.05, dz)); root.add(box(0.02, 0.06, 0.1, gold, dx - 0.06, 1.0, dz + 0.5));
@@ -443,7 +445,7 @@ export function buildLevel(scene, state) {
     g.add(box(0.1, 0.12, 0.3, basic('headlight', { color: 0xffe9a8, toneMapped: false }), 1.5, 0.55, 0.55)); g.add(box(0.1, 0.12, 0.3, basic('headlight', { color: 0xffe9a8, toneMapped: false }), 1.5, 0.55, -0.55));
     g.add(box(0.1, 0.1, 0.3, basic('taillight', { color: 0xff3b30, toneMapped: false }), -1.5, 0.55, 0.55)); g.add(box(0.1, 0.1, 0.3, basic('taillight', { color: 0xff3b30, toneMapped: false }), -1.5, 0.55, -0.55));
     if (taxi) g.add(plane(0.7, 0.22, new THREE.MeshBasicMaterial({ map: textTexture('TAXI', { w: 256, h: 80, font: 'bold 56px Inter, sans-serif', color: '#111', bg: '#ffe082' }), toneMapped: false, side: THREE.DoubleSide }), -0.1, 1.38, 0));
-    root.add(g); blob(cx, cz, 3.6, 2.2); L.colliders.push({ x0: cx - 1.5, z0: cz - 0.8, x1: cx + 1.5, z1: cz + 0.8 });
+    root.add(g); blob(cx, cz, 3.6, 2.2); L.colliders.push({ x0: cx - 1.5, z0: cz - 0.8, x1: cx + 1.5, z1: cz + 0.8 }); narrHit(taxi ? 'taxi' : 'car', taxi ? 'Le taxi' : 'Une voiture', cx, 0.7, cz, 3.2, 1.4, 1.8);
   });
   root.add(cyl(0.25, 0.22, 0.9, darkMetal, 458 * S, 0.45, 158 * S, 12));
   root.add(box(0.3, 0.3, 0.3, darkMetal, 176 * S - 0.2, 3.2, 878 * S)); root.add(box(0.2, 0.06, 0.2, basic('lampbulb', { color: 0xffe0a8, toneMapped: false }), 176 * S - 0.25, 3.05, 878 * S));
@@ -458,28 +460,29 @@ export function buildLevel(scene, state) {
   frame(2300 * S, 1.9, 1368 * S + 0.03, 0, 0); frame(2700 * S, 1.9, 1368 * S + 0.03, 0, 1); frame(2500 * S, 1.9, 1600 * S - 0.03, Math.PI, 2, 1.6, 1.0);
   frame(1400 * S, 1.9, 768 * S + 0.03, 0, 3, 0.9, 1.2); frame(2350 * S, 1.8, 1624 * S + 0.03, 0, 1, 0.8, 1.0);
   root.add(box(1.0, 0.7, 0.5, gold, 2920 * S, 0.35, 1412 * S)); [0xffca28, 0x29b6f6, 0xef5350].forEach((c, i) => root.add(cyl(0.04, 0.05, 0.3, new THREE.MeshStandardMaterial({ color: c, transparent: true, opacity: 0.8 }), 2920 * S - 0.3 + i * 0.3, 0.85, 1412 * S, 10)));
-  root.add(cyl(0.16, 0.12, 0.28, chrome, 2600 * S, 1.06, 1440 * S + 0.3, 14)); root.add(cyl(0.05, 0.06, 0.34, std('champ', { color: 0x1b4636 }), 2600 * S, 1.3, 1440 * S + 0.3, 10));
+  root.add(cyl(0.16, 0.12, 0.28, chrome, 2600 * S, 1.06, 1440 * S + 0.3, 14)); root.add(cyl(0.05, 0.06, 0.34, std('champ', { color: 0x1b4636 }), 2600 * S, 1.3, 1440 * S + 0.3, 10)); narrHit('champagne', 'Le champagne', 2600 * S, 1.2, 1440 * S + 0.3, 0.6, 0.6, 0.6);
   L.colliders.push({ x0: 2920 * S - 0.5, z0: 1412 * S - 0.25, x1: 2920 * S + 0.5, z1: 1412 * S + 0.25 });
   root.add(box(1.0, 1.25, 1.0, std('safe', { color: 0x37474f, metalness: 0.7, roughness: 0.4 }), 2360 * S, 0.625, 1865 * S)); const dial = cyl(0.12, 0.12, 0.05, gold, 2360 * S - 0.52, 0.7, 1865 * S, 12); dial.rotation.z = Math.PI / 2; root.add(dial);
-  L.colliders.push({ x0: 2360 * S - 0.5, z0: 1865 * S - 0.5, x1: 2360 * S + 0.5, z1: 1865 * S + 0.5 });
+  L.colliders.push({ x0: 2360 * S - 0.5, z0: 1865 * S - 0.5, x1: 2360 * S + 0.5, z1: 1865 * S + 0.5 }); narrHit('safe', 'Le coffre', 2360 * S, 0.6, 1865 * S, 1.2, 1.3, 1.2);
   root.add(box(1.0, 2.0, 0.05, std('stall', { color: 0xb0bec5 }), 1310 * S, 1.0, 1050 * S)); root.add(box(0.05, 2.0, 0.8, std('stall', { color: 0xb0bec5 }), 1290 * S, 1.0, 1066 * S)); root.add(box(0.3, 0.4, 0.2, chrome, 1184 * S + 0.12, 1.3, 1000 * S));
   const ticker = tickerTexture(); L.updaters.push((t) => { if (Math.floor(t * 30) % 2 === 0) ticker.update(t); });
-  root.add(box(8.2, 0.7, 0.14, black, 680 * S, 2.35, 344 * S + 0.07)); root.add(plane(8, 0.6, new THREE.MeshBasicMaterial({ map: ticker.texture, toneMapped: false }), 680 * S, 2.35, 344 * S + 0.15));
+  root.add(box(8.2, 0.7, 0.14, black, 680 * S, 2.35, 344 * S + 0.07)); root.add(plane(8, 0.6, new THREE.MeshBasicMaterial({ map: ticker.texture, toneMapped: false }), 680 * S, 2.35, 344 * S + 0.15)); narrHit('ticker', 'Le jackpot progressif', 680 * S, 2.35, 344 * S + 0.5, 8, 0.8, 1.0);
   root.add(box(1.2, 1.4, 0.6, chrome, 1120 * S, 0.7, 1300 * S)); root.add(plane(1.0, 0.3, new THREE.MeshBasicMaterial({ map: textTexture('MONNAIE', { w: 512, h: 128, font: 'bold 60px Inter, sans-serif', color: '#ffe8b0', bg: '#1b1b22' }), toneMapped: false }), 1120 * S, 1.6, 1300 * S + 0.31)); L.colliders.push({ x0: 1120 * S - 0.6, z0: 1300 * S - 0.3, x1: 1120 * S + 0.6, z1: 1300 * S + 0.3 });
   const tv = tvTexture(); L.updaters.push((t) => { if (Math.floor(t * 30) % 3 === 0) tv.update(t); });
-  root.add(box(0.06, 1.0, 1.7, black, 1840 * S - 0.06, 2.1, 900 * S)); root.add(plane(1.6, 0.9, new THREE.MeshBasicMaterial({ map: tv.texture, toneMapped: false }), 1840 * S - 0.1, 2.1, 900 * S, -Math.PI / 2));
-  const piano = new THREE.Group(); piano.position.set(1400 * S, 0, 800 * S); piano.add(box(1.5, 0.5, 0.7, std('piano', { color: 0x0d0d10, metalness: 0.4, roughness: 0.15, envMapIntensity: 0.8 }), 0, 0.85, 0)); piano.add(box(1.4, 0.03, 0.2, white, 0, 1.11, 0.3)); for (let k = 0; k < 20; k++) if (k % 7 !== 2 && k % 7 !== 6) piano.add(box(0.03, 0.03, 0.12, black, -0.66 + k * 0.07, 1.14, 0.26)); [[-0.65, -0.3], [0.65, -0.3], [-0.65, 0.3], [0.65, 0.3]].forEach(([x, z]) => piano.add(box(0.08, 0.6, 0.08, black, x, 0.3, z))); piano.add(cyl(0.2, 0.2, 0.06, leather, 0, 0.55, 0.75, 14)); piano.add(cyl(0.03, 0.03, 0.5, chrome, 0, 0.27, 0.75, 8)); root.add(piano); blob(1400 * S, 800 * S, 2.2, 1.6);
+  root.add(box(0.06, 1.0, 1.7, black, 1840 * S - 0.06, 2.1, 900 * S)); root.add(plane(1.6, 0.9, new THREE.MeshBasicMaterial({ map: tv.texture, toneMapped: false }), 1840 * S - 0.1, 2.1, 900 * S, -Math.PI / 2)); narrHit('tv', 'La télé du bar', 1840 * S - 0.4, 2.1, 900 * S, 0.8, 1.1, 1.8);
+  const piano = new THREE.Group(); piano.position.set(1400 * S, 0, 800 * S); piano.add(box(1.5, 0.5, 0.7, std('piano', { color: 0x0d0d10, metalness: 0.4, roughness: 0.15, envMapIntensity: 0.8 }), 0, 0.85, 0)); piano.add(box(1.4, 0.03, 0.2, white, 0, 1.11, 0.3)); for (let k = 0; k < 20; k++) if (k % 7 !== 2 && k % 7 !== 6) piano.add(box(0.03, 0.03, 0.12, black, -0.66 + k * 0.07, 1.14, 0.26)); [[-0.65, -0.3], [0.65, -0.3], [-0.65, 0.3], [0.65, 0.3]].forEach(([x, z]) => piano.add(box(0.08, 0.6, 0.08, black, x, 0.3, z))); piano.add(cyl(0.2, 0.2, 0.06, leather, 0, 0.55, 0.75, 14)); piano.add(cyl(0.03, 0.03, 0.5, chrome, 0, 0.27, 0.75, 8)); root.add(piano); blob(1400 * S, 800 * S, 2.2, 1.6); narrHit('piano', 'Le piano', 1400 * S, 0.8, 800 * S, 1.8, 1.4, 1.6);
   L.colliders.push({ x0: 1400 * S - 0.8, z0: 800 * S - 0.4, x1: 1400 * S + 0.8, z1: 800 * S + 0.95 });
   root.add(plane(1.6, 0.3, new THREE.MeshBasicMaterial({ map: textTexture('RESTAURANT · SPECTACLE ↓', { w: 768, h: 128, font: 'bold 52px Inter, sans-serif', color: '#ffd08a', bg: '#101018' }), toneMapped: false, side: THREE.DoubleSide }), 1600 * S, 2.2, 1172 * S + 0.03));
-  const fakeDoor = (x, z, label) => { root.add(box(1.2, 2.2, 0.08, std('door2', { color: 0x3b2412, roughness: 0.6 }), x, 1.1, z)); root.add(box(0.05, 0.08, 0.1, gold, x + 0.45, 1.0, z + 0.06)); root.add(plane(1.0, 0.24, new THREE.MeshBasicMaterial({ map: textTexture(label, { w: 512, h: 128, font: 'bold 64px Inter, sans-serif', color: '#ffd08a', bg: '#101018' }), toneMapped: false }), x, 2.35, z + 0.06)); };
+  const fakeDoor = (x, z, label) => { narrHit('fakedoor', 'Porte « ' + label + ' »', x, 1.1, z + 0.3, 1.3, 2.2, 0.8); root.add(box(1.2, 2.2, 0.08, std('door2', { color: 0x3b2412, roughness: 0.6 }), x, 1.1, z)); root.add(box(0.05, 0.08, 0.1, gold, x + 0.45, 1.0, z + 0.06)); root.add(plane(1.0, 0.24, new THREE.MeshBasicMaterial({ map: textTexture(label, { w: 512, h: 128, font: 'bold 64px Inter, sans-serif', color: '#ffd08a', bg: '#101018' }), toneMapped: false }), x, 2.35, z + 0.06)); };
   fakeDoor(1400 * S, 1368 * S + 0.05, 'RESTAURANT'); fakeDoor(1800 * S, 1656 * S + 0.05, 'SPECTACLE'); fakeDoor(500 * S, 1812 * S + 0.05, 'RÉSERVÉ');
   [[600, 1372, ['SPECTACLE', 'CE SOIR 22 H', 'GRAND CASINO']], [1200, 1528, ['BUFFET', 'À VOLONTÉ', 'DÈS 19 H']], [700, 1684, ['JACKPOT', '1 248 391 €', 'TENTEZ-LE']], [1500, 1816, ['NOUVEAU', 'MÉGALIGNES', 'SALLE DES MACHINES']]].forEach(([x, y, lines], i) => root.add(plane(0.8, 1.15, new THREE.MeshStandardMaterial({ map: posterTexture(lines, i % 2 ? ['#141210', '#ffd98a', '#f5f1e8'] : ['#0e2a20', '#c6a14f', '#f5f1e8']), roughness: 0.9 }), x * S, 1.7, y * S + 0.04)));
-  [[350, 1450], [1650, 1600], [1000, 1760]].forEach(([x, y]) => { root.add(box(1.4, 0.06, 0.45, leather, x * S, 0.45, y * S)); root.add(box(0.06, 0.45, 0.45, darkMetal, x * S - 0.6, 0.22, y * S)); root.add(box(0.06, 0.45, 0.45, darkMetal, x * S + 0.6, 0.22, y * S)); L.colliders.push({ x0: x * S - 0.7, z0: y * S - 0.25, x1: x * S + 0.7, z1: y * S + 0.25 }); });
+  [[350, 1450], [1650, 1600], [1000, 1760]].forEach(([x, y]) => { narrHit('bench', 'Un banc', x * S, 0.4, y * S, 1.5, 0.8, 0.6); root.add(box(1.4, 0.06, 0.45, leather, x * S, 0.45, y * S)); root.add(box(0.06, 0.45, 0.45, darkMetal, x * S - 0.6, 0.22, y * S)); root.add(box(0.06, 0.45, 0.45, darkMetal, x * S + 0.6, 0.22, y * S)); L.colliders.push({ x0: x * S - 0.7, z0: y * S - 0.25, x1: x * S + 0.7, z1: y * S + 0.25 }); });
 
   // ------------------------------------------------------------ point-light candidates
   for (const li of LIGHTS) {
     if (li.slot) continue;
-    L.lightSpots.push({ x: li.x * S, y: li.aisle ? CEIL.machines - 0.3 : (li.y < 320 ? 4.3 : 2.4), z: li.y * S, color: new THREE.Color(li.color), intensity: li.a * 42 * (li.color === '#ff4d6d' ? 1.4 : 1) * (li.y > 1368 && li.x < 2000 ? 1.8 : 1), distance: li.r * S * 2.6, neon: li.color === '#ff4d6d' });
+    const barPendant = li.y === 1075; const hallChand = li.x === 1600 && li.y === 540;
+    L.lightSpots.push({ x: li.x * S, y: li.aisle ? CEIL.machines - 0.3 : barPendant ? 2.2 : (li.y < 320 ? 4.3 : 2.4), z: li.y * S, color: new THREE.Color(li.color), intensity: li.a * 42 * (li.color === '#ff4d6d' ? 1.4 : 1) * (li.y > 1368 && li.x < 2000 ? 1.8 : 1) * (barPendant ? 0.35 : 1) * (hallChand ? 0.7 : 1), distance: li.r * S * 2.6, neon: li.color === '#ff4d6d' });
   }
   L.lightSpots.forEach(l => { if (Math.abs(l.x - 1600 * S) < 0.5 && Math.abs(l.z - 540 * S) < 0.5) l.y = 3.2; });
 

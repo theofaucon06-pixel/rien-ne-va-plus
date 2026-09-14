@@ -154,10 +154,19 @@ export const WITNESSES = [
     where: 'Le hall',
     lines: [
       "Tu entres ? Bien. Moi aussi je suis entré, un jour de juillet 1891. Je suis ressorti avec un million de francs.",
-      "J'ai fait sauter la banque. Douze fois. On a recouvert ma table d'un drap noir, le temps de la regarnir. Une chanson porte encore mon nom.",
-      "Je disais avoir un système. Je n'en avais pas. J'avais une série favorable, et de l'argent volé à des investisseurs.",
-      "Je suis revenu l'année suivante. La banque avait rouvert le lendemain de chacun de mes exploits, avec de l'argent frais. Moi, je n'avais que le mien.",
+      "J'ai fait sauter la banque. Douze fois. On a recouvert ma table d'un drap noir, le temps de la regarnir. Les journaux ont parlé de moi de Londres à New York. Une chanson porte encore mon nom.",
+      "Je disais avoir un système. Je n'en avais pas. J'avais une série favorable, et de l'argent volé : des investisseurs anglais qui croyaient financer mes inventions.",
+      "Je suis revenu en novembre. Encore gagné. Puis en 1892, sur un yacht acheté avec leur argent, avec une maîtresse et un orchestre à bord. La loi des grands nombres m'attendait à la table.",
+      "En quelques jours, tout. Puis l'arrestation, l'extradition, huit ans de prison en Angleterre. À ma sortie, j'ai recommencé sous un autre nom, en France. Condamné encore.",
       "Je suis mort en 1922, sans un sou. Une fosse commune. Faire sauter la banque, c'est gagner une bataille contre quelqu'un qui a déjà gagné la guerre."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: 'Comment on fait sauter une banque ?', lines: ["On ne la fait pas sauter. On vide la caisse d'une table, celle du soir, pas celle du casino. Ils vont chercher de l'argent au coffre, ils remettent un drap noir, et ça repart. J'ai « fait sauter la banque » douze fois. Le casino n'a jamais fermé une heure."] },
+      { label: "Est-ce que tu avais vraiment un système ?", lines: ["J'ai juré que oui à tous les journalistes. Miser sur les numéros sortis, doubler, tripler. Ça a marché pendant onze jours en juillet et cinq en novembre. Un système qui marche seize jours et échoue le reste d'une vie, ça s'appelle une série."] }
+    ] },
+    more: [
+      ["Tu es encore là ? La banque aussi. C'est la différence entre nous deux."],
+      ["Les gens se souviennent de la chanson, pas de la fosse commune. C'est comme ça que le casino fait sa publicité : gratuitement."]
     ]
   },
   {
@@ -165,10 +174,19 @@ export const WITNESSES = [
     where: 'La salle des machines',
     lines: [
       "Ne me parle pas trop fort. Je suis dans la zone.",
-      "Les gens croient qu'on joue pour gagner. Moi je joue pour ça : plus de temps, plus d'argent, plus de corps. Juste le tour suivant.",
-      "Un gros gain ? Ça m'agace. Ça interrompt. Il faut attendre que quelqu'un vienne, signer un papier. Puis je rejoue tout pour retrouver la zone.",
-      "Une anthropologue est venue nous écouter pendant quinze ans. Elle a compris que la zone n'était pas dans ma tête. Elle est dans la machine. Ils l'ont conçue, tour après tour.",
+      "Les gens croient qu'on joue pour gagner. Moi je joue pour ça : plus de temps, plus d'argent, plus de corps. Juste le tour suivant. Puis le suivant.",
+      "Je travaille à l'accueil d'un hôtel, à deux rues. Mes pauses, mes soirées, mes jours de repos : ici. Toujours la même machine, la troisième de la rangée. Si quelqu'un est dessus, je l'attends.",
+      "Un gros gain ? Ça m'agace. Ça interrompt. Il faut attendre que quelqu'un vienne, signer un papier, sourire. Puis je rejoue tout pour retrouver la zone.",
+      "Une anthropologue est venue nous écouter pendant quinze ans. Elle a compris que la zone n'était pas dans ma tête. Elle est dans la machine. Ils l'ont conçue, tour après tour, avec des ingénieurs et des psychologues.",
       "Je sais exactement quand je sors de la zone. Quand il n'y a plus de crédits."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: "C'est quoi, la zone, exactement ?", lines: ["C'est quand tu ne penses plus. Ni à la journée, ni à l'argent, ni au corps qui a faim. Le rythme fait tout. Un tour toutes les trois secondes, sans jamais lever la main du bouton. Certaines personnes restent douze heures. Il y a des sièges avec un trou, tu sais. Pour ne pas avoir à se lever."] },
+      { label: 'Pourquoi cette machine-là ?', lines: ["Parce qu'elle me connaît. Enfin, c'est ce que je ressens. En vrai, elle a le même programme que les cent autres. Mais quand j'ai appris ça, je n'ai pas changé de machine. La zone n'a pas besoin que ce soit vrai."] }
+    ] },
+    more: [
+      ["Encore toi. Tu vois la lumière de mon écran ? Elle change quand je perds trop vite. Plus douce. Ils ont testé la couleur."],
+      ["Ma fille m'a demandé un jour ce que je faisais ici. J'ai dit : je me repose. C'était vrai. C'est ça, le problème."]
     ]
   },
   {
@@ -176,65 +194,61 @@ export const WITNESSES = [
     where: 'La salle des machines',
     lines: [
       "Tu vois cet écran ? Regarde bien ce qu'il affiche, et ce que le compteur dit. Ce n'est pas la même chose.",
-      "Août 2016, Queens. Ma machine s'est figée sur 42 949 672 dollars et 76 cents. Je me suis prise en photo devant. On m'a dit de revenir le lendemain.",
-      "Le lendemain : « dysfonctionnement ». Cette machine ne pouvait pas payer plus de 6 500 dollars. Le règlement, imprimé dessus, dit qu'une panne annule tout.",
-      "Ils m'ont proposé ce que mon tour avait vraiment rapporté : 2 dollars 25. Et un steak.",
-      "Mon jackpot était juste une perte déguisée en gain, portée à 42 millions. La tienne est plus discrète. Mais c'est la même machine."
+      "Août 2016, Queens. Une machine à un cent. Ma machine s'est figée sur 42 949 672 dollars et 76 cents. Je me suis prise en photo devant. Je pensais à mes quatre enfants, à la maison que j'allais acheter.",
+      "Le personnel m'a escortée dehors en me disant de revenir le lendemain.",
+      "Le lendemain : « dysfonctionnement ». Cette machine ne pouvait pas payer plus de 6 500 dollars. Le règlement, imprimé dessus en petit, dit qu'une panne annule tous les paiements et toutes les parties.",
+      "Ils m'ont proposé ce que mon tour avait vraiment rapporté : 2 dollars 25. Et un steak. J'ai attaqué en justice. J'ai perdu.",
+      "Mon jackpot était juste une perte déguisée en gain, portée à 42 millions. La tienne est plus discrète : trente centimes sur un jeton, avec de la musique. Mais c'est la même machine."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: 'Le chiffre 42 949 672,76 ?', lines: ["C'est 2 puissance 32 divisé par 100. La valeur maximale que le compteur de la machine peut contenir avant de déborder. Un bug informatique, pas un jackpot. Mais pendant une nuit, j'ai été la femme la plus riche du Queens."] },
+      { label: "Qu'est-ce que tu ferais aujourd'hui ?", lines: ["Je lirais la petite étiquette avant de m'asseoir. Elle dit ce que la machine peut payer au maximum, et que tout gain affiché peut être annulé. Tout le monde la voit. Personne ne la lit. C'est fait pour."] }
+    ] },
+    more: [
+      ["Regarde le compteur de crédits en bas. Lui seul compte. Le reste, c'est du spectacle."],
+      ["Ils m'ont offert un steak. Je l'ai refusé. C'est la seule chose que j'ai gagnée ce soir-là : dire non."]
     ]
   },
   {
     id: 'dosto', name: 'Fiodor Dostoïevski', sub: 'Baden-Baden, 1867', color: '#9FA8DA',
     where: 'La salle des tables',
     lines: [
-      "Écoute-moi. J'ai trouvé le secret. Il suffit de garder son sang-froid. Ne jamais s'emballer. Alors on gagne. Je l'ai écrit à ma famille.",
-      "Été 1867. Nous arrivons à Baden-Baden, Anna et moi. Je perds dès le premier jour.",
-      "Puis je mets en gage son alliance. Ses boucles d'oreilles. Mon manteau. Nous emménageons dans deux chambres au-dessus d'une forge.",
-      "En novembre, je lui écris que j'ai perdu les dernières pièces d'or qu'il nous restait. J'ai écrit Le Joueur en vingt-six jours pour payer mes dettes. Il n'a pas suffi.",
+      "Écoute-moi. J'ai trouvé le secret. Il suffit de garder son sang-froid. Ne jamais s'emballer. Alors on gagne. Je l'ai écrit à ma belle-sœur avec la certitude d'un mathématicien.",
+      "Wiesbaden, 1863. Première fois. J'ai gagné dix mille francs en une heure. Tu comprends ? Une heure. Ce jour-là a décidé de dix ans de ma vie.",
+      "Été 1867. Nous arrivons à Baden-Baden, Anna et moi, mariés depuis quatre mois. Je perds dès le premier jour.",
+      "Puis je mets en gage son alliance. Ses boucles d'oreilles. Mon manteau. Sa robe. Nous emménageons dans deux chambres au-dessus d'une forge, le marteau commence à cinq heures du matin.",
+      "En novembre, je lui écris que j'ai perdu les dernières pièces d'or qu'il nous restait. Je lui demande pardon. Puis de l'argent. Elle envoie les deux.",
+      "J'ai écrit Le Joueur en vingt-six jours pour payer mes dettes, avec un éditeur qui aurait pris tous mes livres si j'avais eu un jour de retard. Le roman est un chef-d'œuvre. Il n'a rien réglé. Je n'ai arrêté qu'en 1871, à Wiesbaden, une dernière nuit.",
       "Le système n'a jamais marché. Pas une fois. Mais à chaque perte, j'étais sûr que c'était parce que je m'étais emballé."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: 'Pourquoi tu revenais ?', lines: ["Parce que perdre ne suffisait pas à me convaincre. Chaque perte prouvait seulement que j'avais mal appliqué le système. La seule chose qui aurait pu me convaincre, c'est gagner, et gagner ne serait jamais arrivé assez longtemps. Tu vois le piège ? Il n'a pas d'issue par la logique."] },
+      { label: "Et Anna ?", lines: ["Elle a tout noté dans son journal, en sténographie pour que je ne lise pas. Le manteau mis en gage, la robe, ses larmes. Elle est restée. C'est elle qui a fini par tenir les comptes, éditer mes livres, sauver la famille. Le joueur n'est jamais le seul à payer."] }
+    ] },
+    more: [
+      ["Tu as essayé le système ? Il marche, au début. C'est bien ça, le pire."],
+      ["Un jour à Wiesbaden, j'ai senti quelque chose se casser. Je n'ai plus jamais joué. Je ne sais pas pourquoi ce jour-là. Peut-être qu'il n'y avait plus rien à mettre en gage."]
     ]
   },
   {
     id: 'karas', name: 'Archie Karas', sub: 'Las Vegas, 1992-1995', color: '#F4B266',
     where: 'La salle des tables',
     lines: [
-      "Cinquante dollars. C'est ce que j'avais en arrivant à Vegas, en décembre 1992. Deux ans et demi plus tard : quarante millions. Personne n'a jamais fait ça.",
-      "Je jouais contre les meilleurs joueurs du monde à des tables où plus personne n'osait s'asseoir. Je transportais mes jetons dans des sacs.",
+      "Cinquante dollars. C'est ce que j'avais en arrivant à Vegas, en décembre 1992. J'avais tout perdu à Los Angeles la semaine d'avant. Deux ans et demi plus tard : quarante millions. Personne n'a jamais fait ça.",
+      "Poker d'abord, contre un joueur que j'avais connu. Puis le billard, à des sommes qui font peur. Puis les dés, ici, à cette table. Je jouais les mises maximales, plusieurs à la fois. Le casino a relevé ses plafonds pour moi.",
+      "Je jouais contre les meilleurs joueurs du monde à des tables où plus personne n'osait s'asseoir. Je transportais mes jetons dans des sacs. Je dormais deux heures.",
       "Janvier 1995. Onze millions perdus en une nuit, aux dés. Tu sais ce que j'ai fait ? Je suis revenu le lendemain. Pour me refaire.",
       "Dix-sept millions de plus au baccara, en trois semaines. Zéro. Quarante millions n'ont pas suffi à battre un pour cent d'avantage.",
+      "J'ai rejoué toute ma vie, par cycles. Un million, zéro, un million, zéro. En 2013, arrêté pour avoir marqué des cartes dans un casino de Californie. Inscrit sur la liste noire du Nevada. Mort en 2024, sans fortune.",
       "Tes deux cents euros non plus. Ce n'est pas la somme qui compte. C'est la soustraction."
-    ]
-  },
-  {
-    id: 'watanabe', name: 'Terrance Watanabe', sub: 'Las Vegas, 2007', color: '#E57373',
-    where: 'Le salon VIP',
-    lines: [
-      "Assieds-toi. Ils ont réservé cette suite pour moi. Toute l'année 2007, j'ai vécu ici. Mangé ici. Dormi ici. Joué ici, vingt-quatre heures d'affilée.",
-      "J'avais vendu l'entreprise familiale. Des hôtes rien que pour moi. Des cadeaux. Des remises sur mes pertes. De l'alcool, à volonté. Et des antidouleurs, quand je demandais.",
-      "Un autre casino m'avait exclu la même année : jeu compulsif, alcoolisme. Celui-ci a laissé ses portes ouvertes. Je représentais 5,6 % de leurs recettes de jeu à Las Vegas.",
-      "En un an, j'ai misé 825 millions de dollars. Perdu 127 millions. Quand j'ai refusé de payer les 14 derniers, ils m'ont fait poursuivre au pénal.",
-      "Je suis le client parfait. C'est pour ça que personne, dans l'industrie, ne prononce jamais mon nom."
-    ]
-  },
-  {
-    id: 'kakavas', name: 'Harry Kakavas', sub: 'Melbourne, 2006', color: '#BA68C8',
-    where: 'Le salon VIP',
-    lines: [
-      "Le jet privé, c'était eux. Les suites, les cadeaux, la boîte de 50 000 dollars en « argent porte-bonheur » : eux aussi.",
-      "Ils savaient que j'étais malade. Exclu du casino de Sydney. J'avais moi-même demandé à être interdit ici. Ils m'ont rappelé quand même.",
-      "Entre juin 2005 et août 2006, j'ai misé 1,43 milliard de dollars au baccara. Jusqu'à 300 000 la main. Perte nette : 20 millions et demi.",
-      "J'ai attaqué le casino. En 2013, la Haute Cour d'Australie a tranché : ils n'avaient pas l'obligation de me protéger de moi-même. Mon addiction n'était pas leur problème.",
-      "Le tapis rouge est légal. Chaque cadeau était calculé sur ce que j'allais perdre. Vérifie ce que le tien a estimé que tu valais."
-    ]
-  },
-  {
-    id: 'sami', name: 'Un jeune homme', sub: 'France, 2020-2025', color: '#4FC3F7',
-    where: 'Les toilettes',
-    lines: [
-      "Non, ça va. Je regarde juste mon téléphone. Je n'ai jamais mis les pieds dans un casino, tu sais. Je n'en ai pas eu besoin.",
-      "J'avais seize ans, au printemps 2020. Confiné. J'ai découvert le blackjack en ligne, sur des sites en crypto qui ne demandent pas de pièce d'identité. Les premiers dépôts faisaient dix euros.",
-      "Début 2024, j'avais 15 000 euros de côté. L'alternance, et un peu le jeu — j'avais gagné, au début. Puis un accident de voiture, l'été. Les dépôts sont passés à 500, parfois 1 000 par jour.",
-      "Deux mois : 5 000. Quelques mois de plus : zéro. Maintenant c'est chaque salaire, presque en entier.",
-      "J'ai écrit mon histoire sur le site de Joueurs Info Service, et j'ai pris rendez-vous dans un centre. Je te le dis parce que tu as le même téléphone que moi."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: "Comment on perd 11 millions en une nuit ?", lines: ["Comme on en perd cent : une mise après l'autre. Sauf que quand tu as gagné quarante millions, une mise de deux cent mille te paraît petite. L'échelle bouge avec toi. Le pourcentage, lui, ne bouge jamais."] },
+      { label: "Tu regrettes ?", lines: ["Le Run ? Jamais. C'est la plus belle chose que j'aie faite. Et c'est exactement ça qui m'a tué : je savais que c'était possible. Je l'avais fait. Alors je pouvais le refaire. Tous les joueurs ont un Run, en plus petit. Ton premier gain est ton Run."] }
+    ] },
+    more: [
+      ["Le baccara. C'est là que ça s'est fini. Regarde comme la table est calme."],
+      ["On m'appelait « The Greek ». On aurait dû m'appeler « la preuve » : la preuve que la taille de la fortune ne change rien à l'équation."]
     ]
   },
   {
@@ -242,10 +256,79 @@ export const WITNESSES = [
     where: 'La salle des tables',
     lines: [
       "Assieds-toi, mais regarde le sabot, pas le croupier. Six paquets. Tu vois ? Ils ont changé ça à cause de moi.",
-      "Je comptais les cartes. Ce n'est pas tricher : c'est se souvenir. Quand le sabot est riche en figures, on mise gros. Sinon, on mise petit. Avec ça, j'ai gagné. Beaucoup.",
-      "Alors ils m'ont interdit. Partout. Déguisements, faux noms, perruques : je revenais, ils me reconnaissaient, ils me sortaient.",
-      "En 1982, j'ai gagné mon procès dans le New Jersey : un casino ne pouvait plus m'exclure pour avoir trop bien joué. Ils ont répondu en ajoutant des paquets et en mélangeant plus tôt. Mon avantage a fondu.",
+      "J'étais vice-président à la Bourse de San Francisco. Un jour, un ami m'a montré comment compter les cartes. J'ai démissionné.",
+      "Compter, ce n'est pas tricher : c'est se souvenir. Quand le sabot est riche en figures, on mise gros. Sinon, on mise petit. Avec des équipes, des signaux, des déguisements, on a gagné. Des millions.",
+      "Alors ils m'ont interdit. Partout. Barbes postiches, perruques, faux noms : je revenais, ils me reconnaissaient, ils me sortaient. Un soir, des vigiles m'ont cassé la mâchoire.",
+      "En 1982, j'ai gagné mon procès dans le New Jersey : un casino ne pouvait plus m'exclure pour avoir trop bien joué. Ils ont répondu en ajoutant des paquets, en mélangeant plus tôt, en changeant les règles. Mon avantage a fondu.",
       "Retiens ça : le blackjack est le seul jeu de cette salle où l'on peut battre la maison. Et le jour où tu y arrives, la maison change les règles."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: 'Combien ça rapporte, compter ?', lines: ["Bien fait, avec une grosse bankroll et des heures de travail, un ou deux pour cent d'avantage. Un pour cent. Pour ça, il faut des années de pratique, des équipes, et accepter d'être jeté dehors. Si quelqu'un te vend une méthode facile pour gagner au blackjack, il te vend du vent."] },
+      { label: 'Et la stratégie de base ?', lines: ["Un tableau : ta main, la carte du croupier, la bonne décision. Ça ramène l'avantage de la maison à un demi pour cent. Elle est gratuite, elle est partout. Presque personne ne la suit. Regarde autour de toi : ils tirent à 16 contre un 6 et prennent l'assurance. Le casino compte là-dessus."] }
+    ] },
+    more: [
+      ["Tu comptes ? Non ? Alors tu joues à un jeu où la maison a l'avantage, avec le sentiment que ce n'est pas le cas. C'est le pire des deux mondes."],
+      ["J'ai écrit des livres, fait la télévision. Ils m'ont interdit quand même. Un casino n'a rien contre le talent. Il a quelque chose contre les gens qui gagnent."]
+    ]
+  },
+  {
+    id: 'watanabe', name: 'Terrance Watanabe', sub: 'Las Vegas, 2007', color: '#E57373',
+    where: 'Le salon VIP',
+    lines: [
+      "Assieds-toi. Ils ont réservé cette suite pour moi. Toute l'année 2007, j'ai vécu ici. Mangé ici. Dormi ici. Joué ici, vingt-quatre heures d'affilée, plusieurs mains à la fois.",
+      "J'avais vendu l'entreprise familiale, des articles de fête, à Omaha. Cinquante ans, célibataire, riche, et personne pour me dire non.",
+      "Des hôtes rien que pour moi. Des cadeaux. Quinze pour cent de remise sur mes pertes. Trois millions de crédit dans une boîte. De l'alcool, à volonté. Et des antidouleurs, quand je demandais. C'est du moins ce que j'ai affirmé au tribunal.",
+      "Un autre casino m'avait exclu la même année : jeu compulsif, alcoolisme. Celui-ci a laissé ses portes ouvertes. Je représentais 5,6 % de leurs recettes de jeu à Las Vegas.",
+      "En un an, j'ai misé 825 millions de dollars. Perdu 127 millions. Quand j'ai refusé de payer les 14 derniers, ils m'ont fait poursuivre au pénal. On a fini par s'arranger, en silence.",
+      "Je suis le client parfait. C'est pour ça que personne, dans l'industrie, ne prononce jamais mon nom."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: 'Comment on mise 825 millions ?', lines: ["Pas en une fois. Cinquante mille par main, trois mains à la fois, vingt heures par jour, pendant des mois. Chaque mise repassait à la banque avec un petit pourcentage en moins. Multiplie un petit pourcentage par 825 millions : ça fait 127."] },
+      { label: "Quelqu'un a essayé de t'arrêter ?", lines: ["Ma sœur. Elle a appelé le casino. On lui a répondu que j'étais un adulte. Ce qui était vrai. Un adulte à qui l'on servait à boire à la table, avec un hôte chargé de me rappeler dès que je m'éloignais."] }
+    ] },
+    more: [
+      ["Le lit est là-bas. Je ne m'en suis presque pas servi. On m'apportait des couvertures à la table."],
+      ["Ils m'ont donné une plaque « joueur de l'année ». Sérieusement."]
+    ]
+  },
+  {
+    id: 'kakavas', name: 'Harry Kakavas', sub: 'Melbourne, 2006', color: '#BA68C8',
+    where: 'Le salon VIP',
+    lines: [
+      "Le jet privé, c'était eux. Les suites, les cadeaux, la boîte de 50 000 dollars en « argent porte-bonheur » : eux aussi.",
+      "Ils savaient que j'étais malade. Exclu du casino de Sydney. J'avais moi-même demandé à être interdit ici, des années plus tôt. Condamné pour une fraude commise pour financer mon jeu. Ils m'ont rappelé quand même. Un hôte a fait le voyage jusque chez moi.",
+      "Entre juin 2005 et août 2006, j'ai misé 1,43 milliard de dollars au baccara. Jusqu'à 300 000 la main. Une séance de cinq heures et demie. Perte nette sur la période : 20 millions et demi.",
+      "J'ai attaqué le casino : j'étais malade, ils le savaient, ils m'ont exploité. Il y avait des preuves. Les remises sur pertes, les vols, les cadeaux.",
+      "En 2013, la Haute Cour d'Australie a tranché, à l'unanimité : le casino n'avait pas l'obligation de me protéger de moi-même. Mon addiction n'était pas un « désavantage spécial ». Un homme d'affaires qui perd est un homme d'affaires.",
+      "Le tapis rouge est légal. Chaque cadeau était calculé sur ce que j'allais perdre. Vérifie ce que le tien a estimé que tu valais."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: "C'est quoi, une remise sur pertes ?", lines: ["Tu perds un million, ils t'en rendent deux cent mille. Généreux ? Non : ça baisse le prix de la perte, donc tu joues plus longtemps, donc tu perds plus. C'est une réduction sur le poison. La version grand public s'appelle « points fidélité »."] },
+      { label: 'Tu aurais voulu quoi, du tribunal ?', lines: ["Qu'il dise une chose simple : quand une entreprise sait que vous ne pouvez pas vous arrêter, elle n'a pas le droit de vous inviter. Il a dit le contraire. Alors retiens-le : personne ne t'arrêtera à ta place. Pas ici."] }
+    ] },
+    more: [
+      ["Ils ont mon dossier, quelque part. Ce que je buvais, à quelle heure je craquais. Le tien est en train de s'écrire."],
+      ["Un jet privé pour aller perdre vingt millions. Je l'ai raconté comme une victoire pendant des années."]
+    ]
+  },
+  {
+    id: 'sami', name: 'Un jeune homme', sub: 'France, 2020-2025', color: '#4FC3F7',
+    where: 'Les toilettes',
+    lines: [
+      "Non, ça va. Je regarde juste mon téléphone. Je n'ai jamais mis les pieds dans un casino, tu sais. Je n'en ai pas eu besoin.",
+      "J'avais seize ans, au printemps 2020. Confiné. Un streamer que je regardais jouait au blackjack en direct, avec un lien en description. Sites en crypto, aucune pièce d'identité. Les premiers dépôts faisaient dix euros.",
+      "Au début, je gagnais. Enfin, je crois. Je ne comptais pas. Puis l'alternance, un salaire. Début 2024, j'avais 15 000 euros de côté : le travail, et un peu le jeu.",
+      "Un accident de voiture, l'été. Rien de grave, mais je suis resté chez moi. Les dépôts sont passés de 100 par semaine à 500, parfois 1 000 par jour. Depuis mon lit.",
+      "Deux mois : 5 000. Quelques mois de plus : zéro. Maintenant c'est chaque salaire, presque en entier, le jour où il tombe. Je mens à ma mère sur le loyer.",
+      "J'ai écrit mon histoire sur le site de Joueurs Info Service, et j'ai pris rendez-vous dans un centre. Je te le dis parce que tu as le même téléphone que moi."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: "Pourquoi les sites en crypto ?", lines: ["Parce qu'il n'y a rien. Pas d'âge, pas de limite, pas d'auto-exclusion, pas de recours. Et parce que la crypto, ça ne ressemble pas à de l'argent. 0,02 de je-ne-sais-quoi, ça fait moins mal que 800 euros. C'est le jeton, version 2020."] },
+      { label: 'Le centre, ça donne quoi ?', lines: ["Ils ne m'ont pas fait la morale. Ils m'ont demandé de bloquer les sites avec un logiciel, de donner ma carte à quelqu'un de confiance, et de venir toutes les deux semaines. Ça fait trois mois. J'ai rechuté une fois. Ils ont dit : c'est normal, on continue."] }
+    ] },
+    more: [
+      ["Le bonus de bienvenue, c'est le pire. Tu crois que tu joues avec leur argent. Tu joues avec ton temps."],
+      ["Si tu connais quelqu'un qui regarde ces streams, dis-lui que le streamer est payé pour perdre en souriant."]
     ]
   },
   {
@@ -253,10 +336,19 @@ export const WITNESSES = [
     where: 'Les couloirs',
     lines: [
       "Perdu ? Non. Tu es exactement là où je t'ai mis.",
-      "Pas de fenêtres, pas d'horloges. Plafonds bas, allées qui tournent, machines visibles de partout. La sortie jamais en ligne droite. J'ai écrit le manuel en 2000. Tous l'ont lu.",
-      "Les jetons ? Pour que l'argent ne pèse rien. Le verre offert ? Pour que le compteur devienne flou. Le siège ? Pour que tu ne te lèves pas.",
+      "Pas de fenêtres, pas d'horloges. Plafonds bas, allées qui tournent, machines visibles de partout. La sortie jamais en ligne droite. J'ai écrit le manuel en 2000, six cents pages, treize principes. Tous l'ont lu.",
+      "Les jetons ? Pour que l'argent ne pèse rien. Le verre offert ? Pour que le compteur devienne flou. Le siège ? Pour que tu ne te lèves pas. La moquette chargée ? Pour que tu regardes les machines, pas le sol.",
+      "Le tapis rouge à l'entrée, la fontaine, les colonnes : c'est pour la première minute. Après, on baisse le plafond et on serre les allées. Un joueur dans une allée étroite se sent à l'abri. Il reste.",
       "J'étais joueur compulsif, avant. C'est pour ça que j'étais bon : je savais ce qui m'aurait fait rester.",
       "La sortie est à l'ouest, tout au bout, derrière les miroirs. Il n'y a pas de panneau. Il n'y en aura jamais."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: 'Pourquoi les miroirs ?', lines: ["Ils agrandissent l'espace et ils cassent les repères. Tu ne sais plus quel couloir tu as déjà pris. Et ils te montrent un joueur, pas une personne fatiguée. C'est le même truc que les écrans : on te montre ce que tu veux voir."] },
+      { label: "L'école d'en face, la lumière et les jardins ?", lines: ["Roger Thomas, chez Wynn. Il a fait l'inverse de moi : plafonds hauts, lumière naturelle, œuvres d'art. Il a prouvé qu'un joueur détendu mise plus. Deux écoles, un seul indicateur. Ce n'est pas le décor qui compte. C'est qu'il a été choisi pour toi."] }
+    ] },
+    more: [
+      ["Regarde le sol. Les motifs pointent vers les machines. Tu ne l'avais pas vu. C'est le but."],
+      ["On teste tout : la température, l'odeur, la musique. Tu n'as jamais eu froid ici. Tu ne l'as jamais remarqué non plus."]
     ]
   },
   {
@@ -264,13 +356,108 @@ export const WITNESSES = [
     where: "L'arrêt de bus",
     lines: [
       "Tu sors ? Il est tôt. Ou tard, ça dépend. Moi je finis ma nuit d'écoute.",
-      "Les gens appellent à trois heures du matin, en général. Pas pour qu'on les juge. Pour dire à quelqu'un ce qu'ils n'ont dit à personne.",
-      "On ne demande pas de nom. On demande ce qui s'est passé ce soir, et ce qu'on peut faire demain matin. Souvent, c'est une interdiction volontaire : trois ans, tous les casinos et sites légaux de France. Ça se fait en ligne, en dix minutes.",
-      "73 000 personnes l'ont fait. Ce n'est pas un échec. C'est la première mise gagnante de leur vie.",
+      "Les gens appellent à trois heures du matin, en général. Pas pour qu'on les juge. Pour dire à quelqu'un ce qu'ils n'ont dit à personne. Souvent c'est la première fois qu'ils le disent à voix haute.",
+      "On ne demande pas de nom. On demande ce qui s'est passé ce soir, et ce qu'on peut faire demain matin. Souvent, c'est une interdiction volontaire : trois ans minimum, tous les casinos et sites légaux de France. Ça se fait en ligne, sur le site de l'ANJ, en dix minutes, avec une pièce d'identité.",
+      "Puis on parle argent, concrètement : donner sa carte à un proche, bloquer les paiements vers les sites de jeu, un rendez-vous dans un CSAPA, gratuit, dans chaque département.",
+      "73 000 personnes se sont interdites de jeu. Ce n'est pas un échec. C'est la première mise gagnante de leur vie.",
       "09 74 75 13 13. Tous les jours, de 8 h à 2 h. Garde-le. Pour toi, ou pour quelqu'un."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: "Et si c'est un proche qui joue ?", lines: ["Tu ne le feras pas arrêter. Mais tu peux dire ce que tu vois, sans accuser : « je m'inquiète, voilà ce que j'ai remarqué ». Ne rembourse pas ses dettes, ne mens pas pour lui. Et appelle-nous, toi aussi : le numéro est pour les proches. Ils sont la moitié des appels."] },
+      { label: "Comment on sait que c'est un problème ?", lines: ["Trois questions. Tu rejoues pour te refaire ? Tu mens sur le temps ou l'argent ? Tu y penses quand tu ne joues pas ? Un oui mérite une conversation. Deux, un appel. Ce n'est pas une maladie de faibles. C'est un produit conçu pour ça."] }
+    ] },
+    more: [
+      ["Le bus va arriver. Rentre. Et si demain c'est dur, tu sais où appeler."]
     ]
   }
 ];
+
+// Ambient lines for the crowd — each one is a small piece of prevention
+export const PATRON_LINES = {
+  machines: [
+    "Elle n'a pas payé depuis une heure, celle-là. Elle est chaude. — Non. Elle a le même programme qu'hier.",
+    "Je suis à moins quarante. Je m'arrête à zéro. — Il est là depuis midi.",
+    "J'ai eu deux sept. Deux ! Le troisième était juste au-dessus. — C'est réglé pour.",
+    "Cette machine m'aime bien. — Elle ne sait pas que tu existes.",
+    "Encore dix euros et je rentre. — Il l'a dit à dix-neuf heures.",
+    "Tu vois cette lumière ? Ça veut dire qu'elle va lâcher. — Ça veut dire qu'elle est allumée.",
+    "Je joue une pièce à la fois, comme ça je ne perds pas. — Six cents fois par heure.",
+    "Le type d'à côté a gagné trois cents. — Il en avait mis huit cents."
+  ],
+  tables: [
+    "Le rouge est sorti six fois. Le noir est dû. — La bille ne sait pas compter.",
+    "Je double à chaque perte. Impossible de perdre. — Sauf au dixième coup.",
+    "Je ne tire jamais sur 16. Jamais. — Contre un 7, il faut.",
+    "L'assurance, c'est plus sûr. — C'est le pari le plus cher de la table.",
+    "J'ai un système sur les douzaines. — Tout le monde a un système.",
+    "Ce croupier me porte malheur. — Il tourne une bille.",
+    "Le zéro sort toujours quand je mise gros. — Le zéro sort une fois sur trente-sept.",
+    "Je sens que ça vient. — Ça vient depuis 1913."
+  ],
+  bar: [
+    "Un verre et je repars aux tables. C'est offert, après tout. — Rien n'est offert.",
+    "J'ai perdu, mais j'ai passé une bonne soirée. — C'est le slogan.",
+    "Il est quelle heure ? — Personne ne sait.",
+    "J'attends un ami. — Depuis 21 h.",
+    "Le barman connaît mon prénom. — Il connaît ton théo."
+  ],
+  hall: [
+    "Je change cent euros. Pas plus. — C'est ce que tout le monde change en premier.",
+    "La carte de fidélité, c'est gratuit. — Ce sont tes mises qui la paient.",
+    "La roue, c'est pour s'amuser, ce n'est pas du vrai jeu. — C'est le pire taux de la maison.",
+    "Ma femme croit que je suis au cinéma. — Le film dure longtemps."
+  ],
+  vip: [
+    "Ici, tout est offert. — Sur la base de ce que tu perds.",
+    "Ils m'ont envoyé une voiture. — Ils viendront aussi chercher le chèque."
+  ],
+  labyrinth: [
+    "La sortie, c'est par là ? — Il n'y a pas de panneau.",
+    "Je cherche le restaurant depuis dix minutes. — Il y a des machines dans chaque coin, en attendant.",
+    "Je crois que je suis déjà passé ici. — Les miroirs sont là pour ça."
+  ],
+  street: [
+    "Vous avez l'heure ? — Vous êtes le premier à le demander ce soir.",
+    "J'ai fait une pause. Je retourne. — Le vigile hoche la tête."
+  ],
+  default: ["Bonsoir.", "…", "Excusez-moi."]
+};
+
+export const STAFF_LINES = {
+  croupier: [
+    "Faites vos jeux. — La roulette ne se souvient de rien. Les joueurs, si.",
+    "Rien ne va plus. — Ce que vous voyez sur l'écran là-haut, ce sont les derniers numéros. Ça ne prédit rien. Mais ça fait miser.",
+    "Le zéro ? C'est lui, notre salaire. Une case sur trente-sept."
+  ],
+  croupier2: [
+    "Joueur ou Banque ? La Banque gagne un peu plus souvent. C'est pour ça qu'on prend cinq pour cent dessus.",
+    "Les gros joueurs adorent le baccara. Ils croient qu'il n'y a pas de stratégie à rater. C'est vrai. Il n'y a que la soustraction.",
+    "La table haute. Minimum vingt-cinq. Il y a eu des soirs à trois cent mille la main, ici."
+  ],
+  caissier: [
+    "Un jeton, un euro. Vous les rendez quand vous voulez. — Presque personne ne vient les rendre.",
+    "Le distributeur est au fond. Les frais sont affichés. En petit."
+  ],
+  vigile: ["Bonne soirée. La sortie ? C'est indiqué. Quelque part."]
+};
+
+// 3D-only narration points (id → lines)
+export const NARRATIONS = {
+  mirror: ["Tu te vois dans le miroir. Tu as l'air fatigué. Le miroir, lui, sert à agrandir le couloir."],
+  fakedoor: ["Fermé. Ce n'était pas une sortie. Aucune de ces portes n'en est une."],
+  piano: ["Personne ne joue. Le pianiste vient à 23 h, pour que la salle ait l'air d'une fête à 23 h."],
+  tv: ["Un match. Toujours un match. Et en bas de l'écran, la cote du prochain."],
+  bookshelf: ["Des manuels de gestion de casino. L'un d'eux s'appelle « Designing Casinos to Dominate the Competition ». Six cents pages sur toi."],
+  safe: ["Le coffre. Ce qui est dedans vient de la salle. Ce qui va dans la salle vient de la caisse. La boucle est fermée."],
+  fountain: ["Des pièces au fond de l'eau. Des vœux. C'est la seule mise du bâtiment sans avantage pour la maison."],
+  ticker: ["Le jackpot progressif monte de quelques centimes à chaque mise, dans tout le pays. Il monte avec ce que les gens perdent."],
+  champagne: ["Champagne offert. Ce soir, il coûte exactement ce que tu vas perdre en plus."],
+  car: ["Une voiture garée depuis des heures. Le parking est gratuit, tant qu'on joue."],
+  taxi: ["Le taxi attend. Les casinos paient parfois la course. À l'aller."],
+  showposter: ["Un spectacle à 22 h. Il n'y a pas de salle de spectacle. Le panneau, lui, existe."],
+  bench: ["Un banc dans le couloir. Pour se reposer entre deux machines. Jamais pour partir."],
+  pillar: ["Une colonne de marbre. Fausse. Le marbre, c'est pour la première minute."]
+};
 
 // Staff & object dialogues -------------------------------------------------
 

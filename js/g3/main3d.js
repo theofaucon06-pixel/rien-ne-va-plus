@@ -86,6 +86,21 @@ function setDawn(on) {
   L.stars.visible = !on;
 }
 
+// ------------------------------------------------------------------ dust motes around the player
+const DUST = 500;
+const dustGeo = new THREE.BufferGeometry();
+const dustPos = new Float32Array(DUST * 3); for (let i = 0; i < DUST; i++) { dustPos[i * 3] = (Math.random() - 0.5) * 16; dustPos[i * 3 + 1] = Math.random() * 3; dustPos[i * 3 + 2] = (Math.random() - 0.5) * 16; }
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+const dustTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d'); const grd = g.createRadialGradient(16, 16, 0, 16, 16, 16); grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = grd; g.fillRect(0, 0, 32, 32); return new THREE.CanvasTexture(c); })();
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xffe6c0, size: 0.06, map: dustTex, alphaMap: dustTex, transparent: true, opacity: 0.28, depthWrite: false, sizeAttenuation: true }));
+scene.add(dust);
+function updateDust(t, dt) {
+  const p = camera.position; dust.position.set(Math.round(p.x / 4) * 4, 0, Math.round(p.z / 4) * 4);
+  const a = dustGeo.attributes.position.array;
+  for (let i = 0; i < DUST; i++) { a[i * 3 + 1] += Math.sin(t * 0.5 + i) * 0.0015 + 0.0008; if (a[i * 3 + 1] > 3) a[i * 3 + 1] = 0; a[i * 3] += Math.cos(t * 0.3 + i * 0.7) * 0.0012; }
+  dustGeo.attributes.position.needsUpdate = true;
+}
+
 // ------------------------------------------------------------------ light pool
 const POOL = 14;
 const pool = []; for (let i = 0; i < POOL; i++) { const pl = new THREE.PointLight(0xffffff, 0, 10, 2); scene.add(pl); pool.push(pl); }
@@ -171,6 +186,7 @@ function frame() {
   film.uniforms.time.value = t; film.uniforms.zone.value += ((zone ? 1 : 0) - film.uniforms.zone.value) * 0.05; film.uniforms.vig.value = drunk ? 0.7 : 0.5;
   rayTick++; if (rayTick % 3 === 0 && !open) updateHover(); else if (open) { hovered = null; ui.setPrompt(null); }
   for (const u of L.updaters) u(t, dt);
+  updateDust(t, dt);
   if (L.clock && Math.floor(t * 2) % 10 === 0) L.clock.update(state.timeMin);
   if (state.roulette && state.roulette.hist.length !== boardLen) { boardLen = state.roulette.hist.length; L.rouletteBoards.forEach(b => b.update(state.roulette.hist)); }
   updateActors(actors, t, dt, camera.position, hovered);
