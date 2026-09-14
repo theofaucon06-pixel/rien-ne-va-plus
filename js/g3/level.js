@@ -109,9 +109,8 @@ export function buildLevel(scene, state) {
 
   // ------------------------------------------------------------ pillars
   const pillar = (px, py, h, mat = marbleWhite, r = 0.32) => { const x = px * S, z = py * S; root.add(cyl(r, r, h, mat, x, h / 2, z, 20)); root.add(cyl(r + 0.08, r + 0.08, 0.16, gold, x, 0.08, z, 20)); root.add(cyl(r + 0.1, r + 0.02, 0.22, gold, x, h - 0.11, z, 20)); L.colliders.push({ x0: x - r, z0: z - r, x1: x + r, z1: z + r }); blob(x, z, 1.4); };
-  [[1500, 400], [1700, 400], [1440, 700], [1760, 700]].forEach(([x, y]) => pillar(x, y, CEIL.hall));
-  [[680, 520], [680, 840], [680, 1160]].forEach(([x, y]) => pillar(x, y, CEIL.machines, darkMetal, 0.28));
-  [[1960, 750], [2860, 750], [1960, 1250], [2860, 1250]].forEach(([x, y]) => pillar(x, y, CEIL.tables));
+  [[1395, 385], [1805, 385], [1395, 705], [1805, 705]].forEach(([x, y]) => pillar(x, y, CEIL.hall));
+  [[1905, 385], [2960, 385], [1905, 1300], [2700, 1300]].forEach(([x, y]) => pillar(x, y, CEIL.tables));
 
   // ------------------------------------------------------------ chandeliers & ceiling fixtures
   const fixture = (x, z, y, color = 0xfff1d6, w = 1.2, d = 0.4) => { const m = box(w, 0.06, d, basic('fx' + color, { color, toneMapped: false })); m.position.set(x, y - 0.03, z); root.add(m); };
@@ -122,7 +121,7 @@ export function buildLevel(scene, state) {
   putChand(1600, 540, CEIL.hall, 1.2);
   [[2135, 520], [2480, 520], [2820, 520], [2560, 900], [2170, 940], [2620, 1200]].forEach(([x, y]) => putChand(x, y, CEIL.tables, 0.8));
   [[2200, 1420], [2600, 1400], [2880, 1420]].forEach(([x, y]) => putChand(x, y, CEIL.vip, 0.6));
-  for (const y of [520, 680, 840, 1000, 1160]) for (let x = 300; x < 1120; x += 200) fixture(x * S, y * S, CEIL.machines, 0xffd8f0, 2.5, 0.25);
+  for (const y of [505, 655, 805, 955, 1105, 1255]) for (let x = 300; x < 1120; x += 200) fixture(x * S, y * S, CEIL.machines, 0xffd8f0, 2.5, 0.25);
   [1450, 1600, 1750].forEach(x => { root.add(cyl(0.02, 0.02, 0.9, black, x * S, CEIL.bar - 0.45, 1075 * S)); root.add(cyl(0.12, 0.28, 0.25, std('shade', { color: 0x3b2412, side: THREE.DoubleSide }), x * S, CEIL.bar - 1.0, 1075 * S)); const b = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), basic('bulbw', { color: 0xffc37a, toneMapped: false })); b.position.set(x * S, CEIL.bar - 1.08, 1075 * S); root.add(b); });
   fixture(1260 * S, 980 * S, CEIL.toilettes, 0xe9f2ff, 1.6, 0.6); fixture(1600 * S, 1260 * S, CEIL.hallway, 0xffd0a0, 0.6, 0.6); fixture(1260 * S, 540 * S, CEIL.corridor, 0xffe9c4, 0.6, 0.6); fixture(2220 * S, 1720 * S, CEIL.bureau, 0xe9f2ff, 1.8, 0.6);
   LIGHTS.filter(l => l.y > 1368 && l.x < 2000).forEach(l => fixture(l.x * S, l.y * S, CEIL.labyrinth, 0xffc78a, 0.5, 0.5));
@@ -455,7 +454,7 @@ export function buildLevel(scene, state) {
 
   // ------------------------------------------------------------ interior dressing
   const plant = (x, z, big = false) => { const g = new THREE.Group(); g.position.set(x, 0, z); const sc = big ? 1.5 : 1; g.add(cyl(0.22 * sc, 0.18 * sc, 0.4 * sc, std('pot', { color: 0x5d4037 }), 0, 0.2 * sc, 0, 12)); for (let i = 0; i < 7; i++) { const a = i / 7 * TAU; const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.16 * sc, 0.95 * sc, 6), std('leaf', { color: 0x2e7d32, roughness: 1 })); leaf.position.set(Math.cos(a) * 0.2 * sc, 0.78 * sc, Math.sin(a) * 0.2 * sc); leaf.rotation.set(Math.sin(a) * 0.55, 0, -Math.cos(a) * 0.55); g.add(leaf); } root.add(g); blob(x, z, 0.9 * sc); L.colliders.push({ x0: x - 0.3, z0: z - 0.3, x1: x + 0.3, z1: z + 0.3 }); };
-  [[1390, 720], [1810, 720], [1880, 1300], [2980, 1300], [2060, 1560], [2960, 1560], [240, 380], [1120, 380], [1380, 380], [1820, 380], [2200, 1900], [300, 1900]].forEach(([x, y], i) => plant(x * S, y * S, i < 6));
+  [[1560, 720], [1640, 720], [1960, 1300], [2980, 1300], [2060, 1560], [2960, 1560], [220, 380], [1130, 380], [2200, 1900], [300, 1900]].forEach(([x, y], i) => plant(x * S, y * S, i < 6));
   const frame = (x, y, z, ry, i, w = 1.0, h = 1.3) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; g.add(box(w + 0.12, h + 0.12, 0.05, gold, 0, 0, -0.02)); const m = new THREE.MeshStandardMaterial({ map: artTexture(i), roughness: 0.8 }); loadAsset('art' + (1 + (i % 3)), (t) => { m.map = t; m.needsUpdate = true; }, { repeat: false }); g.add(plane(w, h, m, 0, 0, 0.01)); root.add(g); };
   frame(2300 * S, 1.9, 1368 * S + 0.03, 0, 0); frame(2700 * S, 1.9, 1368 * S + 0.03, 0, 1); frame(2500 * S, 1.9, 1600 * S - 0.03, Math.PI, 2, 1.6, 1.0);
   frame(1400 * S, 1.9, 768 * S + 0.03, 0, 3, 0.9, 1.2); frame(2350 * S, 1.8, 1624 * S + 0.03, 0, 1, 0.8, 1.0);

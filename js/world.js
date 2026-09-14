@@ -77,18 +77,19 @@ export const WALLS = [
 
 // Slot machine banks (decorative + special)
 export const SLOTS = [];
-const rowsY = [440, 600, 760, 920, 1080, 1230];
+// six rows, two blocks, a 3.75 m central aisle that stays clear of the south door (700..780)
+const rowsY = [430, 580, 730, 880, 1030, 1180];
 rowsY.forEach((y, r) => {
-  for (let i = 0; i < 7; i++) SLOTS.push({ x: 280 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40) % 360 });
-  for (let i = 0; i < 7; i++) SLOTS.push({ x: 740 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40 + 180) % 360 });
+  for (let i = 0; i < 7; i++) SLOTS.push({ x: 250 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40) % 360 });
+  for (let i = 0; i < 6; i++) SLOTS.push({ x: 780 + i * 56, y, w: 44, h: 56, hue: (r * 60 + i * 40 + 180) % 360 });
 });
 // mark the three special machines
 function mark(x, y, kind, label) { const m = SLOTS.find(s => s.x === x && s.y === y); m.kind = kind; m.label = label; m.special = true; }
-mark(392, 440, 'lucky', 'Lucky 7');
-mark(852, 600, 'mega', 'Mégalignes');
-mark(504, 920, 'presque', 'Presque !');
-// slot bank in the tables room
-for (let i = 0; i < 6; i++) SLOTS.push({ x: 2320 + i * 56, y: 1230, w: 44, h: 56, hue: (i * 50 + 20) % 360 });
+mark(362, 430, 'lucky', 'Lucky 7');
+mark(892, 580, 'mega', 'Mégalignes');
+mark(474, 880, 'presque', 'Presque !');
+// small bank along the east wall of the tables room, facing west
+for (let i = 0; i < 5; i++) SLOTS.push({ x: 2950, y: 1000 + i * 66, w: 44, h: 56, hue: (i * 50 + 20) % 360, rot: 'west' });
 // every machine is playable: assign a game kind and a marquee name
 export const SLOT_KINDS = ['lucky', 'fruits', 'presque', 'pharaon', 'mega'];
 const SLOT_NAMES = {
@@ -178,8 +179,8 @@ export const NPCS = [
   { id: 'wells', name: 'Charles Wells', kind: 'ghost', x: 1520, y: 650, witness: 'wells', r: 70 },
   { id: 'caissier', name: 'La caissière', kind: 'staff', x: 1445, y: 452, color: '#8D6E63', r: 0, behind: true },
   { id: 'hotesse', name: "L'hôtesse", kind: 'staff', x: 1755, y: 452, color: '#AD1457', r: 0, behind: true },
-  { id: 'mollie', name: 'Mollie', kind: 'ghost', x: 862, y: 838, witness: 'mollie', r: 66 },
-  { id: 'bookman', name: 'Katrina Bookman', kind: 'ghost', x: 980, y: 690, witness: 'bookman', r: 66 },
+  { id: 'mollie', name: 'Mollie', kind: 'ghost', x: 900, y: 822, witness: 'mollie', r: 66 },
+  { id: 'bookman', name: 'Katrina Bookman', kind: 'ghost', x: 1010, y: 690, witness: 'bookman', r: 66 },
   { id: 'croupier', name: 'Le croupier', kind: 'staff', x: 2135, y: 448, color: '#212121', r: 0, behind: true },
   { id: 'croupier2', name: 'La croupière', kind: 'staff', x: 2560, y: 818, color: '#212121', r: 0, behind: true },
   { id: 'dosto', name: 'Fiodor Dostoïevski', kind: 'ghost', x: 1950, y: 660, witness: 'dosto', r: 70 },
@@ -205,12 +206,12 @@ export const NPCS = [
   { id: 'q9', name: '', kind: 'patron', x: 1560, y: 1032, color: '#6b3a5c', r: 44, facing: 'down' },
   { id: 'q10', name: '', kind: 'patron', x: 2620, y: 1572, color: '#7a4e4e', r: 44, facing: 'up', standing: true },
   { id: 'q11', name: '', kind: 'patron', x: 1445, y: 565, color: '#4e6b7a', r: 44, facing: 'up', standing: true },
-  { id: 'q12', name: '', kind: 'patron', x: 1428, y: 690, color: '#6b6b4e', r: 44, facing: 'up', standing: true },
-  { id: 'q13', name: '', kind: 'patron', x: 2160, y: 1240, color: '#5a3a3a', r: 44, facing: 'up' },
-  { id: 'q14', name: '', kind: 'patron', x: 2240, y: 1240, color: '#3a5a3a', r: 44, facing: 'up' },
+  { id: 'q12', name: '', kind: 'patron', x: 1452, y: 692, color: '#6b6b4e', r: 44, facing: 'up', standing: true },
+  { id: 'q13', name: '', kind: 'patron', x: 2906, y: 1094, color: '#5a3a3a', r: 44, facing: 'right' },
+  { id: 'q14', name: '', kind: 'patron', x: 2906, y: 1226, color: '#3a5a3a', r: 44, facing: 'right' },
   // walkers follow a path (px), looping or bouncing
-  { id: 'w1', name: '', kind: 'walker', x: 722, y: 480, color: '#4e5a6b', r: 44, path: [[722, 470], [722, 1310]], bounce: true, speed: 42 },
-  { id: 'w2', name: '', kind: 'walker', x: 320, y: 565, color: '#6b5a4e', r: 44, path: [[320, 565], [1120, 565], [1120, 725], [320, 725]], speed: 38 },
+  { id: 'w1', name: '', kind: 'walker', x: 705, y: 470, color: '#4e5a6b', r: 44, path: [[705, 470], [705, 1310]], bounce: true, speed: 42 },
+  { id: 'w2', name: '', kind: 'walker', x: 300, y: 655, color: '#6b5a4e', r: 44, path: [[300, 655], [1100, 655], [1100, 955], [300, 955]], speed: 38 },
   { id: 'w3', name: '', kind: 'walker', x: 1900, y: 700, color: '#3a3a4e', r: 44, path: [[1900, 700], [2700, 700], [2700, 1010], [2350, 1010], [2350, 700]], speed: 40 },
   { id: 'w4', name: 'La serveuse', kind: 'walker', x: 1600, y: 620, color: '#1b1b22', r: 44, path: [[1600, 620], [1600, 1010], [1520, 1010], [1520, 800]], bounce: true, speed: 34, tray: true },
   { id: 'w5', name: '', kind: 'walker', x: 400, y: 1590, color: '#5a4e6b', r: 44, path: [[400, 1590], [1900, 1590]], bounce: true, speed: 36 },
@@ -221,7 +222,6 @@ export const NPCS = [
   { id: 'p9', name: '', kind: 'patron', x: 1440, y: 1032, color: '#5c4e7a', r: 44, facing: 'down' },
   { id: 'p10', name: '', kind: 'patron', x: 1680, y: 1032, color: '#7a5c4e', r: 44, facing: 'down' },
   { id: 'p11', name: '', kind: 'patron', x: 822, y: 1600, color: '#4e7a6b', r: 44, facing: 'up' },
-  { id: 'p12', name: '', kind: 'patron', x: 2432, y: 1302, color: '#6b5c3a', r: 44, facing: 'up' },
 ];
 
 // Lights: { x, y, r, color, a } ; 'a' = intensity of cut-out (0..1)
