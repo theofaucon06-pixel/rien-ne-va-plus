@@ -91,6 +91,8 @@ mark(504, 920, 'presque', 'Presque !');
 for (let i = 0; i < 6; i++) SLOTS.push({ x: 2320 + i * 56, y: 1230, w: 44, h: 56, hue: (i * 50 + 20) % 360 });
 // labyrinth alcove machines
 [[248, 1372], [560, 1372], [1160, 1444], [800, 1528], [1560, 1604], [940, 1684], [1480, 1760], [1700, 1840]].forEach(([x, y], i) => SLOTS.push({ x, y, w: 44, h: 56, hue: (i * 70) % 360, laby: true }));
+// west-wall bank in the machine hall, facing east
+for (let i = 0; i < 11; i++) SLOTS.push({ x: 208, y: 480 + i * 66, w: 44, h: 56, hue: (i * 33 + 200) % 360, rot: 'east' });
 // every machine is playable: assign a game kind and a marquee name
 export const SLOT_KINDS = ['lucky', 'fruits', 'presque', 'pharaon', 'mega'];
 const SLOT_NAMES = {
@@ -124,11 +126,18 @@ export const OBJECTS = [
   { id: 'baccarat', x: 2440, y: 830, w: 240, h: 130, solid: true, type: 'baccarat', label: 'La table haute', r: 70 },
   { id: 'bj1', x: 2720, y: 470, w: 200, h: 110, solid: true, type: 'blackjack', label: 'Blackjack', r: 66 },
   { id: 'bj2', x: 2070, y: 880, w: 200, h: 110, solid: true, type: 'blackjack', label: 'Blackjack', r: 66 },
+  { id: 'roulette2', x: 2360, y: 470, w: 250, h: 130, solid: true, type: 'roulette', label: 'La roulette', r: 70 },
+  { id: 'bj3', x: 2740, y: 860, w: 200, h: 110, solid: true, type: 'blackjack', label: 'Blackjack', r: 66 },
+  { id: 'poker', x: 2080, y: 1090, w: 200, h: 120, solid: true, type: 'poker', label: 'Table de poker — tournoi à minuit', r: 66 },
+  { id: 'craps', x: 2500, y: 1060, w: 260, h: 120, solid: true, type: 'craps', label: 'Craps — table fermée', r: 66 },
+  { id: 'cage', x: 2950, y: 760, w: 44, h: 120, solid: true, type: 'cage', label: 'Caisse des tables', r: 66 },
   { id: 'vipdoor', x: 2100, y: 1344, w: 80, h: 24, solid: true, type: 'vipdoor', label: 'Salon VIP — membres', r: 60 },
   // bar
   { id: 'bar', x: 1400, y: 1060, w: 400, h: 36, solid: true, type: 'barcounter', label: 'Le bar', r: 60 },
   { id: 'btable1', x: 1420, y: 850, w: 56, h: 56, solid: true, type: 'roundtable' },
   { id: 'btable2', x: 1740, y: 850, w: 56, h: 56, solid: true, type: 'roundtable' },
+  { id: 'btable3', x: 1420, y: 960, w: 56, h: 56, solid: true, type: 'roundtable' },
+  { id: 'btable4', x: 1740, y: 960, w: 56, h: 56, solid: true, type: 'roundtable' },
   // toilettes
   { id: 'phone', x: 1220, y: 950, w: 30, h: 30, solid: false, type: 'phone', label: 'Ton téléphone vibre', r: 60 },
   { id: 'sink', x: 1200, y: 884, w: 120, h: 20, solid: true, type: 'sink' },
@@ -156,7 +165,18 @@ export const OBJECTS = [
   { id: 'dumpster', x: 40, y: 1700, w: 70, h: 40, solid: true, type: 'dumpster' },
 ];
 
-// NPCs. kind: ghost | staff | person
+// seated players at roughly a third of the machines
+function machinePatrons() {
+  const out = []; const cols = ['#6d5c7a', '#4e6b5a', '#7a6a4e', '#5a5a7a', '#7a4e5c', '#4e5a6b', '#6b4e3a', '#3a5a6b'];
+  SLOTS.forEach((m, i) => {
+    if (m.laby || m.rot) return;
+    if ((i * 7 + 3) % 3 !== 0) return;
+    if (m.special) return;
+    out.push({ id: 'mp' + i, name: '', kind: 'patron', x: m.x + 22, y: m.y + 72, color: cols[i % cols.length], r: 0, facing: 'up', seat: i });
+  });
+  return out;
+}
+// NPCs. kind: ghost | staff | person | patron | walker
 export const NPCS = [
   { id: 'vigile', name: 'Le vigile', kind: 'staff', x: 1420, y: 280, color: '#3F51B5', r: 64 },
   { id: 'wells', name: 'Charles Wells', kind: 'ghost', x: 1520, y: 650, witness: 'wells', r: 70 },
@@ -167,8 +187,8 @@ export const NPCS = [
   { id: 'croupier', name: 'Le croupier', kind: 'staff', x: 2135, y: 448, color: '#212121', r: 0, behind: true },
   { id: 'croupier2', name: 'La croupière', kind: 'staff', x: 2560, y: 818, color: '#212121', r: 0, behind: true },
   { id: 'dosto', name: 'Fiodor Dostoïevski', kind: 'ghost', x: 1950, y: 660, witness: 'dosto', r: 70 },
-  { id: 'karas', name: 'Archie Karas', kind: 'ghost', x: 2780, y: 980, witness: 'karas', r: 70 },
-  { id: 'uston', name: 'Ken Uston', kind: 'ghost', x: 2960, y: 640, witness: 'uston', r: 70 },
+  { id: 'karas', name: 'Archie Karas', kind: 'ghost', x: 2660, y: 1010, witness: 'karas', r: 70 },
+  { id: 'uston', name: 'Ken Uston', kind: 'ghost', x: 2880, y: 660, witness: 'uston', r: 70 },
   { id: 'barman', name: 'Le barman', kind: 'staff', x: 1600, y: 1126, color: '#5D4037', r: 0, behind: true },
   { id: 'sami', name: 'Un jeune homme', kind: 'person', x: 1300, y: 1044, witness: 'sami', color: '#4FC3F7', r: 64 },
   { id: 'architecte', name: "L'architecte", kind: 'ghost', x: 1000, y: 1600, witness: 'architecte', r: 70 },
@@ -177,14 +197,31 @@ export const NPCS = [
   { id: 'kakavas', name: 'Harry Kakavas', kind: 'ghost', x: 2820, y: 1470, witness: 'kakavas', r: 70 },
   { id: 'nour', name: 'Nour', kind: 'person', x: 360, y: 190, witness: 'nour', color: '#A5D6A7', r: 70, hidden: true },
   // silent patrons: they never look up
-  { id: 'p1', name: '', kind: 'patron', x: 582, y: 512, color: '#6d5c7a', r: 0, facing: 'up' },
-  { id: 'p2', name: '', kind: 'patron', x: 986, y: 672, color: '#4e6b5a', r: 0, facing: 'up' },
-  { id: 'p3', name: '', kind: 'patron', x: 358, y: 832, color: '#7a6a4e', r: 0, facing: 'up' },
-  { id: 'p4', name: '', kind: 'patron', x: 1098, y: 992, color: '#5a5a7a', r: 0, facing: 'up' },
-  { id: 'p5', name: '', kind: 'patron', x: 470, y: 1152, color: '#7a4e5c', r: 0, facing: 'up' },
+  ...machinePatrons(),
+  { id: 'q1', name: '', kind: 'patron', x: 2400, y: 628, color: '#5a4e7a', r: 0, facing: 'up', standing: true },
+  { id: 'q2', name: '', kind: 'patron', x: 2540, y: 628, color: '#7a5a4e', r: 0, facing: 'up', standing: true },
+  { id: 'q3', name: '', kind: 'patron', x: 2770, y: 612, color: '#4e7a6b', r: 0, facing: 'up' },
+  { id: 'q4', name: '', kind: 'patron', x: 2850, y: 612, color: '#6b4e7a', r: 0, facing: 'up' },
+  { id: 'q5', name: '', kind: 'patron', x: 2120, y: 1022, color: '#7a6b4e', r: 0, facing: 'up' },
+  { id: 'q6', name: '', kind: 'patron', x: 2200, y: 1022, color: '#4e5a7a', r: 0, facing: 'up' },
+  { id: 'q7', name: '', kind: 'patron', x: 2800, y: 1002, color: '#5c4e3a', r: 0, facing: 'up' },
+  { id: 'q8', name: '', kind: 'patron', x: 2600, y: 992, color: '#3a4e5c', r: 0, facing: 'up' },
+  { id: 'q9', name: '', kind: 'patron', x: 1560, y: 1032, color: '#6b3a5c', r: 0, facing: 'down' },
+  { id: 'q10', name: '', kind: 'patron', x: 2620, y: 1572, color: '#7a4e4e', r: 0, facing: 'up', standing: true },
+  { id: 'q11', name: '', kind: 'patron', x: 1445, y: 565, color: '#4e6b7a', r: 0, facing: 'up', standing: true },
+  { id: 'q12', name: '', kind: 'patron', x: 1428, y: 690, color: '#6b6b4e', r: 0, facing: 'up', standing: true },
+  { id: 'q13', name: '', kind: 'patron', x: 2160, y: 1240, color: '#5a3a3a', r: 0, facing: 'up' },
+  { id: 'q14', name: '', kind: 'patron', x: 2240, y: 1240, color: '#3a5a3a', r: 0, facing: 'up' },
+  // walkers follow a path (px), looping or bouncing
+  { id: 'w1', name: '', kind: 'walker', x: 722, y: 480, color: '#4e5a6b', r: 0, path: [[722, 470], [722, 1310]], bounce: true, speed: 42 },
+  { id: 'w2', name: '', kind: 'walker', x: 320, y: 565, color: '#6b5a4e', r: 0, path: [[320, 565], [1120, 565], [1120, 725], [320, 725]], speed: 38 },
+  { id: 'w3', name: '', kind: 'walker', x: 1900, y: 700, color: '#3a3a4e', r: 0, path: [[1900, 700], [2700, 700], [2700, 1010], [2350, 1010], [2350, 700]], speed: 40 },
+  { id: 'w4', name: 'La serveuse', kind: 'walker', x: 1600, y: 620, color: '#1b1b22', r: 0, path: [[1600, 620], [1600, 1010], [1520, 1010], [1520, 800]], bounce: true, speed: 34, tray: true },
+  { id: 'w5', name: '', kind: 'walker', x: 400, y: 1590, color: '#5a4e6b', r: 0, path: [[400, 1590], [1900, 1590]], bounce: true, speed: 36 },
+  { id: 'w6', name: '', kind: 'walker', x: 600, y: 210, color: '#4e4e4e', r: 0, path: [[600, 210], [2800, 210]], bounce: true, speed: 45 },
   { id: 'p6', name: '', kind: 'patron', x: 2080, y: 618, color: '#4e5a7a', r: 0, facing: 'up' },
   { id: 'p7', name: '', kind: 'patron', x: 2215, y: 618, color: '#6b4e3a', r: 0, facing: 'up' },
-  { id: 'p8', name: '', kind: 'patron', x: 2480, y: 988, color: '#3a5a6b', r: 0, facing: 'up' },
+  { id: 'p8', name: '', kind: 'patron', x: 2480, y: 992, color: '#3a5a6b', r: 0, facing: 'up' },
   { id: 'p9', name: '', kind: 'patron', x: 1440, y: 1032, color: '#5c4e7a', r: 0, facing: 'down' },
   { id: 'p10', name: '', kind: 'patron', x: 1680, y: 1032, color: '#7a5c4e', r: 0, facing: 'down' },
   { id: 'p11', name: '', kind: 'patron', x: 822, y: 1600, color: '#4e7a6b', r: 0, facing: 'up' },

@@ -26,10 +26,11 @@ body.drunk #game { filter: blur(1.4px) saturate(1.35) contrast(1.05); animation:
 #crosshair { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(245,241,232,0.7); box-shadow: 0 0 0 2px rgba(0,0,0,0.35); pointer-events: none; z-index: 5; transition: transform 0.15s, background 0.15s; }
 #crosshair.on { transform: scale(2.2); background: var(--gold-2); }
 body[data-mode="2d"] #crosshair { display: none; }
-#lock { position: fixed; inset: 0; z-index: 15; display: grid; place-items: center; background: rgba(4,6,12,0.45); cursor: pointer; backdrop-filter: blur(2px); }
-.lock-inner { text-align: center; background: var(--glass); border: 1px solid rgba(198,161,79,0.5); border-radius: 16px; padding: 22px 30px; }
-.lock-inner b { display: block; font-family: var(--serif); font-size: 30px; font-weight: normal; margin-bottom: 6px; }
-.lock-inner span { font-size: 13px; color: rgba(245,241,232,0.7); }
+#lock { position: fixed; inset: 0; z-index: 15; display: grid; place-items: end center; padding-bottom: 90px; cursor: pointer; }
+.lock-inner { text-align: center; background: var(--glass); border: 1px solid rgba(198,161,79,0.5); border-radius: 999px; padding: 12px 22px; backdrop-filter: blur(6px); animation: pop2 0.25s ease-out; }
+.lock-inner b { display: block; font-family: var(--serif); font-size: 20px; font-weight: normal; }
+.lock-inner span { font-size: 12px; color: rgba(245,241,232,0.7); }
+@keyframes pop2 { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
 .alt-link { position: fixed; right: 18px; bottom: 14px; z-index: 51; font-size: 11px; margin: 0; }
 .alt-link a { color: rgba(245,241,232,0.55); }
 body:has(#intro:not([hidden])) .alt-link, body:has(#epilogue:not([hidden])) .alt-link { display: none; }
@@ -42,6 +43,7 @@ body:has(#intro:not([hidden])) .alt-link, body:has(#epilogue:not([hidden])) .alt
 .hud-money b { display: block; font-family: var(--serif); font-size: 30px; font-weight: normal; line-height: 1.05; margin-top: 2px; transition: filter 0.6s; }
 .hud-money b.blur { filter: blur(4px); }
 #debt { margin-top: 6px; font-size: 11px; color: #ff8a80; font-weight: 600; letter-spacing: 0.04em; }
+#card { margin-top: 6px; font-size: 11px; color: var(--gold-2); font-weight: 600; letter-spacing: 0.04em; }
 #time-hud { margin-top: 6px; font-size: 12px; color: rgba(245,241,232,0.7); font-variant-numeric: tabular-nums; }
 #room-name { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(245,241,232,0.55); }
 .hud-right { position: absolute; right: 18px; top: 16px; display: flex; gap: 8px; }

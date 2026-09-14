@@ -44,6 +44,7 @@ export class Games {
   }
   wager(amount, edgeKey) {
     const st = this.s.stats; st.wagered += amount; st.theo += amount * EDGE[edgeKey];
+    if (this.s.flags.card) this.s.points = (this.s.points || 0) + amount;
   }
   payout(amount) { this.s.stats.returned += amount; this.s.stats.net = this.s.stats.returned - this.s.stats.wagered; }
 

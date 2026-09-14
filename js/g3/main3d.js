@@ -4,33 +4,57 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ROOMS, roomAt } from '../world.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { roomAt } from '../world.js';
 import { ui } from '../ui.js';
 import { audio } from '../audio.js';
 import { createStory } from '../story.js';
 import { buildLevel, S } from './level.js';
 import { buildActors, updateActors } from './actors.js';
-import { Player, EYE } from './player.js';
+import { Player } from './player.js';
 
 // ------------------------------------------------------------------ renderer
 const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.95;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060f);
 scene.fog = new THREE.FogExp2(0x07080f, 0.035);
 const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 500);
-const hemi = new THREE.HemisphereLight(0x8fa3c8, 0x3a2a1c, 0.9); scene.add(hemi);
-const amb = new THREE.AmbientLight(0x4a4a5a, 0.8); scene.add(amb);
+const hemi = new THREE.HemisphereLight(0x8fa3c8, 0x3a2a1c, 0.7); scene.add(hemi);
+const amb = new THREE.AmbientLight(0x4a4a5a, 0.6); scene.add(amb);
+// image-based lighting for metals, glass and marble
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
+// post-processing: bloom, then a film pass (vignette, grain, warm grade)
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.45, 0.82);
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.42, 0.4, 0.9);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+const film = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, vig: { value: 0.5 }, grain: { value: 0.035 }, zone: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float time, vig, grain, zone; varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      vec2 d = vUv - 0.5; float r = length(d) * 1.15;
+      float v = smoothstep(0.95, 0.35, r);
+      c.rgb *= mix(1.0 - vig - zone * 0.35, 1.0, v);
+      c.rgb += (hash(vUv * 1000.0 + fract(time)) - 0.5) * grain;
+      c.rgb = mix(c.rgb, c.rgb * vec3(1.04, 0.99, 0.94), 0.55);
+      float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      c.rgb = mix(c.rgb, vec3(lum), zone * 0.35);
+      gl_FragColor = c;
+    }`
+});
+composer.addPass(film);
 window.addEventListener('resize', () => { renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight); camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); });
 
 // ------------------------------------------------------------------ story + level
@@ -38,7 +62,7 @@ const player = new Player(camera, document.body);
 const story = createStory({
   onTeleport: (px, py, facing) => { player.setPosition(px * S, py * S, { up: Math.PI, down: 0, left: Math.PI / 2, right: -Math.PI / 2 }[facing] ?? 0); },
   onEntered: () => {},
-  onVipOpen: () => { if (L.dynamic.vipRope) L.dynamic.vipRope.visible = false; if (L.dynamic.vipCollider) L.dynamic.vipCollider.disabled = true; if (L.dynamic.vipHit) { L.dynamic.vipHit.userData = {}; L.hits.splice(L.hits.indexOf(L.dynamic.vipHit), 1); } },
+  onVipOpen: () => { if (L.dynamic.vipRope) L.dynamic.vipRope.visible = false; if (L.dynamic.vipCollider) L.dynamic.vipCollider.disabled = true; if (L.dynamic.vipHit) { L.dynamic.vipHit.userData = {}; const i = L.hits.indexOf(L.dynamic.vipHit); if (i >= 0) L.hits.splice(i, 1); } },
   onExited: () => { setDawn(true); if (L.dynamic.exitDoor) L.dynamic.exitDoor.material = new THREE.MeshStandardMaterial({ color: 0x7fd0ff, emissive: 0x3a90c0, emissiveIntensity: 0.5 }); },
   onLoaded: () => {}
 });
@@ -47,7 +71,6 @@ const L = buildLevel(scene, state);
 const actors = buildActors(scene, state, L);
 player.colliders = L.colliders;
 player.onStep = () => audio.step();
-// restore geometry state after a load
 function syncFromState() {
   player.setPosition(state.player.x * S, state.player.y * S, state.player.facing === 'up' ? Math.PI : state.player.facing === 'left' ? Math.PI / 2 : state.player.facing === 'down' ? 0 : -Math.PI / 2);
   player.colliders = L.colliders;
@@ -56,7 +79,6 @@ function syncFromState() {
 }
 player.setPosition(state.player.x * S, state.player.y * S, -Math.PI / 2);
 
-// dawn after the exit
 function setDawn(on) {
   const sky = L.sky.material.uniforms;
   sky.top.value.set(on ? '#2b3a66' : '#05060f'); sky.bottom.value.set(on ? '#f2a06a' : '#1a1626');
@@ -65,7 +87,7 @@ function setDawn(on) {
 }
 
 // ------------------------------------------------------------------ light pool
-const POOL = 12;
+const POOL = 14;
 const pool = []; for (let i = 0; i < POOL; i++) { const pl = new THREE.PointLight(0xffffff, 0, 10, 2); scene.add(pl); pool.push(pl); }
 function updateLights() {
   const p = camera.position;
@@ -77,7 +99,9 @@ function updateLights() {
   }
 }
 
-// ------------------------------------------------------------------ input
+// ------------------------------------------------------------------ input & pointer lock
+const lockOverlay = document.getElementById('lock');
+function tryLock() { if (!state.started || ui.isOpen() || player.locked) return; player.lock(); }
 window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey) return;
   if (ui.isOpen()) {
@@ -87,23 +111,23 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
-  if (e.key === 'c' || e.key === 'C') { ui.toggleCodex(); player.unlock(); return; }
-  if (['e', 'E', 'Enter', ' '].includes(e.key)) { if (hovered) { interact(hovered); } return; }
+  if (e.key === 'c' || e.key === 'C') { ui.toggleCodex(); return; }
+  if (['e', 'E', 'Enter', ' '].includes(e.key)) { if (hovered) interact(hovered); else if (!player.locked) tryLock(); return; }
   player.keys.add(e.key);
 });
 window.addEventListener('keyup', (e) => player.keys.delete(e.key));
 window.addEventListener('blur', () => player.keys.clear());
-canvas.addEventListener('click', () => { if (!ui.isOpen() && state.started) { audio.ensure(); audio.resume(); if (player.locked && hovered) interact(hovered); else player.lock(); } });
-const lockOverlay = document.getElementById('lock');
-lockOverlay.addEventListener('click', () => { if (!ui.isOpen() && state.started) player.lock(); });
+canvas.addEventListener('click', () => { if (ui.isOpen() || !state.started) return; audio.ensure(); audio.resume(); if (player.locked) { if (hovered) interact(hovered); } else tryLock(); });
+lockOverlay.addEventListener('click', tryLock);
 player.controls.addEventListener('lock', () => { lockOverlay.hidden = true; });
-player.controls.addEventListener('unlock', () => { if (!ui.isOpen() && state.started) lockOverlay.hidden = false; });
-// release the mouse when any UI layer opens; show the resume overlay when everything closes
+player.controls.addEventListener('unlock', () => { setTimeout(() => { if (!ui.isOpen() && state.started && !player.locked) lockOverlay.hidden = false; }, 150); });
+document.addEventListener('pointerlockerror', () => { if (!ui.isOpen() && state.started) lockOverlay.hidden = false; });
+// menus release the mouse; closing the last menu grabs it back (still inside the user's click/keypress)
+ui.onIdle = () => { if (state.started) { lockOverlay.hidden = true; tryLock(); } };
 let wasOpen = false;
 function watchUI() {
   const open = ui.isOpen();
   if (open && !wasOpen) { player.unlock(); lockOverlay.hidden = true; }
-  if (!open && wasOpen && state.started && !player.locked) lockOverlay.hidden = false;
   wasOpen = open;
 }
 
@@ -117,10 +141,7 @@ function updateHover() {
   const hits = ray.intersectObjects(L.hits.concat(L.wallMeshes), false);
   if (hits.length) {
     const h = hits[0];
-    if (h.object.userData.target) {
-      const t = h.object.userData.target;
-      if (!(t.kind === 'npc' && t.n.hidden)) hovered = t;
-    }
+    if (h.object.userData.target) { const t = h.object.userData.target; if (!(t.kind === 'npc' && t.n.hidden)) hovered = t; }
   }
   ui.setPrompt(player.locked ? targetLabel(hovered) : null);
   crosshair.classList.toggle('on', !!hovered);
@@ -128,7 +149,7 @@ function updateHover() {
 
 // ------------------------------------------------------------------ loop
 const clock = new THREE.Clock();
-let hudTick = 0, fogTarget = 0.035;
+let hudTick = 0, fogTarget = 0.035, boardLen = -1;
 function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, clock.getDelta());
@@ -137,27 +158,27 @@ function frame() {
   watchUI();
   const drunk = state.drunkUntil > state.timeMin && !state.flags.exited;
   player.update(dt, { enabled: !open && player.locked && state.started, drunk, t });
-  // mirror position into the shared state (px units)
   state.player.x = camera.position.x / S; state.player.y = camera.position.z / S;
   state.player.moving = player.moving;
   tick(dt, open);
-  // fog per room
   const r = roomAt(state.player.x, state.player.y);
-  fogTarget = !r || r.outdoor ? (state.flags.exited ? 0.008 : 0.016) : r.id === 'machines' ? 0.05 : r.id === 'labyrinth' ? 0.06 : 0.032;
+  fogTarget = !r || r.outdoor ? (state.flags.exited ? 0.008 : 0.016) : r.id === 'machines' ? 0.045 : r.id === 'labyrinth' ? 0.055 : 0.03;
   scene.fog.density += (fogTarget - scene.fog.density) * 0.05;
-  const fogCol = !r || r.outdoor ? (state.flags.exited ? 0x6b5570 : 0x07080f) : 0x07080f; scene.fog.color.setHex(fogCol);
-  // zone: narrow the field of view a little
-  const wantFov = document.body.classList.contains('zone') ? 60 : 72; if (Math.abs(camera.fov - wantFov) > 0.1) { camera.fov += (wantFov - camera.fov) * 0.05; camera.updateProjectionMatrix(); }
-  bloom.strength = document.body.classList.contains('zone') ? 0.9 : 0.55;
+  scene.fog.color.setHex(!r || r.outdoor ? (state.flags.exited ? 0x6b5570 : 0x07080f) : 0x07080f);
+  const zone = document.body.classList.contains('zone');
+  const wantFov = zone ? 60 : 72; if (Math.abs(camera.fov - wantFov) > 0.1) { camera.fov += (wantFov - camera.fov) * 0.05; camera.updateProjectionMatrix(); }
+  bloom.strength = zone ? 0.8 : 0.42;
+  film.uniforms.time.value = t; film.uniforms.zone.value += ((zone ? 1 : 0) - film.uniforms.zone.value) * 0.05; film.uniforms.vig.value = drunk ? 0.7 : 0.5;
   rayTick++; if (rayTick % 3 === 0 && !open) updateHover(); else if (open) { hovered = null; ui.setPrompt(null); }
   for (const u of L.updaters) u(t, dt);
   if (L.clock && Math.floor(t * 2) % 10 === 0) L.clock.update(state.timeMin);
-  updateActors(actors, t, camera.position, hovered);
+  if (state.roulette && state.roulette.hist.length !== boardLen) { boardLen = state.roulette.hist.length; L.rouletteBoards.forEach(b => b.update(state.roulette.hist)); }
+  updateActors(actors, t, dt, camera.position, hovered);
   updateLights();
   composer.render();
   hudTick += dt; if (hudTick > 0.25) { hudTick = 0; ui.updateHUD(state); }
 }
 
-story.boot(() => { syncFromState(); setTimeout(() => { if (!ui.isOpen()) lockOverlay.hidden = false; }, 300); });
+story.boot(() => { syncFromState(); tryLock(); setTimeout(() => { if (!ui.isOpen() && !player.locked) lockOverlay.hidden = false; }, 400); });
 frame();
 window.__game = { renderer, state, ui, games: story.games, player, tp: (px, py) => player.setPosition(px * S, py * S), L, scene, camera, interact: () => interact(hovered) };

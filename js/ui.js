@@ -13,13 +13,15 @@ export const ui = {
       hud: $('#hud'), money: $('#money-val'), moneyLabel: $('#money-label'), debt: $('#debt'),
       prompt: $('#prompt'), promptText: $('#prompt-text'), room: $('#room-name'), timeHud: $('#time-hud'),
       dialog: $('#dialog'), panel: $('#panel'), modal: $('#modal'), codex: $('#codex'), toast: $('#toast'),
-      intro: $('#intro'), epilogue: $('#epilogue'), banner: $('#banner'), revCount: $('#rev-count'), flash: $('#flash')
+      intro: $('#intro'), epilogue: $('#epilogue'), banner: $('#banner'), revCount: $('#rev-count'), flash: $('#flash'), card: $('#card')
     };
     $('#btn-codex').addEventListener('click', () => this.toggleCodex());
     $('#btn-sound').addEventListener('click', () => this.toggleSound());
     document.addEventListener('keydown', (e) => { if (e.key === 'm' || e.key === 'M') this.toggleSound(); });
   },
   isOpen() { return this.stack.length > 0; },
+  onIdle: null,
+  _pop(kind) { const i = this.stack.lastIndexOf(kind); if (i >= 0) this.stack.splice(i, 1); if (!this.stack.length && this.onIdle) this.onIdle(); },
   top() { return this.stack[this.stack.length - 1]; },
   toggleSound() {
     audio.ensure();
@@ -40,6 +42,7 @@ export const ui = {
       this.el.money.textContent = fmt(s.money + (s.flags.chipsMode ? 0 : 0));
       this.el.money.classList.remove('blur');
     }
+    const card = this.el.card; if (card) { card.hidden = !s.flags.card; if (s.flags.card) card.textContent = `Carte Or · ${Math.floor(s.points || 0)} pts`; }
     const debtTotal = s.debt + Math.max(0, -s.bank);
     this.el.debt.hidden = debtTotal <= 0;
     this.el.debt.textContent = 'Dette ' + fmt(debtTotal);
@@ -126,11 +129,12 @@ export const ui = {
     close() {
       clearInterval(this.timer);
       ui.el.dialog.hidden = true;
-      const idx = ui.stack.lastIndexOf('dialog'); if (idx >= 0) ui.stack.splice(idx, 1);
       const r = this.resolve; this.resolve = null;
       const onEnd = this.opts && this.opts.onEnd; this.opts = null;
       if (onEnd) onEnd();
+      { const i = ui.stack.lastIndexOf('dialog'); if (i >= 0) ui.stack.splice(i, 1); }
       if (r) r();
+      queueMicrotask(() => { if (!ui.stack.length && ui.onIdle) ui.onIdle(); });
     },
     key(e) {
       if (['Enter', ' ', 'e', 'E'].includes(e.key)) { this.advance(); return true; }
@@ -157,10 +161,11 @@ export const ui = {
     close() {
       if (ui.el.panel.hidden) return;
       ui.el.panel.hidden = true; ui.el.panel.innerHTML = '';
-      const idx = ui.stack.lastIndexOf('panel'); if (idx >= 0) ui.stack.splice(idx, 1);
+      { const i = ui.stack.lastIndexOf('panel'); if (i >= 0) ui.stack.splice(i, 1); }
       document.body.classList.remove('zone');
       audio.setZone(false);
       const f = this.onClose; this.onClose = null; if (f) f();
+      queueMicrotask(() => { if (!ui.stack.length && ui.onIdle) ui.onIdle(); });
     },
     key(e) { if (e.key === 'Escape') { this.close(); return true; } return false; }
   },
@@ -180,7 +185,7 @@ export const ui = {
         <button class="m-btn">Continuer</button>
       </div>`;
       ui.stack.push('modal');
-      const close = () => { m.hidden = true; m.innerHTML = ''; const i = ui.stack.lastIndexOf('modal'); if (i >= 0) ui.stack.splice(i, 1); const b = $('#btn-codex'); b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse'); resolve(); };
+      const close = () => { m.hidden = true; m.innerHTML = ''; const i = ui.stack.lastIndexOf('modal'); if (i >= 0) ui.stack.splice(i, 1); const b = $('#btn-codex'); b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse'); resolve(); queueMicrotask(() => { if (!ui.stack.length && ui.onIdle) ui.onIdle(); }); };
       m.querySelector('.m-btn').addEventListener('click', close);
       this._modalClose = close;
       setTimeout(() => m.querySelector('.m-btn').focus(), 50);
@@ -196,7 +201,7 @@ export const ui = {
         <p class="m-text">Son histoire est maintenant dans ton carnet (touche C).</p>
         <button class="m-btn">Continuer</button></div>`;
       ui.stack.push('modal');
-      const close = () => { m.hidden = true; m.innerHTML = ''; const i = ui.stack.lastIndexOf('modal'); if (i >= 0) ui.stack.splice(i, 1); resolve(); };
+      const close = () => { m.hidden = true; m.innerHTML = ''; const i = ui.stack.lastIndexOf('modal'); if (i >= 0) ui.stack.splice(i, 1); resolve(); queueMicrotask(() => { if (!ui.stack.length && ui.onIdle) ui.onIdle(); }); };
       m.querySelector('.m-btn').addEventListener('click', close);
       this._modalClose = close;
       setTimeout(() => m.querySelector('.m-btn').focus(), 50);
@@ -238,11 +243,12 @@ export const ui = {
       <div class="tn"><b>${st.trueWins}</b><span>vrais gains</span></div>
       <div class="tn"><b>${s.flags.entered && !s.flags.exited ? '—' : this.fmtTime(s.timeMin)}</b><span>${s.flags.entered && !s.flags.exited ? 'aucune horloge ici' : 'heure'}</span></div>
       <div class="tn"><b>${st.drinks}</b><span>verres offerts</span></div>
+      ${s.flags.card ? `<div class="tn"><b>${Math.floor(s.points || 0)} pts</b><span>carte de fidélité — chaque jeton misé est enregistré</span></div>` : ''}
     </div>
     <p class="cx-note">Toutes les probabilités de ce monde sont réelles : roulette européenne à 37 cases, machines réglées entre 85 et 90 % de redistribution, baccara avec ses vraies règles. Le seul mensonge, c'est l'argent : il est faux.</p>
     <p class="cx-note"><b>Joueurs Info Service — 09 74 75 13 13</b>, tous les jours de 8 h à 2 h, appel anonyme et non surtaxé. joueurs-info-service.fr</p>`;
   },
-  closeCodex() { this.el.codex.hidden = true; this.el.codex.innerHTML = ''; const i = this.stack.lastIndexOf('codex'); if (i >= 0) this.stack.splice(i, 1); },
+  closeCodex() { this.el.codex.hidden = true; this.el.codex.innerHTML = ''; this._pop('codex'); },
   codexKey(e) { if (e.key === 'Escape' || e.key === 'c' || e.key === 'C') { this.closeCodex(); return true; } return true; },
 
   // ------------------------------------------------------------- intro / epilogue
@@ -269,7 +275,7 @@ export const ui = {
       this.stack.push('modal');
       let i = 0;
       const show = () => {
-        if (i >= lines.length) { el.classList.add('out'); setTimeout(() => el.remove(), 600); const k = this.stack.lastIndexOf('modal'); if (k >= 0) this.stack.splice(k, 1); this._modalClose = null; resolve(); return; }
+        if (i >= lines.length) { el.classList.add('out'); setTimeout(() => el.remove(), 600); const k = this.stack.lastIndexOf('modal'); if (k >= 0) this.stack.splice(k, 1); this._modalClose = null; resolve(); queueMicrotask(() => { if (!this.stack.length && this.onIdle) this.onIdle(); }); return; }
         el.innerHTML = `<div class="story-line">${lines[i]}</div><div class="story-hint">Entrée pour continuer</div>`;
         el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse');
         i++;

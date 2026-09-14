@@ -24,7 +24,7 @@ export function freshState() {
   return {
     player: { x: PLAYER_START.x, y: PLAYER_START.y, facing: 'right', moving: false, walk: 0, kind: 'player' },
     npcs: NPCS.map(n => ({ ...n, showName: false })),
-    money: 500, chips: 0, bank: 0, debt: 0,
+    money: 500, chips: 0, bank: 0, debt: 0, points: 0, rewards: [],
     timeMin: 21 * 60, drunkUntil: 0,
     flags: { entered: false, exited: false, chipsMode: false, card: false, vipOpen: false, vipInvited: false, suite: false, board: false, vigile: false, phoneSeen: false },
     revealed: new Set(), witnesses: new Set(), visited: new Set(), roomSeen: new Set(),
@@ -34,6 +34,14 @@ export function freshState() {
 }
 
 // ctx: { onTeleport(px, py, facing), onEntered(), onVipOpen(), onExited() } — renderer hooks
+const REWARDS = [
+  { at: 100, label: 'un verre offert au bar', apply: (state) => { state.flags.freeDrink = true; } },
+  { at: 250, label: "l'invitation au salon VIP", apply: (state) => { state.flags.vipInvited = true; } },
+  { at: 500, label: 'la suite offerte et une ligne de crédit', apply: (state) => { state.flags.suiteOffered = true; } },
+  { at: 1000, label: 'le statut Platine', apply: (state) => { state.flags.platine = true; } }
+];
+const tier = (pts) => pts >= 1000 ? 'Platine' : pts >= 500 ? 'Or+' : 'Or';
+
 export function createStory(ctx = {}) {
   const state = freshState();
   const games = new Games(state, { reveal, hud: () => ui.updateHUD(state), addTime });
@@ -75,7 +83,7 @@ export function createStory(ctx = {}) {
     if (t.kind === 'slot') return `Jouer — ${t.s.label}`;
     if (t.kind === 'npc') return `Parler — ${t.n.name}`;
     const o = t.o;
-    const verbs = { caisse: 'Changer — ', fidelite: '', atm: 'Retirer — ', roulette: 'Jouer — ', baccarat: 'Jouer — ', blackjack: 'Jouer — ', wheel: 'Jouer — ', phone: '', exitdoor: 'Ouvrir — ', staffdoor: 'Entrer — ', theo: 'Lire — ', board: 'Lire — ', poster: 'Lire — ', plaque: 'Lire — ', busstop: '', clock: 'Regarder — ', entrance: '' };
+    const verbs = { caisse: 'Changer — ', cage: 'Changer — ', fidelite: '', atm: 'Retirer — ', roulette: 'Jouer — ', baccarat: 'Jouer — ', blackjack: 'Jouer — ', wheel: 'Jouer — ', poker: 'Regarder — ', craps: 'Regarder — ', phone: '', exitdoor: 'Ouvrir — ', staffdoor: 'Entrer — ', theo: 'Lire — ', board: 'Lire — ', poster: 'Lire — ', plaque: 'Lire — ', busstop: '', clock: 'Regarder — ', entrance: '' };
     return (verbs[o.type] ?? '') + o.label;
   }
 
@@ -122,11 +130,18 @@ export function createStory(ctx = {}) {
       case 'caisse': games.openCaisse(); break;
       case 'atm': games.openATM(); break;
       case 'fidelite': {
-        if (state.flags.card) { await say(['Bonne soirée, membre Or. Vos points s\'accumulent à chaque mise.'], STAFF.hotesse.name, { color: '#f48fb1' }); break; }
+        if (state.flags.card) {
+          const pts = Math.floor(state.points || 0); const next = REWARDS.find(r => pts < r.at);
+          await say([
+            `Bonne soirée, membre ${tier(pts)}. Vous avez ${pts} point${pts > 1 ? 's' : ''} : un point par jeton misé, sur toutes les tables.`,
+            next ? `Prochain palier à ${next.at} points : ${next.label}. ${REWARDS.filter(r => pts >= r.at).length ? 'Vos avantages déjà débloqués vous attendent.' : 'Continuez à jouer, ça vient vite.'}` : 'Vous avez tout débloqué. La maison vous appelle par votre prénom, maintenant.'
+          ], STAFF.hotesse.name, { color: '#f48fb1' });
+          break;
+        }
         await say([
           'Une carte de fidélité ? C\'est gratuit. Vous cumulez des points à chaque mise, un verre offert au bar, et des surprises selon votre jeu.',
           { text: 'Il me faut juste un nom et une signature.', choices: [
-            { label: 'Signer', run: () => { state.flags.card = true; audio.coin(); ui.toast('Carte Or activée. Chaque mise est maintenant enregistrée.', 4000); } },
+            { label: 'Signer', run: () => { state.flags.card = true; state.points = state.points || 0; audio.coin(); ui.updateHUD(state); ui.toast('Carte Or activée : 1 point par jeton misé. Un verre offert dès 100 points.', 4500); } },
             { label: 'Non merci', run: () => {} }
           ] }
         ], STAFF.hotesse.name, { color: '#f48fb1' });
@@ -136,6 +151,9 @@ export function createStory(ctx = {}) {
       case 'baccarat': games.openBaccarat(); break;
       case 'blackjack': games.openBlackjack(); break;
       case 'wheel': games.openWheel(); break;
+      case 'cage': games.openCaisse(); break;
+      case 'poker': await narr(['Tournoi à minuit. Inscription : 200 jetons.', 'Au poker, la maison ne joue pas contre toi : elle prend une commission sur chaque pot. Elle gagne quoi qu\'il arrive.']); break;
+      case 'craps': await narr(['Table fermée ce soir. Le croupier range les dés.', 'Le craps a les meilleures et les pires mises du casino sur la même table. Personne ne les distingue à l\'œil.']); break;
       case 'plaque': await narr(['« Le 18 août 1913, à cette table, le noir est sorti vingt-six fois de suite. »', 'Quelqu\'un a gravé en dessous, plus petit : « et la salle a misé rouge pendant vingt tours ».']); break;
       case 'vipdoor': {
         if (state.flags.vipInvited) {
@@ -147,7 +165,7 @@ export function createStory(ctx = {}) {
       case 'barcounter': {
         const drunk = state.drunkUntil > state.timeMin;
         await say([
-          drunk ? 'Un autre ? C\'est offert, comme le premier.' : 'C\'est offert. Ici, on ne fait pas payer les joueurs pour boire.',
+          drunk ? 'Un autre ? C\'est offert, comme le premier.' : state.flags.freeDrink ? 'Votre carte Or vous offre un verre. Champagne ?' : 'C\'est offert. Ici, on ne fait pas payer les joueurs pour boire.',
           { text: 'Alors ?', choices: [
             { label: 'Accepter le verre', run: () => { state.stats.drinks++; state.drunkUntil = state.timeMin + 120; audio.drink(); addTime(15); ui.toast('Le compteur de tes pertes devient flou.', 3500); } },
             { label: 'Refuser', run: () => { ui.toast('« Comme vous voulez. Il restera là. »'); } }
@@ -223,7 +241,13 @@ export function createStory(ctx = {}) {
   function tick(dt, uiOpen) {
     if (state.flags.entered && !state.flags.exited && !uiOpen) state.timeMin += dt * (20 / 60);
     if (state.started) { const r = roomAt(state.player.x, state.player.y); if ((r && r.id) !== state.room) enterRoom(r); }
-    if (!state.flags.vipInvited && ((state.flags.card && state.stats.wagered >= 150) || state.stats.wagered >= 400)) {
+    if (state.flags.card) {
+      for (const r of REWARDS) if (state.points >= r.at && !state.rewards.includes(r.at)) {
+        state.rewards.push(r.at); r.apply(state); audio.coin();
+        ui.toast(`Carte Or · ${r.at} points : ${r.label}.${r.at === 250 ? ' Par la salle des tables, au fond.' : ''}`, 6000);
+      }
+    }
+    if (!state.flags.vipInvited && state.stats.wagered >= 400) {
       state.flags.vipInvited = true;
       ui.toast('Un hôte vous cherche : « Le salon VIP vous attend. Par la salle des tables, au fond. »', 6000);
     }
@@ -234,7 +258,7 @@ export function createStory(ctx = {}) {
   function save() {
     try {
       const s = state;
-      const data = { player: { x: s.player.x, y: s.player.y }, money: s.money, chips: s.chips, bank: s.bank, debt: s.debt, timeMin: s.timeMin, drunkUntil: s.drunkUntil, flags: s.flags, revealed: [...s.revealed], witnesses: [...s.witnesses], visited: [...s.visited], roomSeen: [...s.roomSeen], stats: s.stats, dynamicWalls: s.dynamicWalls, roulette: s.roulette, phone: s.phone };
+      const data = { player: { x: s.player.x, y: s.player.y }, money: s.money, chips: s.chips, bank: s.bank, debt: s.debt, timeMin: s.timeMin, drunkUntil: s.drunkUntil, points: s.points, rewards: s.rewards, flags: s.flags, revealed: [...s.revealed], witnesses: [...s.witnesses], visited: [...s.visited], roomSeen: [...s.roomSeen], stats: s.stats, dynamicWalls: s.dynamicWalls, roulette: s.roulette, phone: s.phone };
       localStorage.setItem('rnvp-save', JSON.stringify(data));
     } catch (e) { }
   }
@@ -242,7 +266,7 @@ export function createStory(ctx = {}) {
     try {
       const d = JSON.parse(localStorage.getItem('rnvp-save')); if (!d) return false;
       state.player.x = d.player.x; state.player.y = d.player.y;
-      Object.assign(state, { money: d.money, chips: d.chips, bank: d.bank, debt: d.debt, timeMin: d.timeMin, drunkUntil: d.drunkUntil, stats: d.stats, dynamicWalls: d.dynamicWalls || [], roulette: d.roulette, phone: d.phone });
+      Object.assign(state, { money: d.money, chips: d.chips, bank: d.bank, debt: d.debt, points: d.points || 0, rewards: d.rewards || [], timeMin: d.timeMin, drunkUntil: d.drunkUntil, stats: d.stats, dynamicWalls: d.dynamicWalls || [], roulette: d.roulette, phone: d.phone });
       state.flags = { ...state.flags, ...d.flags }; state.revealed = new Set(d.revealed); state.witnesses = new Set(d.witnesses); state.visited = new Set(d.visited); state.roomSeen = new Set(d.roomSeen || d.visited);
       if (state.flags.exited) state.npcs.find(n => n.id === 'nour').hidden = false;
       return true;

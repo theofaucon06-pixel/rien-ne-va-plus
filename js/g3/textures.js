@@ -182,8 +182,10 @@ export function slotScreen(kind) {
   const g = c.getContext('2d');
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter;
   const speeds = [1.3, 1.7, 2.1];
+  let bg = null; loadImage('slot_' + kind, (img) => { bg = img; });
   const update = (time) => {
     g.fillStyle = '#0a0a12'; g.fillRect(0, 0, 256, 192);
+    if (bg) { g.drawImage(bg, 0, 0, 256, 192); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, 0, 256, 192); }
     g.fillStyle = 'rgba(255,255,255,0.85)'; g.fillRect(0, 0, 256, 26);
     g.fillStyle = '#111'; g.font = 'bold 15px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(kind === 'mega' ? '20 LIGNES · JACKPOT' : kind === 'pharaon' ? 'JACKPOT 500×' : 'JACKPOT 100×', 128, 13);
@@ -242,3 +244,104 @@ export function gradientSky() {
   });
   const mesh = new THREE.Mesh(geo, mat); mesh.renderOrder = -10; return mesh;
 }
+
+// ---------------------------------------------------------------- extra dressing textures
+export function blobTexture() {
+  const key = 'blob'; if (cache[key]) return cache[key];
+  const c = canvas(128, 128, (g) => { const grd = g.createRadialGradient(64, 64, 6, 64, 64, 64); grd.addColorStop(0, 'rgba(0,0,0,0.7)'); grd.addColorStop(0.6, 'rgba(0,0,0,0.25)'); grd.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = grd; g.fillRect(0, 0, 128, 128); });
+  const t = tex(c, { repeat: false }); cache[key] = t; return t;
+}
+
+export function artTexture(i) {
+  const key = 'art' + i; if (cache[key]) return cache[key];
+  const palettes = [['#1b4636', '#c6a14f', '#f5f1e8'], ['#b3261e', '#141210', '#c6a14f'], ['#0e2a20', '#7a1f22', '#ffd98a'], ['#2b1a0e', '#e8501c', '#f5f1e8']];
+  const pal = palettes[i % palettes.length];
+  const c = canvas(256, 320, (g, w, h) => {
+    g.fillStyle = pal[0]; g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 7; k++) { g.fillStyle = pal[(k + i) % 3]; g.globalAlpha = 0.85; const rx = (k * 61 + i * 37) % w, ry = (k * 97 + i * 53) % h; if (k % 2) { g.beginPath(); g.arc(rx, ry, 30 + (k * 23) % 60, 0, TAU); g.fill(); } else g.fillRect(rx - 40, ry - 20, 80 + (k * 17) % 60, 40); }
+    g.globalAlpha = 1;
+  });
+  const t = tex(c, { repeat: false }); cache[key] = t; return t;
+}
+
+export function posterTexture(lines, colors = ['#141210', '#ffd98a', '#f5f1e8']) {
+  const c = canvas(256, 384, (g, w, h) => {
+    g.fillStyle = colors[0]; g.fillRect(0, 0, w, h);
+    g.strokeStyle = colors[1]; g.lineWidth = 6; g.strokeRect(12, 12, w - 24, h - 24);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    lines.forEach((l, k) => { g.fillStyle = k === 0 ? colors[1] : colors[2]; g.font = k === 0 ? 'bold 44px "Bodoni 72", Georgia, serif' : '600 22px Inter, sans-serif'; g.fillText(l, w / 2, 90 + k * 60); });
+    g.fillStyle = colors[1]; g.beginPath(); g.arc(w / 2, h - 70, 26, 0, TAU); g.fill();
+  });
+  return tex(c, { repeat: false });
+}
+
+// Scrolling jackpot ticker. Returns { texture, update(t) }.
+export function tickerTexture() {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 96;
+  const g = c.getContext('2d');
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter;
+  const msg = 'JACKPOT PROGRESSIF  1 248 391 €   ·   MÉGA JACKPOT  87 214 €   ·   DERNIER GAGNANT : JEAN-MARC, 4 200 €   ·   BONUS FIDÉLITÉ CE SOIR   ·   ';
+  const update = (time) => {
+    g.fillStyle = '#0a0a12'; g.fillRect(0, 0, 1024, 96);
+    g.font = 'bold 54px "Bodoni 72", Georgia, serif'; g.textBaseline = 'middle'; g.fillStyle = '#ff9ab0'; g.shadowColor = '#ff4d6d'; g.shadowBlur = 14;
+    const wdt = g.measureText(msg).width; const off = (time * 90) % wdt;
+    g.fillText(msg, -off, 50); g.fillText(msg, wdt - off, 50);
+    const jp = 1248391 + Math.floor(time * 3.7); g.shadowBlur = 0;
+    t.needsUpdate = true;
+  };
+  update(0); return { texture: t, update };
+}
+
+// Fake sports broadcast for the bar TV
+export function tvTexture() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 288;
+  const g = c.getContext('2d');
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter;
+  const update = (time) => {
+    g.fillStyle = '#2e7d32'; g.fillRect(0, 0, 512, 288);
+    g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 3; g.strokeRect(20, 20, 472, 248); g.beginPath(); g.moveTo(256, 20); g.lineTo(256, 268); g.stroke(); g.beginPath(); g.arc(256, 144, 50, 0, TAU); g.stroke();
+    for (let i = 0; i < 10; i++) { g.fillStyle = i < 5 ? '#e53935' : '#1e88e5'; const x = 60 + ((i * 97 + time * (20 + i * 3)) % 400), y = 50 + ((i * 53 + time * (15 + i * 2)) % 190); g.fillRect(x, y, 10, 20); }
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(256 + Math.sin(time * 1.3) * 150, 144 + Math.cos(time * 0.9) * 80, 6, 0, TAU); g.fill();
+    g.fillStyle = 'rgba(0,0,0,0.7)'; g.fillRect(140, 8, 232, 34); g.fillStyle = '#fff'; g.font = 'bold 22px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PSG 1 – 1 OM   78\'', 256, 25);
+    t.needsUpdate = true;
+  };
+  update(0); return { texture: t, update };
+}
+
+// Roulette results board (last numbers). Returns { texture, update(hist) }.
+export function historyBoardTexture() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+  const g = c.getContext('2d');
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter;
+  const REDS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+  const update = (hist) => {
+    g.fillStyle = '#05070d'; g.fillRect(0, 0, 512, 256);
+    g.fillStyle = '#c6a14f'; g.font = 'bold 26px Inter, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('DERNIERS NUMÉROS', 24, 34);
+    const last = hist.slice(-12);
+    last.forEach((n, i) => { const x = 40 + (i % 6) * 76, y = 90 + Math.floor(i / 6) * 76; g.fillStyle = n === 0 ? '#1e7a4c' : REDS.has(n) ? '#b3261e' : '#222'; g.beginPath(); g.arc(x, y, 30, 0, TAU); g.fill(); g.strokeStyle = '#c6a14f'; g.lineWidth = 2; g.stroke(); g.fillStyle = '#fff'; g.font = 'bold 30px Inter, sans-serif'; g.textAlign = 'center'; g.fillText(String(n), x, y + 1); });
+    const streak = (() => { if (!hist.length) return null; const col = (n) => n === 0 ? 'v' : REDS.has(n) ? 'R' : 'N'; const c0 = col(hist[hist.length - 1]); let k = 0; for (let i = hist.length - 1; i >= 0 && col(hist[i]) === c0; i--) k++; return k >= 3 ? `${c0 === 'R' ? 'ROUGE' : c0 === 'N' ? 'NOIR' : 'ZÉRO'} × ${k}` : null; })();
+    if (streak) { g.fillStyle = '#ffb74d'; g.font = 'bold 28px Inter, sans-serif'; g.textAlign = 'right'; g.fillText(streak, 488, 34); }
+    t.needsUpdate = true;
+  };
+  update([]); return { texture: t, update };
+}
+
+export function neonTexture(text, color, glow) {
+  return textTexture(text, { w: 512, h: 160, font: 'bold 110px "Bodoni 72", Didot, Georgia, serif', color, bg: 'rgba(0,0,0,0)', glow });
+}
+
+// ---------------------------------------------------------------- generated image assets (optional, procedural fallback)
+const ASSET_MAP = { carpet: 'carpet_green', carpet2: 'carpet_purple', carpetred: 'carpet_red', marble: 'marble', wood: 'wood', brick: 'brick', wall: 'wall', wallpaper: 'wallpaper', ceiling: 'ceiling', tile: 'tile' };
+const loader = new THREE.TextureLoader();
+export function loadAsset(name, cb, opts = {}) {
+  loader.load(`assets/tex/${name}.jpg`, (t) => {
+    if (opts.repeat !== false) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.needsUpdate = true; cb(t);
+  }, undefined, () => {});
+}
+// Swap a material's procedural map for the generated image once it is available
+export function upgradeMaterial(material, patternName) {
+  const asset = ASSET_MAP[patternName]; if (!asset) return;
+  loadAsset(asset, (t) => { material.map = t; material.needsUpdate = true; });
+}
+export function loadImage(name, cb) { const img = new Image(); img.onload = () => cb(img); img.onerror = () => {}; img.src = `assets/tex/${name}.jpg`; }

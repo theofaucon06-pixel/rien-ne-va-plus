@@ -403,6 +403,9 @@ export class Renderer {
         this.card(x + 40, y + 60); this.card(x + 56, y + 62, true); this.card(x + 140, y + 60, true);
         break;
       }
+      case 'poker': { this.felt(x, y, w, h, '#1e5b41'); ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.ellipse(x + w / 2, y + h / 2, w / 2 - 14, h / 2 - 14, 0, 0, TAU); ctx.stroke(); this.card(x + 80, y + 50); this.card(x + 96, y + 52, true); this.chip(x + 60, y + 90, '#c6a14f'); break; }
+      case 'craps': { this.felt(x, y, w, h, '#1e5b41'); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; for (let i = 0; i < 6; i++) ctx.strokeRect(x + 20 + i * 36, y + 30, 30, 60); ctx.fillStyle = '#fff'; ctx.fillRect(x + w - 40, y + 40, 8, 8); ctx.fillRect(x + w - 28, y + 44, 8, 8); break; }
+      case 'cage': { ctx.fillStyle = '#3b2412'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#c6a14f'; for (let i = 0; i < 6; i++) ctx.fillRect(x + 4, y + 8 + i * 18, w - 8, 2); break; }
       case 'wheel': {
         ctx.fillStyle = '#3b2412'; ctx.fillRect(x + w / 2 - 6, y + 10, 12, h - 10);
         ctx.save(); ctx.translate(x + w / 2, y + 8); ctx.rotate(t * 0.6); ctx.drawImage(this.wheelSprite, -26, -26, 52, 52); ctx.restore();

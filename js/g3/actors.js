@@ -1,79 +1,121 @@
-// Low-poly characters: ghosts (witnesses), staff, patrons, plus floating name tags.
+// Low-poly characters: ghosts (witnesses), staff, patrons, walkers, plus name tags and animation.
 import * as THREE from 'three';
-import { textTexture } from './textures.js';
+import { textTexture, blobTexture } from './textures.js';
 import { S } from './level.js';
 
 const TAU = Math.PI * 2;
+const SKINS = [0xe8b58f, 0xd9a07a, 0xb07a55, 0x8a5a3c, 0xf1c9a5, 0x6b4a34];
+const HAIRS = [0x3e2723, 0x111111, 0x8d6e63, 0xd7b377, 0xb71c1c, 0x424242];
+const PANTS = [0x1b1b22, 0x2a2a3a, 0x3b2418, 0x1f2d3d];
+let blobMat = null;
 
-function humanoid({ body = 0x607d8b, skin = 0xe8b58f, hair = 0x3e2723, ghost = false, staff = false, seated = false }) {
+function hash(str) { let h = 7; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0; return h; }
+
+function humanoid(n) {
+  const ghost = n.kind === 'ghost', staff = n.kind === 'staff', seated = n.kind === 'patron' && !n.standing;
+  const h = hash(n.id);
   const g = new THREE.Group();
   const mk = (color, opts = {}) => ghost
     ? new THREE.MeshStandardMaterial({ color: 0xcfe7ff, emissive: 0x7fb0ff, emissiveIntensity: 0.55, transparent: true, opacity: 0.55, roughness: 1, depthWrite: false })
-    : new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...opts });
-  const bodyMat = mk(body), skinMat = mk(skin), hairMat = mk(hair), darkMat = mk(0x1b1b22), whiteMat = mk(0xf5f1e8);
-  const legH = seated ? 0.45 : 0.8;
-  const legY = seated ? 0.22 : 0.4;
-  const legs = [new THREE.Mesh(new THREE.BoxGeometry(0.16, legH, 0.18), darkMat), new THREE.Mesh(new THREE.BoxGeometry(0.16, legH, 0.18), darkMat)];
-  legs[0].position.set(-0.11, legY, 0); legs[1].position.set(0.11, legY, 0); g.add(legs[0], legs[1]);
-  const torsoY = (seated ? 0.45 : 0.8) + 0.33;
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.42, 4, 10), bodyMat); torso.position.y = torsoY; g.add(torso);
-  if (staff) { const shirt = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.36, 0.06), whiteMat); shirt.position.set(0, torsoY + 0.05, 0.2); g.add(shirt); const tie = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.02), mk(0xb3261e)); tie.position.set(0, torsoY + 0.02, 0.24); g.add(tie); }
-  const arms = [new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.4, 4, 8), bodyMat), new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.4, 4, 8), bodyMat)];
-  arms[0].position.set(-0.3, torsoY, 0); arms[1].position.set(0.3, torsoY, 0); arms[0].rotation.z = 0.12; arms[1].rotation.z = -0.12; g.add(arms[0], arms[1]);
-  const headY = torsoY + 0.52;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 14), skinMat); head.position.y = headY; g.add(head);
-  const hairM = new THREE.Mesh(new THREE.SphereGeometry(0.175, 14, 8, 0, TAU, 0, Math.PI / 2), hairMat); hairM.position.y = headY + 0.02; g.add(hairM);
+    : new THREE.MeshStandardMaterial({ color, roughness: 0.8, ...opts });
+  const bodyColor = n.color ? parseInt(n.color.replace('#', ''), 16) : 0x607d8b;
+  const bodyMat = mk(bodyColor), skinMat = mk(SKINS[h % SKINS.length]), hairMat = mk(HAIRS[(h >> 3) % HAIRS.length]), pantsMat = mk(PANTS[(h >> 5) % PANTS.length]), whiteMat = mk(0xf5f1e8), shoeMat = mk(0x111111, { roughness: 0.4 });
+  const dress = !ghost && !staff && ((h >> 7) % 3 === 0);
+  const legH = seated ? 0.42 : 0.82, legY = seated ? 0.21 : 0.41;
+  const legs = [new THREE.Mesh(new THREE.BoxGeometry(0.15, legH, 0.17), pantsMat), new THREE.Mesh(new THREE.BoxGeometry(0.15, legH, 0.17), pantsMat)];
+  legs[0].position.set(-0.1, legY, seated ? 0.12 : 0); legs[1].position.set(0.1, legY, seated ? 0.12 : 0);
+  if (seated) { legs.forEach(l => { l.rotation.x = -1.2; l.position.y = 0.55; }); const shins = [new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.45, 0.15), pantsMat), new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.45, 0.15), pantsMat)]; shins[0].position.set(-0.1, 0.24, 0.32); shins[1].position.set(0.1, 0.24, 0.32); g.add(shins[0], shins[1]); }
+  g.add(legs[0], legs[1]);
+  [-0.1, 0.1].forEach(x => { const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.26), shoeMat); shoe.position.set(x, 0.04, seated ? 0.36 : 0.04); g.add(shoe); });
+  const torsoY = (seated ? 0.62 : 0.82) + 0.34;
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.21, 0.4, 4, 12), bodyMat); torso.position.y = torsoY; g.add(torso);
+  if (dress) { const skirt = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.55, 12, 1, true), bodyMat); skirt.position.y = torsoY - 0.45; g.add(skirt); }
+  [-0.2, 0.2].forEach(x => { const sh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 10), bodyMat); sh.position.set(x, torsoY + 0.2, 0); g.add(sh); });
+  if (staff) { const shirt = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.4, 0.06), whiteMat); shirt.position.set(0, torsoY + 0.02, 0.21); g.add(shirt); const tie = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.02), mk(0xb3261e)); tie.position.set(0, torsoY, 0.25); g.add(tie); }
+  const arms = [];
+  [-0.31, 0.31].forEach((x, k) => { const pivot = new THREE.Group(); pivot.position.set(x, torsoY + 0.2, 0); const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.42, 4, 8), bodyMat); arm.position.y = -0.26; pivot.add(arm); const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), skinMat); hand.position.y = -0.55; pivot.add(hand); pivot.rotation.z = k === 0 ? 0.14 : -0.14; g.add(pivot); arms.push(pivot); });
+  if (n.tray) { const tray = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.02, 16), mk(0xc0c0c0, { metalness: 0.8, roughness: 0.3 })); tray.position.set(0.32, torsoY + 0.1, 0.3); g.add(tray); const gl = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 0.12, 8), mk(0x9fd0ff, { transparent: true, opacity: 0.5 })); gl.position.set(0.32, torsoY + 0.18, 0.3); g.add(gl); }
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.1, 8), skinMat); neck.position.y = torsoY + 0.38; g.add(neck);
+  const headY = torsoY + 0.56;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 16), skinMat); head.position.y = headY; head.scale.set(0.95, 1.05, 0.95); g.add(head);
+  const style = (h >> 9) % 4;
+  if (style === 0) { const hm = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 8, 0, TAU, 0, Math.PI / 2), hairMat); hm.position.y = headY + 0.02; g.add(hm); }
+  else if (style === 1) { const hm = new THREE.Mesh(new THREE.SphereGeometry(0.185, 14, 10, 0, TAU, 0, Math.PI * 0.7), hairMat); hm.position.y = headY + 0.02; g.add(hm); const back = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.12, 0.3, 12), hairMat); back.position.set(0, headY - 0.1, -0.06); g.add(back); }
+  else if (style === 2) { const cap = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 8, 0, TAU, 0, Math.PI / 2), mk(0x1a237e)); cap.position.y = headY + 0.02; g.add(cap); const visor = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.12), mk(0x1a237e)); visor.position.set(0, headY + 0.06, 0.2); g.add(visor); }
+  else { const hm = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 6, 0, TAU, 0, Math.PI / 3), hairMat); hm.position.y = headY + 0.03; g.add(hm); }
+  if (n.id === 'vigile') { const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.1, 14), mk(0x1a237e)); cap.position.y = headY + 0.12; g.add(cap); }
+  if (n.id === 'dosto') { const beard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.1), hairMat); beard.position.set(0, headY - 0.12, 0.1); g.add(beard); }
+  if (n.id === 'hote' || n.id === 'croupier' || n.id === 'croupier2') { const vest = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.42, 0.24), mk(0x111114)); vest.position.set(0, torsoY - 0.02, 0.05); g.add(vest); }
   const eyeMat = new THREE.MeshBasicMaterial({ color: ghost ? 0x0d1a26 : 0x111111 });
   [-0.06, 0.06].forEach(x => { const e = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 6), eyeMat); e.position.set(x, headY + 0.02, 0.15); g.add(e); });
+  if (!ghost) { if (!blobMat) blobMat = new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false, opacity: 0.7 }); const sh = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), blobMat); sh.rotation.x = -Math.PI / 2; sh.position.y = 0.013; sh.renderOrder = 1; g.add(sh); }
   g.userData.parts = { torso, head, arms, legs };
   g.userData.height = headY + 0.2;
   return g;
 }
 
+const INTERACTIVE_STAFF = new Set(['vigile', 'caissier', 'hotesse', 'barman', 'hote', 'croupier', 'croupier2']);
+
 export function buildActors(scene, state, L) {
   const actors = [];
   for (const n of state.npcs) {
-    const ghost = n.kind === 'ghost', staff = n.kind === 'staff', patron = n.kind === 'patron';
-    const color = n.color ? parseInt(n.color.replace('#', ''), 16) : 0x607d8b;
-    const g = humanoid({ body: color, ghost, staff, seated: patron });
+    const ghost = n.kind === 'ghost';
+    const g = humanoid(n);
     const x = n.x * S, z = n.y * S;
     g.position.set(x, 0, z);
-    const facing = n.facing || (ghost ? 'down' : 'down');
-    g.rotation.y = { up: Math.PI, down: 0, left: -Math.PI / 2, right: Math.PI / 2 }[facing] ?? 0;
-    if (n.id === 'sami') { g.position.y = -0.35; g.rotation.y = 0; }
+    g.rotation.y = { up: Math.PI, down: 0, left: -Math.PI / 2, right: Math.PI / 2 }[n.facing || 'down'] ?? 0;
+    if (n.id === 'sami') { g.position.y = -0.3; g.rotation.y = 0; }
+    if (n.kind === 'patron' && !n.standing) g.position.z += 0.02;
     scene.add(g);
-    // glow sprite for ghosts
     if (ghost) {
       const c = document.createElement('canvas'); c.width = c.height = 128; const gg = c.getContext('2d'); const grd = gg.createRadialGradient(64, 64, 4, 64, 64, 64); grd.addColorStop(0, 'rgba(170,220,255,0.55)'); grd.addColorStop(1, 'rgba(170,220,255,0)'); gg.fillStyle = grd; gg.fillRect(0, 0, 128, 128);
       const tex = new THREE.CanvasTexture(c); const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); sp.scale.set(2.2, 2.6, 1); sp.position.y = 1.0; g.add(sp);
     }
-    // name tag
     let tag = null;
     if (n.name) {
       const tex = textTexture(n.name, { w: 512, h: 128, font: '600 54px Inter, sans-serif', color: ghost ? '#dcecff' : '#f5f1e8', bg: 'rgba(10,10,14,0.7)' });
       tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false })); tag.scale.set(1.6, 0.4, 1); tag.position.y = g.userData.height + 0.25; tag.material.opacity = 0; g.add(tag);
     }
-    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.0, 0.9), new THREE.MeshBasicMaterial({ visible: false })); hit.visible = false; hit.position.set(x, 1.0, z); hit.userData = { target: { kind: 'npc', n } }; scene.add(hit);
-    if (!n.r) hit.userData = {}; else L.hits.push(hit);
-    actors.push({ n, g, tag, hit, ghost, base: g.position.y, phase: Math.random() * TAU });
+    const interactive = !!n.r || INTERACTIVE_STAFF.has(n.id);
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.0, 0.9), new THREE.MeshBasicMaterial({ visible: false })); hit.visible = false; hit.position.set(x, 1.0, z);
+    if (interactive) { hit.userData = { target: { kind: 'npc', n } }; scene.add(hit); L.hits.push(hit); }
+    const a = { n, g, tag, hit, ghost, base: g.position.y, phase: Math.random() * TAU, pressT: 2 + Math.random() * 4 };
+    if (n.kind === 'walker') { a.path = n.path.map(([px, py]) => new THREE.Vector3(px * S, 0, py * S)); a.idx = 1; a.dir = 1; a.speed = (n.speed || 40) * S; }
+    actors.push(a);
   }
   return actors;
 }
 
-export function updateActors(actors, t, playerPos, hovered) {
+const _tmp = new THREE.Vector3();
+export function updateActors(actors, t, dt, playerPos, hovered) {
   for (const a of actors) {
-    const n = a.n;
-    a.g.visible = !n.hidden; a.hit.visible = false;
+    const n = a.n, p = a.g.userData.parts;
+    a.g.visible = !n.hidden;
     if (n.hidden) continue;
     const dx = playerPos.x - a.g.position.x, dz = playerPos.z - a.g.position.z; const dist = Math.hypot(dx, dz);
     if (a.ghost) {
       a.g.position.y = a.base + Math.sin(t * 1.4 + a.phase) * 0.06;
-      if (dist < 9) { const want = Math.atan2(dx, dz); a.g.rotation.y += (want - a.g.rotation.y) * 0.04; }
-      a.g.userData.parts.torso.material.emissiveIntensity = 0.45 + 0.2 * Math.sin(t * 2 + a.phase);
+      if (dist < 9) { const want = Math.atan2(dx, dz); a.g.rotation.y += wrapAngle(want - a.g.rotation.y) * 0.04; }
+      p.torso.material.emissiveIntensity = 0.45 + 0.2 * Math.sin(t * 2 + a.phase);
+    } else if (n.kind === 'walker') {
+      const target = a.path[a.idx]; _tmp.subVectors(target, a.g.position); _tmp.y = 0; const d = _tmp.length();
+      if (d < 0.15) { a.idx += a.dir; if (a.idx >= a.path.length || a.idx < 0) { if (n.bounce) { a.dir *= -1; a.idx += a.dir * 2; } else a.idx = 0; } }
+      else { _tmp.normalize(); a.g.position.addScaledVector(_tmp, a.speed * dt); const want = Math.atan2(_tmp.x, _tmp.z); a.g.rotation.y += wrapAngle(want - a.g.rotation.y) * 0.12; }
+      const sw = Math.sin(t * 7 + a.phase) * 0.45;
+      p.legs[0].rotation.x = sw; p.legs[1].rotation.x = -sw; p.arms[0].rotation.x = -sw * 0.7; p.arms[1].rotation.x = sw * 0.7;
+      a.g.position.y = Math.abs(Math.sin(t * 7 + a.phase)) * 0.02;
+      a.hit.position.copy(a.g.position); a.hit.position.y = 1;
+    } else if (n.kind === 'patron' && !n.standing) {
+      // seated player: occasionally slaps the spin button
+      a.pressT -= dt;
+      if (a.pressT < 0) { a.pressT = 2 + Math.random() * 5; a.pressing = 0.35; }
+      if (a.pressing > 0) { a.pressing -= dt; p.arms[1].rotation.x = -1.1; } else p.arms[1].rotation.x = -0.5 + Math.sin(t * 1.2 + a.phase) * 0.05;
+      p.arms[0].rotation.x = -0.5;
+      p.head.rotation.y = Math.sin(t * 0.7 + a.phase) * 0.08;
     } else {
-      const p = a.g.userData.parts; p.torso.position.y += Math.sin(t * 1.8 + a.phase) * 0.0008;
-      if (n.kind === 'staff' && dist < 6 && n.id !== 'hote') { const want = Math.atan2(dx, dz); a.g.rotation.y += (want - a.g.rotation.y) * 0.05; }
-      if (n.id === 'hote' && dist < 8) { const want = Math.atan2(dx, dz); a.g.rotation.y += (want - a.g.rotation.y) * 0.05; }
+      p.torso.position.y += 0; p.head.position.y += Math.sin(t * 1.5 + a.phase) * 0.0006;
+      if ((n.kind === 'staff' || n.witness) && dist < 6) { const want = Math.atan2(dx, dz); a.g.rotation.y += wrapAngle(want - a.g.rotation.y) * 0.05; }
+      else if (n.kind === 'patron') { p.head.rotation.y = Math.sin(t * 0.5 + a.phase) * 0.25; a.g.rotation.z = Math.sin(t * 0.9 + a.phase) * 0.012; }
     }
     if (a.tag) {
       const show = (hovered && hovered.kind === 'npc' && hovered.n === n) || (a.ghost && dist < 7) || (n.witness && dist < 4);
@@ -81,3 +123,4 @@ export function updateActors(actors, t, playerPos, hovered) {
     }
   }
 }
+function wrapAngle(a) { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; }
