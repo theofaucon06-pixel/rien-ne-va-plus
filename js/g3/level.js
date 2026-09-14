@@ -136,7 +136,7 @@ export function buildLevel(scene, state) {
   doorFrame(1560, 1168, 1640, 1192);          // bar → hallway
   doorFrame(1560, 1344, 1640, 1368);          // hallway → labyrinth
   doorFrame(700, 1344, 780, 1368, 'RESTAURANT · SPECTACLE'); // machines → labyrinth
-  doorFrame(2100, 1344, 2180, 1368, 'SALON VIP'); // tables → vip
+  doorFrame(2100, 1344, 2180, 1368);           // tables → vip (the big « SALON VIP » sign already hangs there)
 
   // ------------------------------------------------------------ pillars
   const pillar = (px, py, h, mat = marbleWhite, r = 0.32) => { const x = px * S, z = py * S; root.add(cyl(r, r, h, mat, x, h / 2, z, 20)); root.add(cyl(r + 0.08, r + 0.08, 0.16, gold, x, 0.08, z, 20)); root.add(cyl(r + 0.1, r + 0.02, 0.22, gold, x, h - 0.11, z, 20)); L.colliders.push({ x0: x - r, z0: z - r, x1: x + r, z1: z + r }); blob(x, z, 1.4); };
