@@ -6,6 +6,10 @@
 <title>Rien ne va plus — version 2D</title>
 <meta name="description" content="Un monde à explorer pour comprendre, mécanique par mécanique, pourquoi la maison gagne toujours.">
 <link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0E2A20">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='46' fill='%230E2A20' stroke='%23C6A14F' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='12' fill='%23C6A14F'/%3E%3C/svg%3E">
 </head>
 <body data-mode="2d">
@@ -72,5 +76,6 @@
 </div>
 
 <script type="module" src="js/main.js"></script>
+<script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
 </body>
 </html>

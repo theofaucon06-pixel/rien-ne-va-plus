@@ -107,4 +107,4 @@ function frame(now) {
 
 story.boot(() => renderer.updateCamera(state.player, 0, true));
 requestAnimationFrame(frame);
-window.__game = { state, tp: (x, y) => { state.player.x = x; state.player.y = y; renderer.updateCamera(state.player, 0, true); }, ui, games: story.games, interact: () => interact(nearestTarget()) };
+window.__game = { state, tp: (x, y) => { state.player.x = x; state.player.y = y; renderer.updateCamera(state.player, 0, true); }, ui, games: story.games, interact: () => interact(nearestTarget()), interactTarget: (t) => interact(t) };

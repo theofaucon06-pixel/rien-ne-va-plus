@@ -504,6 +504,78 @@ export const STORY = {
   ]
 };
 
+// Sources: what is real, what is composite, and where each story and figure comes from.
+// Shown in the codex (« Sources ») so that every claim in the game can be checked.
+export const SOURCES = {
+  witnesses: [
+    { id: 'wells', status: 'réel', refs: [
+      'Robin Quinn, <i>The Man Who Broke the Bank at Monte Carlo: Charles Deville Wells, Gambler and Fraudster Extraordinaire</i>, The History Press, 2016.',
+      'Fred Gilbert, chanson <i>The Man Who Broke the Bank at Monte Carlo</i> (1891-1892), créée par Charles Coborn.',
+      'Archives de presse britannique sur le procès de 1893 (Old Bailey) et la condamnation de 1912 en France.'
+    ] },
+    { id: 'mollie', status: 'réelle, sous pseudonyme', refs: [
+      'Natasha Dow Schüll, <i>Addiction by Design: Machine Gambling in Las Vegas</i>, Princeton University Press, 2012 — Mollie est l\'une des joueuses suivies pendant quinze ans par l\'anthropologue ; la « zone » est son mot.'
+    ] },
+    { id: 'bookman', status: 'réelle', refs: [
+      'Resorts World Casino, Queens (New York), 23 août 2016 : la machine affiche 42 949 672,76 $ ; le casino invoque un dysfonctionnement et propose un dîner et 2,25 $.',
+      'Couverture par CNN, le New York Daily News et The Guardian, août 2016 - juin 2017 (plainte déposée contre le casino).'
+    ] },
+    { id: 'dosto', status: 'réel', refs: [
+      'Fiodor Dostoïevski, <i>Le Joueur</i> (1866), écrit en vingt-six jours pour rembourser une dette de jeu.',
+      'Anna Dostoïevskaïa, <i>Journal</i> (1867) et <i>Mémoires</i> : les étés de Baden-Baden, les objets mis en gage, les lettres de Wiesbaden (1871) où il jure d\'arrêter.'
+    ] },
+    { id: 'karas', status: 'réel', refs: [
+      'Michael Konik, portrait d\'Archie Karas dans <i>Cigar Aficionado</i>, 1996 : de 50 $ à environ 40 millions de dollars entre 1992 et 1995, puis tout perdu en quelques mois.',
+      'Las Vegas Review-Journal et San Diego Union-Tribune, 2013 : arrestation pour marquage de cartes au casino Barona.'
+    ] },
+    { id: 'uston', status: 'réel', refs: [
+      'Ken Uston, <i>The Big Player</i> (1977) et <i>Million Dollar Blackjack</i> (1981).',
+      '<i>Uston v. Resorts International Hotel, Inc.</i>, Cour suprême du New Jersey, 1982 : un casino de l\'État ne peut pas exclure un compteur de cartes ; les casinos ont répondu en changeant les règles et les sabots.',
+      'Décès à Paris en septembre 1987.'
+    ] },
+    { id: 'watanabe', status: 'réel', refs: [
+      'Alexandra Berzon, « The Gambler Who Blew $127 Million », <i>The Wall Street Journal</i>, 5 décembre 2009 : environ 127 millions de dollars perdus en 2007 au Caesars Palace et au Rio (groupe Harrah\'s), l\'alcool et les médicaments servis pendant le jeu, les hôtes dédiés.',
+      'Poursuites pour 14,7 millions de dollars de dettes impayées abandonnées en 2010 après un accord.'
+    ] },
+    { id: 'kakavas', status: 'réel', refs: [
+      '<i>Kakavas v Crown Melbourne Ltd</i> [2013] HCA 25, Haute Cour d\'Australie : 20,5 millions de dollars australiens perdus en quatorze mois (2005-2006), environ 1,5 milliard misés, jets privés et cadeaux fournis par le casino ; le recours pour « exploitation d\'une vulnérabilité » est rejeté.'
+    ] },
+    { id: 'sami', status: 'personnage composite', refs: [
+      'Construit à partir de témoignages publiés par Joueurs Info Service et de l\'enquête OFDT / Santé publique France, <i>Les jeux d\'argent et de hasard en France en 2024</i> : 3,9 millions de joueurs en ligne, une pratique problématique concentrée chez les hommes jeunes.',
+      'ANJ, communications 2023-2025 sur les casinos en ligne illégaux et les sites de « crypto-casino » bloqués.'
+    ] },
+    { id: 'architecte', status: 'composite, d\'après deux vrais consultants', refs: [
+      'Bill Friedman, <i>Designing Casinos to Dominate the Competition</i>, Institute for the Study of Gambling and Commercial Gaming, University of Nevada, Reno, 2000 : les treize principes (plafonds bas, dédale, pas d\'horloge ni de fenêtre, machines dès l\'entrée).',
+      'Roger Thomas (Wynn Design) et le « playground design », qui a contesté Friedman avec des espaces ouverts — et les mêmes objectifs.',
+      'Natasha Dow Schüll, <i>Addiction by Design</i>, chapitres sur l\'ergonomie des salles.'
+    ] },
+    { id: 'nour', status: 'personnage fictif, service réel', refs: [
+      'Joueurs Info Service, dispositif de Santé publique France : 09 74 75 13 13, tous les jours de 8 h à 2 h, appel anonyme et non surtaxé ; joueurs-info-service.fr (chat, forum, annuaire des consultations).'
+    ] }
+  ],
+  mechanics: [
+    { id: 'avantage', refs: ['Espérance de la roulette européenne : 37 cases, gains payés 35 contre 1, soit −2,7 % par mise ; roulette américaine (double zéro) : −5,26 %. Edward O. Thorp, <i>The Mathematics of Gambling</i>, 1984.', 'Taux de redistribution des machines à sous en France : minimum légal de 85 % (arrêté du 14 mai 2007 relatif à la réglementation des jeux dans les casinos).'] },
+    { id: 'memoire', refs: ['Amos Tversky & Daniel Kahneman, « Belief in the law of small numbers », <i>Psychological Bulletin</i>, 1971.', 'La série de 26 noirs du 18 août 1913 à Monte-Carlo est rapportée par Darrell Huff, <i>How to Take a Chance</i>, 1959 — et reprise depuis dans tous les manuels sur le sophisme du joueur.'] },
+    { id: 'zone', refs: ['Natasha Dow Schüll, <i>Addiction by Design</i>, 2012.', 'R. L. Reid, « The psychology of the near miss », <i>Journal of Gambling Behavior</i>, 1986.', 'Luke Clark et al., « Gambling near-misses enhance motivation to gamble and recruit win-related brain circuitry », <i>Neuron</i>, 2009.'] },
+    { id: 'ldw', refs: ['Mike J. Dixon, Kevin A. Harrigan, Rajwant Sandhu, Karen Collins & Jonathan A. Fugelsang, « Losses disguised as wins in modern multi-line video slot machines », <i>Addiction</i>, 105(10), 2010.'] },
+    { id: 'systeme', refs: ['Ellen J. Langer, « The illusion of control », <i>Journal of Personality and Social Psychology</i>, 1975.', 'La martingale (doubler après chaque perte) échoue par le plafond de table et le capital fini : l\'espérance reste −2,7 % par mise, la ruine devient seulement plus rare et plus grosse.'] },
+    { id: 'refaire', refs: ['Henry R. Lesieur, <i>The Chase: Career of the Compulsive Gambler</i>, 1977.', '« Après avoir perdu de l\'argent au jeu, retourne souvent jouer pour se refaire » est l\'un des neuf critères du trouble lié au jeu d\'argent, DSM-5, American Psychiatric Association, 2013.'] },
+    { id: 'competence', refs: ['Edward O. Thorp, <i>Beat the Dealer</i>, 1962 : avec la stratégie de base, l\'avantage de la maison au blackjack tombe autour de 0,5 % ; il ne devient négatif qu\'en comptant les cartes — ce que les casinos interdisent ou neutralisent.', 'Ken Uston, <i>Million Dollar Blackjack</i>, 1981.'] },
+    { id: 'simplicite', refs: ['Roue de la fortune (Big Six) : avantage de la maison de 11 % à 24 % selon le secteur — Michael Shackleford, <i>The Wizard of Odds</i>, « Big Six / Money Wheel ».'] },
+    { id: 'maison', refs: ['Bill Friedman, <i>Designing Casinos to Dominate the Competition</i>, 2000.', 'Natasha Dow Schüll, <i>Addiction by Design</i>, 2012 : jetons, cartes de fidélité, boissons, absence d\'horloges.'] },
+    { id: 'tapis', refs: ['Alexandra Berzon, <i>The Wall Street Journal</i>, 2009 (Watanabe) ; <i>Kakavas v Crown Melbourne Ltd</i>, 2013.', 'Schüll, chapitre sur le suivi des joueurs (player tracking) : la carte de fidélité sert d\'abord à mesurer la « valeur théorique » d\'un client.'] },
+    { id: 'poche', refs: ['OFDT, <i>Les jeux d\'argent et de hasard en France en 2024</i> (2025) : 3,9 millions de joueurs en ligne (+7,7 %).', 'ANJ, rapports d\'activité 2023 et 2024 : la part du chiffre d\'affaires en ligne provenant de joueurs problématiques, et les casinos en ligne illégaux.'] },
+    { id: 'sortie', refs: ['Interdiction volontaire de jeux : demande auprès du ministère de l\'Intérieur (interdits de jeux), valable trois ans minimum, applicable aux casinos, clubs et sites agréés.', 'Joueurs Info Service — 09 74 75 13 13.'] }
+  ],
+  figures: [
+    'Produit brut des jeux en France en 2024, près de 14 milliards d\'euros ; joueurs problématiques, 2,5 % des 18-75 ans, soit environ 1 170 000 personnes : OFDT, <i>Les jeux d\'argent et de hasard en France en 2024</i>, 2025.',
+    'Recettes des casinos et part des machines à sous : ANJ, <i>Analyse annuelle du marché des jeux d\'argent et de hasard en France</i>, 2023, et ministère de l\'Intérieur (saison 2022-2023).',
+    'Part du chiffre d\'affaires en ligne venant de joueurs excessifs : ANJ, rapport d\'activité 2023 (étude sur les joueurs problématiques et le PBJ en ligne).',
+    'Personnes en interdiction volontaire de jeux : ministère de l\'Intérieur, fichier des interdits de jeux, chiffre 2024 repris par l\'ANJ.',
+    'Probabilités des jeux de ce monde : les règles jouées sont les règles réelles (roulette à 37 cases, baccara avec la règle de la troisième carte, blackjack S17 payé 3 contre 2, roue à 54 secteurs). Les taux de redistribution des machines sont fixés dans <code>js/games.js</code> entre 85 et 90 %.'
+  ]
+};
+
 export const NUMBERS = {
   pbj: '14 milliards €', casinos: '2,7 milliards €', slotsShare: '81,8 %',
   problem: '1 170 000', excessOnline: '60,6 %', selfExcl: '73 439'

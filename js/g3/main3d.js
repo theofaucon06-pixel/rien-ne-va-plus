@@ -87,6 +87,7 @@ function applyTier(tier) {
 }
 const weak = (navigator.hardwareConcurrency || 8) <= 4 || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 let quality = null; quality = new Adaptive(applyTier, { start: weak ? 2 : 1 });
+if (new URLSearchParams(location.search).has('smoke')) quality.set(TIERS.length - 1, false); // the headless test renders in software
 window.addEventListener('resize', () => { renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight); camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); });
 const btnQuality = document.getElementById('btn-quality');
 if (btnQuality) btnQuality.addEventListener('click', () => { // auto → ultra → haute → moyenne → basse → minimale → auto
@@ -274,4 +275,4 @@ function frame() {
 
 story.boot(() => { syncFromState(); tryLock(); setTimeout(() => { if (!ui.isOpen() && !player.locked) lockOverlay.hidden = false; }, 400); });
 frame();
-window.__game = { renderer, state, ui, games: story.games, player, tp: (px, py) => player.setPosition(px * S, py * S), L, scene, camera, interact: () => interact(hovered), quality, chunks, actors, renderOnce: () => { renderer.info.reset(); composer.render(); return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles }; } };
+window.__game = { renderer, state, ui, games: story.games, player, tp: (px, py) => player.setPosition(px * S, py * S), L, scene, camera, interact: () => interact(hovered), interactTarget: (t) => interact(t), quality, chunks, actors, renderOnce: () => { renderer.info.reset(); composer.render(); return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles }; } };

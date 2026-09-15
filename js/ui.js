@@ -1,5 +1,5 @@
 // DOM user interface: dialogues, panels, reveal modal, codex, HUD, intro, epilogue.
-import { REVELATIONS, WITNESSES, STORY, fmt, fmtSigned, fmtChips } from './content.js';
+import { REVELATIONS, WITNESSES, SOURCES, STORY, fmt, fmtSigned, fmtChips } from './content.js';
 import { audio } from './audio.js';
 
 const $ = (s) => document.querySelector(s);
@@ -188,7 +188,7 @@ export const ui = {
       const close = () => { m.hidden = true; m.innerHTML = ''; const i = ui.stack.lastIndexOf('modal'); if (i >= 0) ui.stack.splice(i, 1); const b = $('#btn-codex'); b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse'); resolve(); queueMicrotask(() => { if (!ui.stack.length && ui.onIdle) ui.onIdle(); }); };
       m.querySelector('.m-btn').addEventListener('click', close);
       this._modalClose = close;
-      setTimeout(() => m.querySelector('.m-btn').focus(), 50);
+      setTimeout(() => { const b = m.querySelector('.m-btn'); if (b) b.focus(); }, 50); // the card may already be closed (Enter mashed)
     });
   },
   witnessCard(w) {
@@ -204,7 +204,7 @@ export const ui = {
       const close = () => { m.hidden = true; m.innerHTML = ''; const i = ui.stack.lastIndexOf('modal'); if (i >= 0) ui.stack.splice(i, 1); resolve(); queueMicrotask(() => { if (!ui.stack.length && ui.onIdle) ui.onIdle(); }); };
       m.querySelector('.m-btn').addEventListener('click', close);
       this._modalClose = close;
-      setTimeout(() => m.querySelector('.m-btn').focus(), 50);
+      setTimeout(() => { const b = m.querySelector('.m-btn'); if (b) b.focus(); }, 50); // the card may already be closed (Enter mashed)
     });
   },
   modalKey(e) { if (['Escape', 'Enter', ' ', 'e', 'E'].includes(e.key)) { this._modalClose && this._modalClose(); return true; } return true; },
@@ -223,11 +223,12 @@ export const ui = {
       return `<div class="cx-card ${on ? 'on' : ''}"><div class="cx-p" style="--c:${w.color}">${on ? w.name[0] : '?'}</div><div><div class="cx-t">${on ? w.name : 'Inconnu·e'}</div><div class="cx-s">${on ? w.sub : w.where}</div>${on ? `<div class="cx-k">${w.lines[w.lines.length - 1]}</div>` : ''}</div></div>`;
     }).join('');
     c.innerHTML = `<div class="codex-inner">
-      <header><h2>Le carnet</h2><div class="tabs"><button data-t="mecaniques" class="${tab === 'mecaniques' ? 'on' : ''}">Mécaniques ${s.revealed.size}/${REVELATIONS.length}</button><button data-t="temoins" class="${tab === 'temoins' ? 'on' : ''}">Témoins ${s.witnesses.size}/${WITNESSES.length}</button><button data-t="soir" class="${tab === 'soir' ? 'on' : ''}">Ce soir</button></div><button class="p-close">Fermer</button></header>
+      <header><h2>Le carnet</h2><div class="tabs"><button data-t="mecaniques" class="${tab === 'mecaniques' ? 'on' : ''}">Mécaniques ${s.revealed.size}/${REVELATIONS.length}</button><button data-t="temoins" class="${tab === 'temoins' ? 'on' : ''}">Témoins ${s.witnesses.size}/${WITNESSES.length}</button><button data-t="soir" class="${tab === 'soir' ? 'on' : ''}">Ce soir</button><button data-t="sources" class="${tab === 'sources' ? 'on' : ''}">Sources</button></div><button class="p-close">Fermer</button></header>
       <div class="cx-body">
         <div class="cx-tab" data-t="mecaniques" ${tab !== 'mecaniques' ? 'hidden' : ''}>${revs}</div>
         <div class="cx-tab" data-t="temoins" ${tab !== 'temoins' ? 'hidden' : ''}>${wits}</div>
         <div class="cx-tab" data-t="soir" ${tab !== 'soir' ? 'hidden' : ''}>${this.tonightHTML(s)}</div>
+        <div class="cx-tab" data-t="sources" ${tab !== 'sources' ? 'hidden' : ''}>${this.sourcesHTML(s)}</div>
       </div></div>`;
     c.querySelector('.p-close').addEventListener('click', () => this.closeCodex());
     c.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { c.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); c.querySelectorAll('.cx-tab').forEach(t => t.hidden = t.dataset.t !== b.dataset.t); }));
@@ -247,6 +248,23 @@ export const ui = {
     </div>
     <p class="cx-note">Toutes les probabilités de ce monde sont réelles : roulette européenne à 37 cases, machines réglées entre 85 et 90 % de redistribution, baccara avec ses vraies règles. Le seul mensonge, c'est l'argent : il est faux.</p>
     <p class="cx-note"><b>Joueurs Info Service — 09 74 75 13 13</b>, tous les jours de 8 h à 2 h, appel anonyme et non surtaxé. joueurs-info-service.fr</p>`;
+  },
+  // every story and figure in the game, with what is real, what is composite, and where it comes from.
+  // Witnesses not yet met stay anonymous so the list does not spoil the night.
+  sourcesHTML(s) {
+    const wits = SOURCES.witnesses.map(src => {
+      const w = WITNESSES.find(x => x.id === src.id); const met = s.witnesses.has(src.id);
+      return `<div class="src"><div class="src-h"><b>${met ? w.name : 'Inconnu·e — ' + w.where}</b><span class="src-st">${src.status}</span></div>${met ? `<ul>${src.refs.map(r => `<li>${r}</li>`).join('')}</ul>` : '<p class="muted">Rencontre cette personne pour voir ses sources.</p>'}</div>`;
+    }).join('');
+    const mecs = SOURCES.mechanics.map(src => {
+      const r = REVELATIONS.find(x => x.id === src.id); const on = s.revealed.has(src.id);
+      return `<div class="src"><div class="src-h"><b>${String(r.n).padStart(2, '0')} · ${on ? r.title : '???'}</b></div>${on ? `<ul>${src.refs.map(x => `<li>${x}</li>`).join('')}</ul>` : '<p class="muted">Découvre cette mécanique pour voir ses sources.</p>'}</div>`;
+    }).join('');
+    return `<p class="cx-note">Tout ce que racontent les témoins est documenté. Trois d'entre eux sont des personnages composites, construits à partir de sources publiques ; les autres ont existé et ont dit, à peu de chose près, ce qu'ils disent ici.</p>
+      <h3 class="src-t">Témoins</h3>${wits}
+      <h3 class="src-t">Mécaniques</h3>${mecs}
+      <h3 class="src-t">Chiffres</h3><div class="src"><ul>${SOURCES.figures.map(x => `<li>${x}</li>`).join('')}</ul></div>
+      <p class="cx-note">Une erreur, une source manquante ? Le jeu est un projet de prévention indépendant : signale-la, elle sera corrigée.</p>`;
   },
   closeCodex() { this.el.codex.hidden = true; this.el.codex.innerHTML = ''; this._pop('codex'); },
   codexKey(e) { if (e.key === 'Escape' || e.key === 'c' || e.key === 'C') { this.closeCodex(); return true; } return true; },
