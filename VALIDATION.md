@@ -53,3 +53,22 @@ Aucun essai de charge massive n’a été réalisé.
 Le serveur Node local continue à utiliser SSE et des salons en mémoire ; un
 redémarrage les ferme. Les sauvegardes personnelles restent dans le navigateur.
 Le Dockerfile n’a pas été construit sur ce poste, où Docker est absent.
+
+## Blackjack et découvert — mise à jour
+
+- `npm test` : **23 tests réussis**, dont 12 sur le blackjack. Composition et
+  renouvellement du sabot, absence d’influence du solde, paiement 3:2, égalités,
+  vérification du blackjack du croupier, assurance/paiement égal, S17, doubles,
+  partages et repartages, As partagés, abandon, dépassement, reprise JSON.
+- `tools/browser-blackjack.cjs` : **6 scénarios réussis** dans Chrome :
+  partage/double avec fermeture puis rechargement, abandon, assurance,
+  croupier sur 17 souple, quatre mains sur écran de 390 px, découvert dépassant
+  1 000 € dans les trois parcours. Aucune erreur JavaScript.
+- `tools/browser-blackjack-3d.cjs` : démarrage 3D, manche complète avec un sabot
+  aléatoire et ouverture des règles. Aucune erreur JavaScript.
+- Parcours général 2D relancé : **3/3 étapes**, sans erreur console.
+- Inspection des captures de la table 3D et du partage en quatre mains mobile.
+
+Les sabots fixes des tests servent uniquement à atteindre les cas de règles.
+La production utilise le générateur cryptographique du navigateur. Ces tests
+valident les transitions et paiements, pas une certification de jeu d’argent.

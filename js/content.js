@@ -4,15 +4,15 @@
 export const REVELATIONS = [
   {
     id: 'avantage', n: 1,
-    title: 'La maison gagne toujours',
+    title: 'L’avantage de la maison',
     sub: "L'avantage de la maison",
     hint: 'Joue quinze tours sur une machine, ou quelques coups à la roulette.',
     text: (s) => `Tu viens de faire ${s.spins} tours. Tu as misé ${fmt(s.wagered)} et la machine t'a rendu ${fmt(s.returned)}. Peut-être que ce soir tu es en avance. Ça ne change rien.
 
-Chaque jeu est réglé avec un pourcentage pour la maison : 2,7 % à la roulette européenne, jusqu'à 15 % sur une machine à sous en France. Sur un tour, ce chiffre n'existe pas. Sur mille tours, il devient une loi.
+Chaque jeu est réglé avec un pourcentage pour la maison : 2,7 % à la roulette européenne, jusqu'à 15 % sur une machine à sous en France. C’est une espérance mathématique, pas un quota de défaites. Même après mille tours, ton résultat peut s’écarter fortement de la moyenne.
 
 Sur mille tours à cette mise, la machine te prend en moyenne ${fmt(s.projected)}. Sans tricher. Sans malchance. Juste la moyenne.`,
-    keep: "L'avantage de la maison n'est pas une opinion. C'est une soustraction, répétée jusqu'à devenir certaine."
+    keep: "L’avantage de la maison décrit une moyenne. Il ne prédit pas le résultat de ta soirée."
   },
   {
     id: 'memoire', n: 2,
@@ -79,9 +79,9 @@ Le problème est arithmétique : l'avantage s'applique à chaque jeton misé. Mi
     title: 'Le jeu où on a une chance',
     sub: "L'illusion de compétence",
     hint: 'Joue une dizaine de mains de blackjack.',
-    text: (s) => `Dix mains de blackjack. Résultat : ${fmtSigned(s.net)}.${s.insurance ? ` Tu as pris l'assurance ${s.insurance} fois : c'est le pari le plus cher de la table, 7,4 % pour la maison.` : ''}
+    text: (s) => `Dix mains de blackjack. Résultat : ${fmtSigned(s.net)}.${s.insurance ? ` Tu as pris l'assurance ${s.insurance} fois : son avantage pour la maison est d’environ 7,4 % avec un sabot neuf de six paquets ; il varie avec les cartes restantes.` : ''}
 
-Le blackjack est le jeu « où l'on peut gagner » : avec la stratégie de base parfaite, l'avantage de la maison tombe à 0,5 %. Presque personne ne la joue parfaitement. Le joueur moyen laisse 2 %, et chaque écart — tirer sur 16 face à un 6, ne pas doubler, prendre l'assurance — ajoute sa dîme.
+Les décisions comptent au blackjack. Avec une stratégie de base adaptée aux règles, l’avantage de la maison peut être de l’ordre de 0,5 %. Ce chiffre varie selon la table et les décisions : ce n’est ni un taux de mains perdues, ni une perte imposée. Ici, les cartes viennent d’un sabot de six paquets mélangé, sans remise. Tu peux gagner, perdre ou faire égalité.
 
 Et si tu deviens vraiment bon ? Ken Uston comptait les cartes. Il a gagné. Les casinos l'ont interdit, puis ont multiplié les paquets et mélangé plus tôt. Le seul moyen de battre la maison, c'est qu'elle te mette dehors.`,
     keep: 'Le jeu qui donne une chance est celui qui fait croire que les autres en donnent une aussi.'
@@ -165,10 +165,10 @@ Plus un jeu a de mises différentes, plus il en cache de mauvaises. Le bruit, la
     hint: 'Sors du casino et parle à quelqu\'un.',
     text: (s) => `Il est ${s.time}. Tu es entré à 21 h. Tu es ressorti avec ${fmtSigned(s.net)}${s.debt ? `, et une dette de ${fmt(s.debt)}` : ''}.
 
-Treize mécaniques, empilées sur la même personne. À la fin, ce n'est plus un jeu de hasard : c'est un dispositif, et le résultat est écrit d'avance.
+Treize mécaniques, empilées sur la même personne. Les tirages restent aléatoires, et tu peux finir en gain. L’avantage mathématique et les incitations à rejouer ne rendent pas ta perte certaine sur une soirée.
 
 Les signes : rejouer pour se refaire, miser plus pour ressentir la même chose, mentir sur le temps ou l'argent, y penser quand on ne joue pas. Un seul mérite une conversation. Deux méritent un appel. Joueurs Info Service : 09 74 75 13 13, tous les jours de 8 h à 2 h, anonyme, non surtaxé.`,
-    keep: 'Le casino gagne toujours à la fin. La seule chose qu\'il ne contrôle pas, c\'est quand tu décides que c\'est la fin.'
+    keep: 'Une soirée gagnante est possible. Elle ne supprime pas l’avantage mathématique des jeux.'
   },
   {
     id: 'retour', n: 15,
