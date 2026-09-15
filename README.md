@@ -26,7 +26,7 @@ Le créateur anime le salon et lance les activités. En cas de déconnexion,
 l’animation passe à un autre participant après quinze secondes. Une place est
 conservée soixante secondes pour permettre une reconnexion. Une actualisation
 reprend le salon grâce à une session privée stockée dans l’onglet. Les salons
-sont temporaires et disparaissent au redémarrage du serveur. La sauvegarde du
+sont temporaires ; en mode local, ils disparaissent au redémarrage du serveur. La sauvegarde du
 parcours individuel reste sur l’appareil.
 
 ### Sur le même réseau Wi-Fi
@@ -37,20 +37,47 @@ affiche l’adresse `http://IP-DU-MAC:8787`. Tous les participants doivent ouvri
 ne fonctionne que sur la machine où le serveur tourne. Le pare-feu du réseau
 doit autoriser les connexions au port choisi.
 
-### Sur Internet
+### Sur Internet — Vercel et Supabase
 
-Déployer **le serveur Node complet**, sur une seule instance, avec HTTPS.
-Le `Dockerfile` et `render.yaml` sont fournis pour ce déploiement. Le service
-écoute sur `0.0.0.0:$PORT`, sa santé est disponible sur `/api/health`. Le proxy
-doit laisser passer les flux SSE de `/api/rooms/*/events` sans mise en tampon.
-Le domaine du site et celui de l’API doivent être identiques. Aucun secret
-externe ni compte utilisateur n’est nécessaire.
+Le site public est https://rien-ne-va-plus.vercel.app. `js/cloud.js` relie ce
+nom de domaine à la fonction Supabase `casino` du projet `rien-ne-va-plus`.
+Aucun compte joueur ni clé secrète n’est requis dans le navigateur.
 
-Une publication statique Vercel peut toujours servir le mode solo, mais ne
-fournit pas le serveur de salons. L’interface affiche alors une erreur claire
-quand on essaie de se connecter. Le déploiement Internet n’est pas automatique.
-Pour plusieurs instances, il faudra externaliser les salons et les événements
-dans un stockage partagé ; cette version conserve son état en mémoire.
+- L’Edge Function valide chaque action et chaque session ; Postgres conserve
+  les salons privés. Les tables sont inaccessibles aux rôles navigateur.
+- Les positions et l’état du salon sont actualisés par requêtes courtes
+  (environ toutes les 650 ms, plus le temps réseau ; 3 s en arrière-plan).
+  Les actions du quiz et de la roulette partent immédiatement.
+- Chaque mise à jour vérifie la révision du salon pour préserver les actions
+  simultanées. Les réponses obsolètes sont ignorées par le navigateur.
+- Les sessions expirent après 60 s sans contact. Les anciens salons sont
+  nettoyés à la création de nouveaux salons. Les sauvegardes solo restent locales.
+
+Le serveur Node local reste autonome, avec son flux SSE habituel.
+Pour tester **le vrai Supabase** avec l’interface locale, ouvrir
+`http://localhost:8787/classic.html?cloud=1`. Les salons locaux et Internet
+ont des sessions séparées. L’API cloud accepte uniquement le domaine public et
+les origines locales de test déclarées dans la fonction.
+
+#### Publier une modification
+
+1. Modifier les sources et lancer `npm test`.
+2. Si les questions ou la carte changent : `node tools/cloud-content.mjs`.
+3. Appliquer les nouvelles migrations SQL dans Supabase et déployer
+   `supabase/functions/casino` avec `supabase functions deploy casino
+   --project-ref ydcforyxwlmmgdgyypiu` (CLI authentifiée).
+4. Pousser puis intégrer la branche dans `main` pour déclencher Vercel.
+5. Vérifier une invitation depuis deux navigateurs sur le site public.
+
+La désactivation de `verify_jwt` dans `supabase/config.toml` est intentionnelle :
+la fonction utilise ses propres jetons de session aléatoires (empreintes SHA-256
+stockées en base). Seules la santé, la création et la connexion par code sont
+publiques ; les autres actions nécessitent le jeton privé du salon. Les clés
+serveur proviennent exclusivement de l’environnement Supabase.
+
+`Dockerfile` et `render.yaml` restent une alternative pour héberger le serveur
+Node complet sur une instance unique. Vercel seul, sans la connexion Supabase,
+sert uniquement le jeu solo.
 
 ## Nouvelle expérience
 
@@ -160,3 +187,12 @@ et les événements multijoueurs sont exclus du cache hors ligne. La découverte
 personnelle est déclarée par le client et ne constitue pas un score compétitif.
 
 Les résultats et la portée des vérifications sont détaillés dans `VALIDATION.md`.
+
+### Vérifications Supabase
+
+- `npm test` : règles locales et moteur cloud, sans accès réseau.
+- `node tools/cloud-smoke.mjs` : vrai Supabase, concurrence, accès, quiz, roulette
+  et sessions (crée puis quitte des salons de test).
+- `playwright-cli run-code --filename tools/browser-cloud.cjs` : deux navigateurs
+  sur l’interface locale utilisant le vrai backend Supabase.
+- `npx deno check supabase/functions/casino/index.ts` : vérification du runtime.

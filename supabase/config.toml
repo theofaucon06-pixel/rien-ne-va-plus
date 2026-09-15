@@ -1,0 +1,5 @@
+project_id = "rien-ne-va-plus"
+
+# The handler authenticates room requests with a random, hashed session token.
+[functions.casino]
+verify_jwt = false
