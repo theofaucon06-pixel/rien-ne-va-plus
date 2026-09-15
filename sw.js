@@ -2,7 +2,7 @@
 // first, so the second launch is instant; the game code itself is fetched from the network first and only
 // falls back to the cache when offline, so a deploy is never mixed with stale scripts.
 // Bump VERSION when a cache-first file changes under the same name (regenerated textures, new Three.js).
-const VERSION = 'rnvp-2026-09-15';
+const VERSION = 'rnvp-v2-2026-09-15';
 const CACHE_FIRST = /\/(vendor|assets)\//;
 const isLocal = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 
@@ -13,6 +13,8 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
+  // Live room streams and authenticated responses must never enter the offline cache.
+  if (new URL(req.url).pathname.startsWith('/api/')) return;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   if (CACHE_FIRST.test(req.url) && !isLocal) e.respondWith(cacheFirst(req));
   else e.respondWith(networkFirst(req));

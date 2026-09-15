@@ -8,6 +8,8 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { roomAt } from '../world.js';
 import { ui } from '../ui.js';
+import { createExperience } from '../experience.js';
+import { PeerAvatars } from './peers.js';
 import { audio } from '../audio.js';
 import { createStory } from '../story.js';
 import { buildLevel, S } from './level.js';
@@ -98,13 +100,15 @@ if (btnQuality) btnQuality.addEventListener('click', () => { // auto → ultra �
 // ------------------------------------------------------------------ story + level
 const player = new Player(camera, document.body);
 const story = createStory({
-  onTeleport: (px, py, facing) => { player.setPosition(px * S, py * S, { up: Math.PI, down: 0, left: Math.PI / 2, right: -Math.PI / 2 }[facing] ?? 0); },
+  onTeleport: (px, py, facing) => { player.setPosition(px * S, py * S, { up: 0, down: Math.PI, left: Math.PI / 2, right: -Math.PI / 2 }[facing] ?? 0); },
   onEntered: () => {},
   onVipOpen: () => { if (L.dynamic.vipRope) L.dynamic.vipRope.visible = false; if (L.dynamic.vipCollider) L.dynamic.vipCollider.disabled = true; if (L.dynamic.vipHit) { L.dynamic.vipHit.userData = {}; const i = L.hits.indexOf(L.dynamic.vipHit); if (i >= 0) L.hits.splice(i, 1); } },
   onExited: () => { setDawn(true); if (L.dynamic.exitDoor) L.dynamic.exitDoor.material = new THREE.MeshStandardMaterial({ color: 0x7fd0ff, emissive: 0x3a90c0, emissiveIntensity: 0.5 }); },
-  onLoaded: () => {}
+  onLoaded: () => syncFromState()
 });
 const { state, interact, targetLabel, tick } = story;
+const experience = createExperience(story);
+const peers = new PeerAvatars(scene);
 const L = buildLevel(scene, state);
 const actors = buildActors(scene, state, L);
 // static props are merged into one mesh per material and per room, then rooms out of sight are hidden
@@ -113,20 +117,12 @@ let curRoomId = null, visibleSet = applyRoomVisibility(chunks.byRoom, null);
 for (const l of L.lightSpots) l.room = roomOfPoint(l.x, l.z, S);
 player.colliders = L.colliders;
 player.onStep = () => audio.step();
-// compile every shader and upload every geometry now, behind the intro, instead of stuttering the first
-// time each room comes into view
+// Upload generated textures when ready; keep the opaque welcome screen inexpensive.
 setTextureInit((t) => renderer.initTexture(t));
-function warmUp() {
-  applyRoomVisibility(chunks.byRoom, null);
-  const culled = []; scene.traverse(o => { if (o.isMesh || o.isPoints || o.isSprite) { culled.push([o, o.frustumCulled]); o.frustumCulled = false; } });
-  renderer.compile(scene, camera);
-  renderer.render(scene, camera);
-  for (const [o, v] of culled) o.frustumCulled = v;
-  curRoomId = undefined; // the next frame re-applies the room gating
-}
-warmUp();
+// The welcome screen is opaque: compile shaders without drawing the entire casino.
+setTimeout(() => renderer.compile(scene, camera), 0);
 function syncFromState() {
-  player.setPosition(state.player.x * S, state.player.y * S, state.player.facing === 'up' ? Math.PI : state.player.facing === 'left' ? Math.PI / 2 : state.player.facing === 'down' ? 0 : -Math.PI / 2);
+  player.setPosition(state.player.x * S, state.player.y * S, Number.isFinite(state.player.yaw) ? state.player.yaw : state.player.facing === 'up' ? 0 : state.player.facing === 'left' ? Math.PI / 2 : state.player.facing === 'down' ? Math.PI : -Math.PI / 2);
   player.colliders = L.colliders;
   if (state.flags.vipOpen) { if (L.dynamic.vipRope) L.dynamic.vipRope.visible = false; if (L.dynamic.vipCollider) L.dynamic.vipCollider.disabled = true; if (L.dynamic.vipHit && L.hits.includes(L.dynamic.vipHit)) { L.dynamic.vipHit.userData = {}; L.hits.splice(L.hits.indexOf(L.dynamic.vipHit), 1); } }
   if (state.flags.exited) setDawn(true);
@@ -179,9 +175,9 @@ let lightTick = 0;
 
 // ------------------------------------------------------------------ input & pointer lock
 const lockOverlay = document.getElementById('lock');
-function tryLock() { if (!state.started || ui.isOpen() || player.locked) return; player.lock(); }
+function tryLock() { if (!state.started || ui.isOpen() || player.locked || player.touch) return; player.lock(); }
 window.addEventListener('keydown', (e) => {
-  if (e.metaKey || e.ctrlKey) return;
+  if (e.metaKey || e.ctrlKey || e.target.closest?.('input,textarea,select,[contenteditable]')) return;
   if (ui.isOpen()) {
     if (ui.top() === 'panel' && e.key === ' ') { const b = document.querySelector('#panel .p-body'); if (b && b._spin) { e.preventDefault(); b._spin(); return; } }
     if (ui.top() === 'panel' && (e.key === 'c' || e.key === 'C')) return;
@@ -209,6 +205,18 @@ function watchUI() {
   wasOpen = open;
 }
 
+// Touch: left pad walks, drag on the world to look, action button interacts.
+player.touch = matchMedia('(pointer: coarse)').matches;
+let touchLook = null;
+canvas.style.touchAction = 'none';
+canvas.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse' && state.started && !ui.isOpen()) { player.touch = true; touchLook = {id:e.pointerId,x:e.clientX,y:e.clientY}; canvas.setPointerCapture(e.pointerId); } });
+canvas.addEventListener('pointermove', e => { if (!touchLook || e.pointerId !== touchLook.id || ui.isOpen()) return; camera.rotation.order='YXZ'; camera.rotation.y -= (e.clientX-touchLook.x)*.004; camera.rotation.x = Math.max(-1.35,Math.min(1.35,camera.rotation.x-(e.clientY-touchLook.y)*.004)); touchLook.x=e.clientX;touchLook.y=e.clientY; });
+for (const type of ['pointerup','pointercancel']) canvas.addEventListener(type,()=>touchLook=null);
+for (const b of document.querySelectorAll('#pad [data-k]')) {
+  b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);if(ui.isOpen())return;if(b.dataset.k==='E'){if(hovered)interact(hovered);}else player.keys.add(b.dataset.k);});
+  for(const type of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(type,()=>player.keys.delete(b.dataset.k));
+}
+
 // ------------------------------------------------------------------ interaction (crosshair raycast)
 const ray = new THREE.Raycaster(); ray.far = 3.4;
 let hovered = null; let rayTick = 0;
@@ -223,7 +231,7 @@ function updateHover() {
     const h = hits[0];
     if (h.object.userData.target) { const t = h.object.userData.target; if (!(t.kind === 'npc' && t.n.hidden)) hovered = t; }
   }
-  ui.setPrompt(player.locked ? targetLabel(hovered) : null);
+  ui.setPrompt(player.locked || player.touch ? targetLabel(hovered) : null);
   crosshair.classList.toggle('on', !!hovered);
 }
 
@@ -240,13 +248,16 @@ function frame() {
   const dt = Math.min(0.05, clock.getDelta());
   const t = clock.elapsedTime;
   renderer.info.reset();
+  if (!state.started) { experience.frame(dt); return; }
   const open = ui.isOpen();
   watchUI();
   const drunk = state.drunkUntil > state.timeMin && !state.flags.exited;
-  player.update(dt, { enabled: !open && player.locked && state.started, drunk, t });
+  const calm = document.body.classList.contains('calm-mode');
+  player.update(dt, { enabled: !open && (player.locked || player.touch) && state.started, drunk: drunk && !calm, t, calm });
   state.player.x = camera.position.x / S; state.player.y = camera.position.z / S;
-  state.player.moving = player.moving;
+  state.player.moving = player.moving; state.player.yaw = camera.rotation.y;
   tick(dt, open);
+  experience.frame(dt); peers.update(state.remotePlayers || [], dt);
   const r = roomAt(state.player.x, state.player.y);
   const rid = r ? r.id : null;
   if (rid !== curRoomId) { curRoomId = rid; visibleSet = applyRoomVisibility(chunks.byRoom, rid); updateLights(t, true); }
@@ -254,9 +265,10 @@ function frame() {
   scene.fog.density += (fogTarget - scene.fog.density) * 0.05;
   scene.fog.color.setHex(!r || r.outdoor ? (state.flags.exited ? 0x6b5570 : 0x07080f) : 0x07080f);
   const zone = document.body.classList.contains('zone');
-  const wantFov = zone ? 60 : 72; if (Math.abs(camera.fov - wantFov) > 0.1) { camera.fov += (wantFov - camera.fov) * 0.05; camera.updateProjectionMatrix(); }
+  const wantFov = zone && !calm ? 60 : 72; if (Math.abs(camera.fov - wantFov) > 0.1) { camera.fov += (wantFov - camera.fov) * 0.05; camera.updateProjectionMatrix(); }
   bloom.strength = zone ? 0.8 : 0.42;
   film.uniforms.time.value = t; film.uniforms.zone.value += ((zone ? 1 : 0) - film.uniforms.zone.value) * 0.05; film.uniforms.vig.value = drunk ? 0.7 : 0.5; film.uniforms.drunk.value += ((drunk ? 1 : 0) - film.uniforms.drunk.value) * 0.03;
+  if (calm) { film.uniforms.drunk.value = 0; film.uniforms.grain.value = 0; } else film.uniforms.grain.value = 0.035;
   rayTick++; if (rayTick % 3 === 0 && !open) updateHover(); else if (open) { hovered = null; ui.setPrompt(null); }
   for (const u of L.updaters) if (!u.room || visibleSet.has(u.room)) u(t, dt);
   updateDust(t, dt);
@@ -273,6 +285,6 @@ function frame() {
   if (perf.el) { perf.acc += ms; if (++perf.n >= 20) { const cpu = (now - frameStart).toFixed(1); perf.el.textContent = `${(1000 / (perf.acc / perf.n)).toFixed(0)} fps · ${(perf.acc / perf.n).toFixed(1)} ms (cpu ${cpu})\n${renderer.info.render.calls} draws · ${(renderer.info.render.triangles / 1000).toFixed(0)}k tris\n${TIERS[quality.tier].name}${quality.auto ? ' (auto)' : ''} · dpr ${dpr.toFixed(2)} · ${rid || 'dehors'}`; perf.acc = 0; perf.n = 0; } }
 }
 
-story.boot(() => { syncFromState(); tryLock(); setTimeout(() => { if (!ui.isOpen() && !player.locked) lockOverlay.hidden = false; }, 400); });
+story.boot(() => { syncFromState(); tryLock(); setTimeout(() => { if (!ui.isOpen() && !player.locked && !player.touch) lockOverlay.hidden = false; }, 400); });
 frame();
-window.__game = { renderer, state, ui, games: story.games, player, tp: (px, py) => player.setPosition(px * S, py * S), L, scene, camera, interact: () => interact(hovered), interactTarget: (t) => interact(t), quality, chunks, actors, renderOnce: () => { renderer.info.reset(); composer.render(); return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles }; } };
+window.__game = { experience, peers, renderer, state, ui, games: story.games, player, tp: (px, py) => player.setPosition(px * S, py * S), L, scene, camera, interact: () => interact(hovered), interactTarget: (t) => interact(t), quality, chunks, actors, renderOnce: () => { renderer.info.reset(); composer.render(); return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles }; } };

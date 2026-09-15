@@ -2,6 +2,7 @@
 import { WORLD, WALLS, SLOTS, OBJECTS, rectsOverlap, slotSeat } from './world.js';
 import { Renderer } from './render.js';
 import { ui } from './ui.js';
+import { createExperience } from './experience.js';
 import { createStory } from './story.js';
 
 const canvas = document.getElementById('game');
@@ -11,12 +12,13 @@ const story = createStory({
   onLoaded: () => renderer.updateCamera(state.player, 0, true)
 });
 const { state, interact, targetLabel, tick } = story;
+const experience = createExperience(story);
 
 // --------------------------------------------------------------------- input
 const keys = new Set();
 const MOVE = { up: ['ArrowUp', 'w', 'W', 'z', 'Z'], down: ['ArrowDown', 's', 'S'], left: ['ArrowLeft', 'a', 'A', 'q', 'Q'], right: ['ArrowRight', 'd', 'D'] };
 window.addEventListener('keydown', (e) => {
-  if (e.metaKey || e.ctrlKey) return;
+  if (e.metaKey || e.ctrlKey || e.target.closest?.('input,textarea,select,[contenteditable]')) return;
   if (ui.isOpen()) {
     if (ui.top() === 'panel' && e.key === ' ') { const b = document.querySelector('#panel .p-body'); if (b && b._spin) { e.preventDefault(); b._spin(); return; } }
     if (ui.top() === 'panel' && (e.key === 'c' || e.key === 'C')) return;
@@ -77,6 +79,7 @@ let last = performance.now(), hudTick = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   const p = state.player;
+  if (!state.started) { experience.frame(dt); requestAnimationFrame(frame); return; }
   const open = ui.isOpen();
   let dx = 0, dy = 0;
   if (!open) { if (down('up')) dy -= 1; if (down('down')) dy += 1; if (down('left')) dx -= 1; if (down('right')) dx += 1; }
@@ -94,6 +97,7 @@ function frame(now) {
   p.x = Math.max(4, Math.min(WORLD.w - 4, p.x)); p.y = Math.max(4, Math.min(WORLD.h - 4, p.y));
 
   tick(dt, open);
+  experience.frame(dt);
 
   const t = open ? null : nearestTarget();
   ui.setPrompt(targetLabel(t));
@@ -107,4 +111,4 @@ function frame(now) {
 
 story.boot(() => renderer.updateCamera(state.player, 0, true));
 requestAnimationFrame(frame);
-window.__game = { state, tp: (x, y) => { state.player.x = x; state.player.y = y; renderer.updateCamera(state.player, 0, true); }, ui, games: story.games, interact: () => interact(nearestTarget()), interactTarget: (t) => interact(t) };
+window.__game = { state, experience, tp: (x, y) => { state.player.x = x; state.player.y = y; renderer.updateCamera(state.player, 0, true); }, ui, games: story.games, interact: () => interact(nearestTarget()), interactTarget: (t) => interact(t) };

@@ -8,16 +8,59 @@ dessus reste disponible sur `classic.html` (tactile, petites machines).
 ## Lancer le jeu
 
 Double-clique sur **`Lancer.command`** (ou, dans un terminal, `node serve.js`),
-puis ouvre http://localhost:8787.
+puis ouvre http://localhost:8787. Node.js 20 ou plus récent est nécessaire.
 
 Le jeu doit être servi par un serveur local : ouvrir `index.html` directement
 ne fonctionne pas (modules JavaScript).
 
-## Déployer sur Vercel
+## Jouer entre amis — édition collective
 
-Site 100 % statique, aucun build : importe le dépôt dans Vercel, laisse
-« Framework Preset » sur **Other**, sans commande de build, dossier de sortie vide
-(la racine). `vercel.json` gère les en-têtes de cache.
+Clique sur **Entrer entre amis**, choisis un pseudo et crée un salon privé.
+Partage son lien ou son code de six caractères. Jusqu’à **8 personnes** peuvent
+explorer ensemble, en 3D ou en 2D : avatars interpolés, carte commune, messages
+rapides, découvertes collectives, quiz de cinq questions et roulette commune.
+Les soldes et les jeux du casino restent individuels ; l’atelier roulette et
+le quiz sont synchronisés et arbitrés par le serveur, sans mises ni argent réel.
+
+Le créateur anime le salon et lance les activités. En cas de déconnexion,
+l’animation passe à un autre participant après quinze secondes. Une place est
+conservée soixante secondes pour permettre une reconnexion. Une actualisation
+reprend le salon grâce à une session privée stockée dans l’onglet. Les salons
+sont temporaires et disparaissent au redémarrage du serveur. La sauvegarde du
+parcours individuel reste sur l’appareil.
+
+### Sur le même réseau Wi-Fi
+
+Lance `npm start` (Node 20+, aucune installation de dépendances). Le terminal
+affiche l’adresse `http://IP-DU-MAC:8787`. Tous les participants doivent ouvrir
+**cette même adresse**, puis partager le lien du salon. Une adresse `localhost`
+ne fonctionne que sur la machine où le serveur tourne. Le pare-feu du réseau
+doit autoriser les connexions au port choisi.
+
+### Sur Internet
+
+Déployer **le serveur Node complet**, sur une seule instance, avec HTTPS.
+Le `Dockerfile` et `render.yaml` sont fournis pour ce déploiement. Le service
+écoute sur `0.0.0.0:$PORT`, sa santé est disponible sur `/api/health`. Le proxy
+doit laisser passer les flux SSE de `/api/rooms/*/events` sans mise en tampon.
+Le domaine du site et celui de l’API doivent être identiques. Aucun secret
+externe ni compte utilisateur n’est nécessaire.
+
+Une publication statique Vercel peut toujours servir le mode solo, mais ne
+fournit pas le serveur de salons. L’interface affiche alors une erreur claire
+quand on essaie de se connecter. Le déploiement Internet n’est pas automatique.
+Pour plusieurs instances, il faudra externaliser les salons et les événements
+dans un stockage partagé ; cette version conserve son état en mémoire.
+
+## Nouvelle expérience
+
+- Accueil éditorial responsive, modes solo et entre amis.
+- Carte (`P`), guidage vers les lieux et quinze clés lisibles sans miser.
+- Salon (`G`) : amis, messages rapides, quiz collectif et atelier roulette.
+- Mode confort : animations et mouvement de caméra réduits, dialogues immédiats.
+- Commandes tactiles en 2D et 3D ; glisser sur le monde 3D pour regarder.
+- Sauvegarde uniquement après le démarrage, à la sortie et toutes les 15 secondes.
+  La reprise en 3D restaure aussi la position et la direction de la caméra.
 
 ## Commandes
 
@@ -74,13 +117,14 @@ jeu toujours pris sur le réseau quand il est joignable). Si un fichier de
 ## Vérifier avant de déployer
 
 ```
+npm test
 node tools/smoke.mjs
 ```
 
 Lance le vrai jeu dans Chrome headless (aucune dépendance), traverse toutes les
 pièces, ouvre chaque jeu, chaque machine spéciale, chaque personnage, sort par
 la ruelle jusqu'à l'épilogue, puis rejoue l'essentiel en 2D. Toute erreur console
-fait échouer l'étape qui l'a provoquée. Compter quatre minutes (rendu logiciel) ;
+fait échouer l'étape qui l'a provoquée. Le rendu logiciel peut être lent selon la machine ;
 `--only 3d`, `--only 2d`, `--headed` pour regarder.
 
 Les sources de chaque témoin, de chaque mécanique et de chaque chiffre sont
@@ -96,3 +140,23 @@ js/world.js      plan du casino, partagé par les deux moteurs
 
 Si le jeu est un problème pour toi ou un proche : Joueurs Info Service, 09 74 75 13 13
 (tous les jours de 8 h à 2 h, anonyme, non surtaxé) — joueurs-info-service.fr
+
+## Architecture du multijoueur et tests
+
+- `server.mjs` : HTTP, salons privés, sessions aléatoires, flux SSE, validation
+  et limitation des actions, réponses du quiz privées jusqu’à la correction.
+- `js/multiplayer.js` : connexion, reconnexion, synchronisation à environ 5 Hz.
+- `js/experience.js` / `css/experience.css` : accueil, carte, guidage et activités.
+- `js/g3/peers.js` : avatars 3D ; `js/render.js` dessine les avatars 2D.
+- `tests/multiplayer.test.mjs` : deux flux réels, quiz complet, roulette,
+  authentification, données invalides, places, reprise, départ et expiration.
+- `tools/browser-check.cjs` : scénario Playwright avec deux contextes navigateur
+  indépendants, parcours des interfaces et régression de sauvegarde. Avec le
+  serveur lancé : `playwright-cli run-code --filename tools/browser-check.cjs`.
+
+Les messages sont prédéfinis ; les pseudos sont limités à vingt caractères.
+Les fichiers internes du serveur ne sont pas servis. Les réponses de l’API
+et les événements multijoueurs sont exclus du cache hors ligne. La découverte
+personnelle est déclarée par le client et ne constitue pas un score compétitif.
+
+Les résultats et la portée des vérifications sont détaillés dans `VALIDATION.md`.

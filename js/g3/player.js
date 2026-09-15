@@ -40,7 +40,7 @@ export class Player {
     }
     return false;
   }
-  update(dt, { enabled = true, drunk = false, t = 0 } = {}) {
+  update(dt, { enabled = true, drunk = false, t = 0, calm = false } = {}) {
     const cam = this.camera;
     let f = 0, s = 0;
     if (enabled) { if (this.down('f')) f += 1; if (this.down('b')) f -= 1; if (this.down('r')) s += 1; if (this.down('l')) s -= 1; }
@@ -68,7 +68,7 @@ export class Player {
       this.bob = Math.sin(this.stepPhase) * 0.035 * Math.min(1, sp / 3);
     } else { this.bob *= 0.85; }
     const roll = drunk ? Math.sin(t * 0.9) * 0.03 : 0;
-    cam.position.y = EYE + this.bob + (drunk ? Math.sin(t * 1.7) * 0.02 : 0);
+    cam.position.y = EYE + (calm ? 0 : this.bob) + (drunk ? Math.sin(t * 1.7) * 0.02 : 0);
     cam.rotation.z = roll;
   }
 }
