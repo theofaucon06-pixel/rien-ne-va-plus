@@ -1,6 +1,7 @@
 // Builds the 3D casino from the shared 2D layout (world.js). 1 world px = 1/40 m.
 import * as THREE from 'three';
 import { ROOMS, WALLS, SLOTS, OBJECTS, LIGHTS, WORLD, roomAt } from '../world.js';
+import { matchState, outcomeProbs, price, goalSoonP } from '../match.js';
 import { patternTexture, textTexture, wheelTexture, bigSixTexture, feltTexture, slotScreen, clockTexture, screenTexture, gradientSky, blobTexture, artTexture, posterTexture, tickerTexture, tvTexture, historyBoardTexture, neonTexture, upgradeMaterial, loadAsset } from './textures.js';
 
 export const S = 1 / 40;
@@ -504,7 +505,13 @@ export function buildLevel(scene, state) {
   const ticker = tickerTexture(); L.updaters.push(Object.assign((t) => ticker.update(t), { room: 'machines' }));
   root.add(box(8.2, 0.7, 0.14, black, 680 * S, 2.35, 344 * S + 0.07)); root.add(plane(8, 0.6, new THREE.MeshBasicMaterial({ map: ticker.texture, toneMapped: false }), 680 * S, 2.35, 344 * S + 0.15)); narrHit('ticker', 'Le jackpot progressif', 680 * S, 2.35, 344 * S + 0.5, 8, 0.8, 1.0);
   root.add(box(1.2, 1.4, 0.6, chrome, 1120 * S, 0.7, 1300 * S)); root.add(plane(1.0, 0.3, new THREE.MeshBasicMaterial({ map: textTexture('MONNAIE', { w: 512, h: 128, font: 'bold 60px Inter, sans-serif', color: '#ffe8b0', bg: '#1b1b22' }), toneMapped: false }), 1120 * S, 1.6, 1300 * S + 0.31)); L.colliders.push({ x0: 1120 * S - 0.6, z0: 1300 * S - 0.3, x1: 1120 * S + 0.6, z1: 1300 * S + 0.3 });
-  const tv = tvTexture(); L.updaters.push(Object.assign((t) => tv.update(t), { room: 'bar' }));
+  const tv = tvTexture(); let tvOdds = null, tvOddsAt = -1;
+  L.updaters.push(Object.assign((t) => {
+    if (!state.started) { tv.update(t); return; }
+    const m = matchState(state);
+    if (m.minute !== tvOddsAt) { const [ph, pd, pa] = outcomeProbs(m.score, m.minute); tvOdds = { h: price(ph).toFixed(2), d: price(pd).toFixed(2), a: price(pa).toFixed(2), g: price(goalSoonP(m.minute)).toFixed(2) }; tvOddsAt = m.minute; }
+    tv.update(t, m, tvOdds);
+  }, { room: 'bar' }));
   root.add(box(0.06, 1.0, 1.7, black, 1840 * S - 0.06, 2.1, 900 * S)); root.add(plane(1.6, 0.9, new THREE.MeshBasicMaterial({ map: tv.texture, toneMapped: false }), 1840 * S - 0.1, 2.1, 900 * S, -Math.PI / 2)); narrHit('tv', 'La télé du bar', 1840 * S - 0.4, 2.1, 900 * S, 0.8, 1.1, 1.8);
   const piano = new THREE.Group(); piano.position.set(1400 * S, 0, 800 * S); piano.add(box(1.5, 0.5, 0.7, std('piano', { color: 0x0d0d10, metalness: 0.4, roughness: 0.15, envMapIntensity: 0.8 }), 0, 0.85, 0)); piano.add(box(1.4, 0.03, 0.2, white, 0, 1.11, 0.3)); for (let k = 0; k < 20; k++) if (k % 7 !== 2 && k % 7 !== 6) piano.add(box(0.03, 0.03, 0.12, black, -0.66 + k * 0.07, 1.14, 0.26)); [[-0.65, -0.3], [0.65, -0.3], [-0.65, 0.3], [0.65, 0.3]].forEach(([x, z]) => piano.add(box(0.08, 0.6, 0.08, black, x, 0.3, z))); piano.add(cyl(0.2, 0.2, 0.06, leather, 0, 0.55, 0.75, 14)); piano.add(cyl(0.03, 0.03, 0.5, chrome, 0, 0.27, 0.75, 8)); root.add(piano); blob(1400 * S, 800 * S, 2.2, 1.6); narrHit('piano', 'Le piano', 1400 * S, 0.8, 800 * S, 1.8, 1.4, 1.6);
   L.colliders.push({ x0: 1400 * S - 0.8, z0: 800 * S - 0.4, x1: 1400 * S + 0.8, z1: 800 * S + 0.95 });

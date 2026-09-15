@@ -131,7 +131,7 @@ export const OBJECTS = [
   { id: 'roulette2', x: 2360, y: 470, w: 250, h: 130, solid: true, type: 'roulette', label: 'La roulette', r: 70 },
   { id: 'bj3', x: 2740, y: 860, w: 200, h: 110, solid: true, type: 'blackjack', label: 'Blackjack', r: 66 },
   { id: 'poker', x: 2080, y: 1090, w: 200, h: 120, solid: true, type: 'poker', label: 'Table de poker — tournoi à minuit', r: 66 },
-  { id: 'craps', x: 2500, y: 1060, w: 260, h: 120, solid: true, type: 'craps', label: 'Craps — table fermée', r: 66 },
+  { id: 'craps', x: 2500, y: 1060, w: 260, h: 120, solid: true, type: 'craps', label: 'Craps', r: 66 },
   { id: 'cage', x: 2950, y: 760, w: 44, h: 120, solid: true, type: 'cage', label: 'Caisse des tables', r: 66 },
   { id: 'vipdoor', x: 2100, y: 1344, w: 80, h: 24, solid: true, type: 'vipdoor', label: 'Salon VIP — membres', r: 60 },
   // bar
@@ -238,6 +238,21 @@ export const NPCS = [
   { id: 'p9', name: '', kind: 'patron', x: 1440, y: 1032, color: '#5c4e7a', r: 44, facing: 'down' },
   { id: 'p10', name: '', kind: 'patron', x: 1680, y: 1032, color: '#7a5c4e', r: 44, facing: 'down' },
   { id: 'p11', name: '', kind: 'patron', x: 822, y: 1600, color: '#4e7a6b', r: 44, facing: 'up' },
+  // people who appear as the night goes on (js/events.js) — hidden until their event fires
+  { id: 'gagnante', name: 'La gagnante', kind: 'patron', x: 914, y: 712, color: '#e0b04a', r: 60, facing: 'up', hidden: true, pool: 'jackpot', say: ["Douze mille ! Douze mille ! Vous avez vu ? Ça fait deux ans que je viens tous les soirs. Deux ans ! — Deux ans à cinquante euros par soir, ça fait trente-six mille."] },
+  { id: 'hotesse2', name: 'Une hôtesse', kind: 'staff', x: 914, y: 772, color: '#AD1457', r: 56, facing: 'up', hidden: true, say: ["Souriez pour la photo, madame ! Elle sera affichée dans le hall dès demain. — La photo restera dans le hall. Le chèque repartira dans les machines : c'est ce que font neuf jackpots sur dix."] },
+  { id: 'expulse', name: '', kind: 'walker', x: 2300, y: 700, color: '#8d6e63', r: 0, hidden: true, once: true, path: [[2300, 700], [1900, 540], [1600, 540], [1520, 400], [1520, 200]], speed: 70 },
+  { id: 'pleure', name: '', kind: 'person', x: 1722, y: 762, color: '#7986cb', r: 56, facing: 'up', hidden: true, say: ["…Non, ça va. Ça va. Il me refuse. Le distributeur me refuse, et il faut que je récupère au moins le loyer. — Le loyer est dans la caisse depuis 22 h. Il n'y a pas de bouton pour le récupérer.", "Laissez-moi. — Elle retourne devant l'écran. Le distributeur affiche encore « opération refusée »."] },
+  { id: 'q15', name: '', kind: 'patron', x: 2460, y: 640, color: '#4e5a7a', r: 44, facing: 'up', standing: true, hidden: true, pool: 'hot' },
+  { id: 'q16', name: '', kind: 'patron', x: 2330, y: 560, color: '#7a5a4e', r: 44, facing: 'right', standing: true, hidden: true, pool: 'hot' },
+  { id: 'q17', name: '', kind: 'patron', x: 2640, y: 560, color: '#5a4e7a', r: 44, facing: 'left', standing: true, hidden: true, pool: 'hot' },
+  { id: 'menage', name: 'La femme de ménage', kind: 'walker', x: 705, y: 440, color: '#546e7a', r: 50, hidden: true, path: [[705, 440], [705, 1300]], bounce: true, speed: 16, say: ["L'heure ? Je n'ai pas le droit de vous la dire. C'est dans le règlement, sérieusement. — Le règlement est écrit pour que tu restes.", "Je passe à 2 h et à 5 h. Les mêmes personnes sont assises aux mêmes machines. Elles ne me voient pas. — Tu ne l'avais pas vue non plus."] },
+  { id: 'karim', name: 'Karim', kind: 'person', x: 2720, y: 1470, color: '#ff8a65', r: 66, facing: 'down', hidden: true },
+  { id: 'karim2', name: 'Karim', kind: 'person', x: 380, y: 230, color: '#ff8a65', r: 66, facing: 'left', hidden: true, say: ["… — Il ne dit rien. Il regarde ses chaussures. Le bus arrive dans dix minutes."] },
+  // new witnesses (js/content.js)
+  { id: 'parieur', name: 'Un parieur', kind: 'person', x: 1768, y: 926, witness: 'parieur', color: '#42a5f5', r: 64, facing: 'up' },
+  { id: 'anna', name: 'Anna Dostoïevskaïa', kind: 'ghost', x: 1448, y: 926, witness: 'anna', r: 70, facing: 'up' },
+  { id: 'main', name: 'Un croupier en pause', kind: 'person', x: 1900, y: 1740, witness: 'main', color: '#212121', r: 64, facing: 'left' },
 ];
 
 // Lights: { x, y, r, color, a } ; 'a' = intensity of cut-out (0..1)

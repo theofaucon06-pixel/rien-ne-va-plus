@@ -135,16 +135,52 @@ Tout ce que tu as vu dans ce bâtiment tient dans ton téléphone. Sans horloge,
     keep: "Le casino n'a plus besoin que tu viennes. Il est déjà là, dans ta poche."
   },
   {
-    id: 'sortie', n: 12,
+    id: 'pari', n: 12,
+    title: 'Le pari qui a l\'air d\'un savoir',
+    sub: 'Les paris sportifs',
+    hint: 'Sur ton téléphone, parie sur le match du bar.',
+    text: (s) => `Tu as placé ${s.bets} pari${s.bets > 1 ? 's' : ''} sur un match que tu connais. Résultat : ${fmtSigned(s.net)}.
+
+Regarde les trois cotes du match : ${s.odds}. Convertis-les en probabilités et additionne : ${s.overround} %. Les ${s.margin} % au-dessus de cent, c'est la marge de l'opérateur. Elle est prélevée quel que soit le vainqueur, avant même le coup d'envoi. Connaître le foot ne change rien à cette addition : les cotes ont été calculées par des gens qui le connaissent mieux que toi.
+
+Le « pari en direct » multiplie les occasions : un but dans les dix minutes, cote 3,4 pour une probabilité réelle d'environ 26 %. Neuf occasions par match, deux cents par week-end. Et le cash-out te rachète ton pari toujours un peu moins cher qu'il ne vaut. En France, c'est le jeu qui grandit le plus vite, chez les hommes de 18 à 34 ans.`,
+    keep: 'Une cote n\'est pas une prédiction. C\'est un prix, avec la marge dedans.'
+  },
+  {
+    id: 'bruit', n: 13,
+    title: 'Les mises côte à côte',
+    sub: 'La complexité cache la marge',
+    hint: 'Joue aux dés, à la table la plus bruyante.',
+    text: (s) => `Sur la table de craps, tu as joué ${s.rolls} lancers. Les mises que tu as posées avaient un avantage maison entre ${s.best} % et ${s.worst} %.
+
+Le même tapis, les mêmes dés, le même croupier : la ligne de passe prend 1,4 %, le « n'importe quel 7 » prend 16,7 %. Douze fois plus. Rien ne le signale : les cases sont de la même couleur, les paiements sont annoncés « 4 pour 1 » ou « 5 contre 1 » pour que personne ne les compare.
+
+Plus un jeu a de mises différentes, plus il en cache de mauvaises. Le bruit, la vitesse et les cris de la table servent à ce que tu poses tes jetons là où on te dit, pas là où c'est le moins cher.`,
+    keep: 'Quand une table propose vingt mises, c\'est qu\'elle en a dix-neuf à te vendre.'
+  },
+  {
+    id: 'sortie', n: 14,
     title: 'Rien ne va plus',
     sub: 'La sortie',
     hint: 'Sors du casino et parle à quelqu\'un.',
     text: (s) => `Il est ${s.time}. Tu es entré à 21 h. Tu es ressorti avec ${fmtSigned(s.net)}${s.debt ? `, et une dette de ${fmt(s.debt)}` : ''}.
 
-Onze mécaniques, empilées sur la même personne. À la fin, ce n'est plus un jeu de hasard : c'est un dispositif, et le résultat est écrit d'avance.
+Treize mécaniques, empilées sur la même personne. À la fin, ce n'est plus un jeu de hasard : c'est un dispositif, et le résultat est écrit d'avance.
 
 Les signes : rejouer pour se refaire, miser plus pour ressentir la même chose, mentir sur le temps ou l'argent, y penser quand on ne joue pas. Un seul mérite une conversation. Deux méritent un appel. Joueurs Info Service : 09 74 75 13 13, tous les jours de 8 h à 2 h, anonyme, non surtaxé.`,
     keep: 'Le casino gagne toujours à la fin. La seule chose qu\'il ne contrôle pas, c\'est quand tu décides que c\'est la fin.'
+  },
+  {
+    id: 'retour', n: 15,
+    title: 'Le retour',
+    sub: 'La semaine suivante',
+    hint: 'Reviens une deuxième fois.',
+    text: (s) => `Tu es revenu. Tu t'étais dit que non. Il y avait un SMS : « Votre suite vous attend vendredi. » Il connaissait ton prénom.
+
+La première soirée t'a coûté ${fmtSigned(s.first)}. Le casino ne cherchait pas à gagner ce soir-là. Il cherchait à te faire revenir : c'est le seul chiffre qui compte pour lui, celui qu'il appelle la « valeur à vie » d'un client. Une soirée perdue, c'est une soirée. Un client qui revient, c'est une rente.
+
+Tout est un peu plus facile la deuxième fois : la carte est déjà dans ta poche, l'hôte te salue, le verre arrive sans que tu le demandes, la mise minimale te paraît petite. C'est ce qu'on appelle l'escalade, et personne ne la voit de l'intérieur.`,
+    keep: 'Le casino ne veut pas que tu gagnes ce soir. Il veut que tu reviennes.'
   }
 ];
 
@@ -369,6 +405,66 @@ export const WITNESSES = [
     more: [
       ["Le bus va arriver. Rentre. Et si demain c'est dur, tu sais où appeler."]
     ]
+  },
+  {
+    id: 'parieur', name: 'Un parieur', sub: 'France, 2023-2025', color: '#42a5f5',
+    where: 'Le bar',
+    lines: [
+      "Tu regardes le match ? Moi je regarde ma mise. Ce n'est pas pareil.",
+      "Je n'avais jamais mis un pied dans un casino avant ce soir. Je suis venu pour la télé et le réseau. Mon appli marche mieux ici.",
+      "Ça a commencé avec un pari gratuit. Dix euros offerts, « sans dépôt ». Le foot, je connais. Je pensais que connaître, ça suffisait.",
+      "Le premier mois, j'ai gagné 340 €. Je l'ai dit à tout le monde. Les huit mois d'après, j'ai perdu 6 200 €. Je ne l'ai dit à personne.",
+      "Le pire, c'est le « en direct ». Un but dans les dix prochaines minutes, cote 3,4. Toutes les dix minutes, une nouvelle occasion. Un match, c'est neuf occasions. Un week-end, c'est deux cents.",
+      "Le cash-out, ils appellent ça « sécuriser ». Ils te rachètent ton pari moins cher qu'il ne vaut. J'ai sécurisé mes pertes pendant un an."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: 'Pourquoi le foot ?', lines: ["Parce que je m'y connais. C'est exactement pour ça qu'ils m'ont choisi. Les cotes sont calculées par des gens qui s'y connaissent plus que moi, avec huit pour cent de marge dedans. Connaître le foot ne change pas les huit pour cent."] },
+      { label: 'Comment tu as arrêté ?', lines: ["Je n'ai pas arrêté. J'ai bloqué l'appli, puis je l'ai réinstallée. Puis je me suis interdit de jeu sur le site de l'ANJ. Ça, ça tient : trois ans, toutes les plateformes, casinos compris. C'est le seul pari que j'ai gagné."] }
+    ] },
+    more: [
+      ["Toujours là ? Mon équipe mène 1-0. Ma cote, elle, a déjà perdu."],
+      ["Le match finit dans vingt minutes. L'appli, elle, ne finit jamais."]
+    ]
+  },
+  {
+    id: 'anna', name: 'Anna Dostoïevskaïa', sub: 'Baden-Baden, 1867', color: '#b39ddb',
+    where: 'Le bar',
+    lines: [
+      "Vous attendez quelqu'un ? Moi aussi. Depuis cent cinquante ans.",
+      "Je m'appelle Anna. J'avais vingt ans, j'étais mariée depuis quatre mois. Fiodor jouait à la roulette du matin au soir. Je l'attendais dans une chambre dont nous ne pouvions plus payer le loyer.",
+      "Il a mis en gage mon alliance. Puis mes boucles d'oreilles, celles de ma mère. Puis ma robe de soirée. Puis son manteau. Il revenait, il pleurait, il jurait. Il repartait.",
+      "Il avait un système. Il me l'expliquait le soir : rester calme, miser petit, s'arrêter à temps. Il écrivait la même chose dans ses lettres. Il n'a jamais tenu une seule fois.",
+      "Ce que personne ne raconte, c'est ce que ça fait à celle qui attend. Je comptais les heures avec la faim. Je n'ai jamais pu lui en vouloir. C'est ça, le pire : on n'arrive pas à leur en vouloir.",
+      "Il a arrêté en 1871, à Wiesbaden. D'un coup, après dix ans. Il m'a écrit : « Une grande chose s'est accomplie en moi. » Je l'ai cru le jour où il n'est pas reparti."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: "Comment on vit à côté d'un joueur ?", lines: ["On cache l'argent. On ment aux voisins. On apprend à reconnaître le pas dans l'escalier : léger, il a gagné ; lourd, il a tout perdu ; très léger, il vient chercher ce qui reste. Aujourd'hui il y a un numéro pour ceux qui attendent, aussi. Ce n'est pas rien."] },
+      { label: 'Vous avez lu Le Joueur ?', lines: ["Je l'ai écrit sous sa dictée, en vingt-six jours, pour payer une dette de jeu. Il y raconte tout : la chaleur, la bille qui n'a pas de mémoire, le « demain je m'arrête ». Il savait exactement ce qu'il faisait. Savoir ne l'a pas protégé."] }
+    ] },
+    more: [
+      ["Vous attendez toujours votre ami ? Asseyez-vous. On finit par s'y faire."],
+      ["Joueurs Info Service répond aussi aux proches. Personne ne me l'avait dit, en 1867."]
+    ]
+  },
+  {
+    id: 'main', name: 'Un croupier en pause', sub: 'Personnel de salle, 2025', color: '#90a4ae',
+    where: 'Les couloirs',
+    lines: [
+      "Pause. Dix minutes. Je ne peux pas parler des clients. Je peux parler de mes mains.",
+      "Je fais tourner la roulette trois cents fois par nuit, cinq nuits par semaine. Trente-sept tours sur mille reviennent à la maison, sans que personne le voie. Je ne suis pas croupier. Je suis le mécanisme.",
+      "On nous apprend à sourire, à dire « bonne chance », à pousser les jetons vite. On nous apprend aussi à repérer celui qui ne devrait plus être là. Et à ne rien dire, sauf s'il fait du bruit.",
+      "Les pourboires, c'est notre salaire. Alors on encourage. Un gros gagnant, on l'applaudit. Un gros perdant, on lui dit « ça va tourner ». On le pense presque.",
+      "Le pire soir ? Un homme a perdu sa voiture et sa montre, et il m'a remercié en partant. Pour le service. J'ai gardé le pourboire. Je l'ai encore.",
+      "Des collègues jouent en sortant, dans le casino d'à côté. Ils savent tout. Ça ne les protège pas plus que vous."
+    ],
+    ask: { q: 'Tu veux savoir…', choices: [
+      { label: "Vous pouvez arrêter quelqu'un ?", lines: ["Non. On peut prévenir le chef de table, qui prévient le directeur, qui propose « une pause ». La loi dit qu'on doit repérer. La maison dit qu'on doit servir. Devine qui gagne."] },
+      { label: 'Ça vous fait quoi ?', lines: ["La première année, rien : c'est un métier. La deuxième, on arrête de regarder les visages. La troisième, on compte les tours pour ne pas compter les gens."] }
+    ] },
+    more: [
+      ["Ma pause est finie. Table 4. Si vous venez, je dirai « bonne chance ». C'est le règlement."],
+      ["Les casinos doivent former leur personnel à repérer les joueurs en difficulté. J'ai eu deux heures de formation. En cinq ans."]
+    ]
   }
 ];
 
@@ -419,6 +515,18 @@ export const PATRON_LINES = {
   street: [
     "Vous avez l'heure ? — Vous êtes le premier à le demander ce soir.",
     "J'ai fait une pause. Je retourne. — Le vigile hoche la tête."
+  ],
+  jackpot: [
+    "T'as vu ? Douze mille ! À la 37 ! — Tu as vu le chèque. Tu n'as pas vu les deux ans de mises.",
+    "Je vais me mettre sur celle d'à côté, elles sont liées. — Elles ne sont liées à rien.",
+    "Elle l'a mérité, elle vient tous les soirs. — C'est exactement ce que la maison voulait te faire penser.",
+    "Ça prouve que c'est possible. — Ça prouve qu'une fois sur quarante mille, ça arrive."
+  ],
+  hot: [
+    "Il a touché le 23 en plein ! Trente-cinq fois la mise ! — Il avait misé le 23 les trente-six tours d'avant.",
+    "Cette table est chaude, je te dis. — Elle a la même bille que l'autre.",
+    "Je mise sur les mêmes numéros que lui. — Lui non plus ne sait pas pourquoi ils sont sortis.",
+    "Quand ça tourne, il faut être là. — Tout le monde est là. C'est ça, la table qui rapporte."
   ],
   default: ["Bonsoir.", "…", "Excusez-moi."]
 };
@@ -485,6 +593,13 @@ export const STORY = {
     "Un ami t'a donné rendez-vous au casino. Il n'est pas encore là.",
     "Ce soir, tu vas voir comment la maison gagne. Ressors avec ce que tu peux."
   ],
+  intro2: [
+    "Vendredi suivant. 21 h.",
+    "Tu t'étais dit que tu ne reviendrais pas.",
+    "Mardi, un SMS : « Votre suite vous attend vendredi. » Il connaissait ton prénom.",
+    "Tu as 500 € pour finir le mois. Et la dette de la semaine dernière.",
+    "La carte est déjà dans ta poche."
+  ],
   controls3d: [
     ['Souris', 'Regarder autour de toi'],
     ['Z Q S D / W A S D / Flèches', 'Marcher'],
@@ -503,6 +618,24 @@ export const STORY = {
     ['Échap', 'Fermer']
   ]
 };
+
+// Twelve-plus questions, one per mechanic, for the end-of-night quiz (index of the right answer in `ok`)
+export const QUIZ = [
+  { id: 'avantage', q: 'À la roulette européenne, sur 1 000 mises de 10 € sur le rouge, combien le casino garde-t-il en moyenne ?', a: ['270 €', '0 € : rouge ou noir, c\'est 50/50', '1 000 €'], ok: 0, why: '37 cases, 18 rouges : 2,7 % de chaque mise, soit 270 € sur 10 000 € misés.' },
+  { id: 'memoire', q: 'Le noir est sorti huit fois de suite. Au prochain tour, la probabilité du rouge est :', a: ['plus élevée, il est « dû »', '18 sur 37, comme toujours', 'plus faible, la table est noire'], ok: 1, why: 'La bille n\'a pas de mémoire. Chaque tour est indépendant.' },
+  { id: 'zone', q: 'Le seul chiffre qu\'une machine à sous est réglée pour maximiser, c\'est :', a: ['le nombre de jackpots', 'la taille des gains', 'le temps que tu passes dessus'], ok: 2, why: 'Le « temps sur machine » : plus tu restes, plus la soustraction s\'applique.' },
+  { id: 'ldw', q: 'Sur une machine à 20 lignes, tu mises 2 € et la machine fête un « gain » de 0,80 €. Tu as :', a: ['gagné 0,80 €', 'perdu 1,20 €', 'fait match nul'], ok: 1, why: 'Une perte déguisée en gain : la fanfare sonne, le compteur baisse.' },
+  { id: 'systeme', q: 'Doubler sa mise après chaque perte (la martingale) :', a: ['gagne à coup sûr avec assez de patience', 'réduit l\'avantage de la maison', 'échoue à cause du plafond de table et du capital fini'], ok: 2, why: 'L\'espérance reste négative ; la ruine devient seulement plus rare et plus grosse.' },
+  { id: 'refaire', q: 'Retourner jouer pour « se refaire » après une perte, c\'est :', a: ['une stratégie de gestion du risque', 'un critère du trouble du jeu dans le DSM-5', 'sans importance'], ok: 1, why: 'C\'est l\'un des neuf critères diagnostiques du jeu pathologique.' },
+  { id: 'competence', q: 'Au blackjack, avec la stratégie de base parfaite, l\'avantage de la maison est d\'environ :', a: ['0,5 % — toujours pour la maison', '0 % : le jeu est équitable', '−1 % : en faveur du joueur'], ok: 0, why: 'Il ne devient négatif qu\'en comptant les cartes, ce que les casinos empêchent.' },
+  { id: 'simplicite', q: 'La roue de la fortune (Big Six) a un avantage maison de :', a: ['2,7 %, comme la roulette', 'entre 11 et 24 % selon le secteur', 'moins de 1 %'], ok: 1, why: 'Le jeu le plus simple du casino est le plus cher.' },
+  { id: 'maison', q: 'Pourquoi les casinos n\'ont-ils ni horloge ni fenêtre ?', a: ['par tradition architecturale', 'pour la sécurité des clients', 'pour que tu perdes la notion du temps'], ok: 2, why: 'Tout le bâtiment est conçu pour que rester ne soit plus une décision.' },
+  { id: 'tapis', q: 'Les cadeaux d\'un casino (verre, suite, hôte dédié) sont calculés sur :', a: ['ta perte théorique', 'ta sympathie', 'le hasard'], ok: 0, why: 'Le « théo » : ce que tu vas perdre en moyenne. Le cadeau en est une fraction.' },
+  { id: 'poche', q: 'Les casinos en ligne (machines, roulette) sont, en France :', a: ['légaux avec une licence ANJ', 'illégaux', 'légaux après minuit'], ok: 1, why: 'Seuls paris sportifs, hippiques et poker sont autorisés en ligne. Les casinos en ligne qui te ciblent sont à l\'étranger, sans recours.' },
+  { id: 'pari', q: 'Les trois cotes d\'un match additionnent 108 % de probabilités. Les 8 % sont :', a: ['une erreur de calcul', 'un bonus pour le parieur', 'la marge de l\'opérateur, quel que soit le résultat'], ok: 2, why: 'La marge est prélevée avant le coup d\'envoi. Connaître le foot n\'y change rien.' },
+  { id: 'bruit', q: 'Sur une table de craps, l\'écart entre la meilleure et la pire mise est :', a: ['nul : mêmes dés, mêmes chances', '1,4 % contre 16,7 %', 'environ 1 %'], ok: 1, why: 'Douze fois plus cher, sur le même tapis, sans rien qui le signale.' },
+  { id: 'sortie', q: 'Le numéro de Joueurs Info Service :', a: ['3919', '09 74 75 13 13', '112'], ok: 1, why: 'Tous les jours de 8 h à 2 h, anonyme et non surtaxé. Aussi pour les proches.' }
+];
 
 // Sources: what is real, what is composite, and where each story and figure comes from.
 // Shown in the codex (« Sources ») so that every claim in the game can be checked.
@@ -548,6 +681,20 @@ export const SOURCES = {
       'Bill Friedman, <i>Designing Casinos to Dominate the Competition</i>, Institute for the Study of Gambling and Commercial Gaming, University of Nevada, Reno, 2000 : les treize principes (plafonds bas, dédale, pas d\'horloge ni de fenêtre, machines dès l\'entrée).',
       'Roger Thomas (Wynn Design) et le « playground design », qui a contesté Friedman avec des espaces ouverts — et les mêmes objectifs.',
       'Natasha Dow Schüll, <i>Addiction by Design</i>, chapitres sur l\'ergonomie des salles.'
+    ] },
+    { id: 'parieur', status: 'personnage composite', refs: [
+      'ANJ, <i>Analyse annuelle du marché</i>, 2023-2024 : les paris sportifs en ligne sont le segment qui croît le plus vite, avec une clientèle très majoritairement masculine et jeune ; les paris « en direct » y représentent plus de la moitié des mises.',
+      'OFDT / Santé publique France, 2024 : pratique problématique concentrée chez les hommes de 18 à 34 ans ; campagnes ANJ 2023-2025 sur les paris sportifs.',
+      'Marge des cotes (« overround ») : la somme des probabilités implicites d\'un match dépasse 100 % de 5 à 12 % selon l\'opérateur — c\'est la commission, quel que soit le résultat.'
+    ] },
+    { id: 'anna', status: 'réelle', refs: [
+      'Anna Grigorievna Dostoïevskaïa, <i>Journal</i> (Genève et Baden-Baden, 1867) et <i>Mémoires</i> (rédigés 1911-1916) : les objets mis en gage, l\'attente, les serments.',
+      'Lettres de Fiodor Dostoïevski à Anna, Wiesbaden, avril 1871 : « une grande chose s\'est accomplie en moi » ; il ne rejoua jamais.',
+      'Le roman <i>Le Joueur</i> fut dicté à Anna, alors sténographe, en vingt-six jours d\'octobre 1866, pour honorer un contrat lié à des dettes de jeu.'
+    ] },
+    { id: 'main', status: 'personnage composite', refs: [
+      'Témoignages d\'anciens croupiers dans la presse française (Le Monde, France Inter, Libération, 2015-2024) et sur les forums professionnels ; salaires largement composés de pourboires (la « cagnotte » partagée).',
+      'Obligation légale : l\'arrêté du 14 mai 2007 et la loi du 12 mai 2010 imposent aux casinos un dispositif de repérage et de prise en charge des joueurs excessifs, avec formation du personnel ; l\'ANJ contrôle ces dispositifs depuis 2020.'
     ] },
     { id: 'nour', status: 'personnage fictif, service réel', refs: [
       'Joueurs Info Service, dispositif de Santé publique France : 09 74 75 13 13, tous les jours de 8 h à 2 h, appel anonyme et non surtaxé ; joueurs-info-service.fr (chat, forum, annuaire des consultations).'

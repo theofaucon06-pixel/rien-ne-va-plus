@@ -157,7 +157,7 @@ export function updateActors(actors, t, dt, playerPos, hovered, visibleRooms = n
       p.torso.material.emissiveIntensity = 0.45 + 0.2 * Math.sin(t * 2 + a.phase);
     } else if (n.kind === 'walker') {
       const target = a.path[a.idx]; _tmp.subVectors(target, a.g.position); _tmp.y = 0; const d = _tmp.length();
-      if (d < 0.15) { a.idx += a.dir; if (a.idx >= a.path.length || a.idx < 0) { if (n.bounce) { a.dir *= -1; a.idx += a.dir * 2; } else a.idx = 0; } }
+      if (d < 0.15) { a.idx += a.dir; if (a.idx >= a.path.length || a.idx < 0) { if (n.once) { n.hidden = true; a.idx = 1; a.dir = 1; a.g.position.copy(a.path[0]); continue; } if (n.bounce) { a.dir *= -1; a.idx += a.dir * 2; } else a.idx = 0; } }
       else { _tmp.normalize(); a.g.position.addScaledVector(_tmp, a.speed * dt); const want = Math.atan2(_tmp.x, _tmp.z); a.g.rotation.y += wrapAngle(want - a.g.rotation.y) * 0.12; }
       if (!far) {
         const sw = Math.sin(t * 7 + a.phase) * 0.45;

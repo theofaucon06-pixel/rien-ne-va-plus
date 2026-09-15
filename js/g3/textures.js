@@ -330,13 +330,15 @@ export function tvTexture() {
   const g = c.getContext('2d');
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter;
   let last = -1;
-  const update = (time) => {
+  const update = (time, m = null, odds = null) => {
     if (time - last < 0.1) return; last = time;
     g.fillStyle = '#2e7d32'; g.fillRect(0, 0, 512, 288);
     g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 3; g.strokeRect(20, 20, 472, 248); g.beginPath(); g.moveTo(256, 20); g.lineTo(256, 268); g.stroke(); g.beginPath(); g.arc(256, 144, 50, 0, TAU); g.stroke();
     for (let i = 0; i < 10; i++) { g.fillStyle = i < 5 ? '#e53935' : '#1e88e5'; const x = 60 + ((i * 97 + time * (20 + i * 3)) % 400), y = 50 + ((i * 53 + time * (15 + i * 2)) % 190); g.fillRect(x, y, 10, 20); }
     g.fillStyle = '#fff'; g.beginPath(); g.arc(256 + Math.sin(time * 1.3) * 150, 144 + Math.cos(time * 0.9) * 80, 6, 0, TAU); g.fill();
-    g.fillStyle = 'rgba(0,0,0,0.7)'; g.fillRect(140, 8, 232, 34); g.fillStyle = '#fff'; g.font = 'bold 22px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PSG 1 – 1 OM   78\'', 256, 25);
+    g.fillStyle = 'rgba(0,0,0,0.7)'; g.fillRect(140, 8, 232, 34); g.fillStyle = '#fff'; g.font = 'bold 22px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(m ? (m.phase === 'avant' ? `${m.home} – ${m.away}   21:05` : m.phase === 'fini' ? `${m.home} ${m.score[0]} – ${m.score[1]} ${m.away}   FIN` : `${m.home} ${m.score[0]} – ${m.score[1]} ${m.away}   ${m.minute}'`) : 'PSG – OM', 256, 25);
+    // the bookmaker's banner: always the next bet, never the last result
+    g.fillStyle = 'rgba(10,10,20,0.85)'; g.fillRect(20, 250, 472, 26); g.fillStyle = '#ffd54f'; g.font = 'bold 15px Inter, sans-serif'; g.fillText(m && m.phase !== 'fini' && odds ? `BETNOW · BUT DANS LES 10 MIN ${odds.g} · ${m.home} ${odds.h}  NUL ${odds.d}  ${m.away} ${odds.a}` : 'BETNOW · PROCHAIN MATCH DANS 15 MIN · PARI GRATUIT 10 €', 256, 263);
     t.needsUpdate = true;
   };
   update(0); return { texture: t, update };

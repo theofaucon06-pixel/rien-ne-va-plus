@@ -123,6 +123,7 @@ class AudioEngine {
     if (!this.ctx || this.muted) return;
     [330, 392, 494, 659].forEach((f, i) => setTimeout(() => this.bleep(0.16, f, 0, 0.5, 'sine'), i * 120));
   }
+  chime() { [880, 1108, 1318].forEach((f, i) => setTimeout(() => this.bleep(0.18, f, 0, 0.35, 'sine'), i * 160)); } // public-address announcement
   door() { this.bleep(0.2, 120, 0, 0.3, 'sawtooth'); }
   drink() { this.bleep(0.15, 1800, 0, 0.1, 'sine'); setTimeout(() => this.bleep(0.15, 2400, 0, 0.2, 'sine'), 120); }
   vibrate() { for (let i = 0; i < 3; i++) setTimeout(() => this.bleep(0.12, 90, 0, 0.12, 'square'), i * 200); }

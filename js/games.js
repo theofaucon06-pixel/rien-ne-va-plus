@@ -3,6 +3,7 @@
 import { ui } from './ui.js';
 import { audio } from './audio.js';
 import { fmt, fmtSigned, fmtChips } from './content.js';
+import { matchState, outcomeProbs, price, goalSoonP, MARGIN } from './match.js';
 
 const TAU = Math.PI * 2;
 const WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
@@ -10,7 +11,7 @@ const REDS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32,
 const SYMS = [
   { g: '🍒', k: 'cerise' }, { g: '🍋', k: 'citron' }, { g: '🔔', k: 'cloche' }, { g: '⭐', k: 'etoile' }, { g: '7', k: 'sept', seven: true }, { g: '💎', k: 'diamant' }
 ];
-const EDGE = { slot: 0.10, mega: 0.13, roulette: 0.027, baccarat: 0.012, phone: 0.08, blackjack: 0.02, wheel: 0.16, insurance: 0.074 };
+const EDGE = { slot: 0.10, mega: 0.13, roulette: 0.027, baccarat: 0.012, phone: 0.08, blackjack: 0.02, wheel: 0.16, insurance: 0.074, bets: 0.08, pass: 0.0141, field: 0.0556, any7: 0.1667, hard8: 0.0909 };
 // Pay tables: [probability, multiplier] tiers, highest first. Remaining probability = loss.
 export const SLOT_CFG = {
   lucky:   { name: 'Lucky 7',    kicker: 'Machine à sous · 1 ligne · jackpot 100×',            lines: 1,  near: 0.30, table: [[0.001, 100], [0.006, 30], [0.05, 6], [0.16, 2]] },
@@ -573,8 +574,11 @@ export class Games {
         <div class="ph-screen" id="ph">
           <div class="ph-home">
             <div class="ph-notif" id="ph-open"><div class="ph-app-ic">LC</div><div><b>LuckyCrypto Casino</b><span>🎁 Ton bonus de 200 % expire dans 09:59 !</span></div></div>
+            <div class="ph-notif" id="ph-bets"><div class="ph-app-ic bet">BN</div><div><b>BetNow</b><span>⚽ ${(() => { const m = matchState(s); return m.phase === 'avant' ? `${m.home} – ${m.away} à 21 h 05` : `${m.home} ${m.score[0]} – ${m.score[1]} ${m.away}, ${m.minute}′`; })()} · Pari gratuit 10 € offert</span></div></div>
             <div class="ph-notif quiet"><div class="ph-app-ic grey">✉</div><div><b>Maman</b><span>Tu rentres à quelle heure ?</span></div></div>
-            <div class="ph-notif quiet"><div class="ph-app-ic grey">✉</div><div><b>Karim</b><span>Désolé je suis à la bourre, j'arrive vers minuit</span></div></div>
+            ${s.night === 2 ? `<div class="ph-notif quiet"><div class="ph-app-ic grey">✉</div><div><b>CASINO</b><span>Votre suite vous attend vendredi. Bonne soirée, ${s.flags.card ? 'membre Or' : 'cher client'}.</span></div></div>
+            <div class="ph-notif quiet"><div class="ph-app-ic grey">✉</div><div><b>Karim</b><span>${s.flags.karimMet ? 'J\'ai déposé la demande. Interdiction, 3 ans. Viens pas ce soir.' : 'T\'es où ? Moi je bouge plus de chez moi ce soir'}</span></div></div>` :
+            `<div class="ph-notif quiet"><div class="ph-app-ic grey">✉</div><div><b>Karim</b><span>Désolé je suis à la bourre, j'arrive vers minuit</span></div></div>`}
           </div>
         </div>
       </div>`, { title: 'Ton téléphone', kicker: 'Les toilettes · le seul endroit avec du réseau', cls: 'phone-panel', onClose: () => { clearInterval(timer); } });
@@ -631,6 +635,234 @@ export class Games {
       root._spin = spin;
     };
     root.querySelector('#ph-open').addEventListener('click', openApp);
+    root.querySelector('#ph-bets').addEventListener('click', () => this.openBets(root, screen));
+  }
+
+  // ---------------------------------------------------------------- SPORTS BETTING (phone)
+  // The match is the one on the bar TV. Odds are fair probabilities plus the bookmaker's margin;
+  // outcomes come from the same goal timeline, so nothing here is rigged beyond the margin itself.
+  openBets(root, screen) {
+    const s = this.s; audio.click();
+    if (!s.bets) s.bets = { balance: 0, free: 10, open: [], settled: 0, placed: 0, net: 0, cashouts: 0, deposited: 0 };
+    const B = s.bets;
+    let stake = 10, pick = '1', timer = null;
+    const M = () => matchState(s);
+    const odds = () => { const m = M(); const [ph, pd, pa] = outcomeProbs(m.score, m.minute); return { '1': price(ph), 'X': price(pd), '2': price(pa), 'G': price(goalSoonP(m.minute)), p: [ph, pd, pa] }; };
+    const label = (t) => { const m = M(); return { '1': m.home, 'X': 'Nul', '2': m.away, 'G': 'But dans les 10 min' }[t]; };
+    screen.innerHTML = `<div class="ph-app bets">
+      <div class="ph-head"><div class="ph-app-ic bet">BN</div><div><b>BetNow</b><span>Opérateur agréé · « Pariez responsable »</span></div><div class="ph-bal">Solde <b id="bn-bal"></b></div></div>
+      <div class="bn-live" id="bn-live"></div>
+      <div class="bn-picks" id="bn-picks"></div>
+      <div class="bn-stake">Mise ${[5, 10, 20, 50].map(v => `<button class="bet ${v === 10 ? 'on' : ''}" data-b="${v}">${v} €</button>`).join('')}</div>
+      <button class="btn spin" id="bn-place">Placer le pari</button>
+      <div class="ph-dep"><button data-d="20">Déposer 20 €</button><button data-d="50">Déposer 50 €</button></div>
+      <div class="bn-open" id="bn-open"></div>
+      <div class="slot-msg" id="bn-msg">&nbsp;</div>
+    </div>`;
+    const el = (q) => screen.querySelector(q);
+    const msg = el('#bn-msg');
+    const render = () => {
+      const m = M(), o = odds();
+      el('#bn-bal').textContent = B.balance.toFixed(2) + ' €' + (B.free ? ` + ${B.free} € offerts` : '');
+      el('#bn-live').innerHTML = m.phase === 'avant' ? `<b>${m.home} – ${m.away}</b><span>coup d'envoi à 21 h 05</span>` : m.phase === 'fini' ? `<b>${m.home} ${m.score[0]} – ${m.score[1]} ${m.away}</b><span>terminé · prochain : ${m.next[0]} – ${m.next[1]}</span>` : `<b>${m.home} ${m.score[0]} – ${m.score[1]} ${m.away}</b><span class="live">● EN DIRECT ${m.minute}′${m.phase === 'mi-temps' ? ' · mi-temps' : ''}</span>`;
+      const dis = m.phase !== 'live' && m.phase !== 'avant';
+      el('#bn-picks').innerHTML = ['1', 'X', '2', 'G'].map(t => `<button class="bp ${pick === t ? 'on' : ''} ${t === 'G' ? 'goal' : ''}" data-t="${t}" ${dis ? 'disabled' : ''}><span>${label(t)}</span><b>${o[t].toFixed(2)}</b></button>`).join('');
+      el('#bn-picks').querySelectorAll('.bp').forEach(b => b.addEventListener('click', () => { pick = b.dataset.t; render(); audio.click(); }));
+      el('#bn-open').innerHTML = B.open.length ? `<div class="bn-title">Paris en cours</div>` + B.open.map((b, i) => { const v = cashValue(b); return `<div class="bn-bet"><span>${b.label} <b>@ ${b.odds.toFixed(2)}</b> · ${b.stake} €${b.free ? ' (offert)' : ''}</span><button data-co="${i}" ${v === null ? 'disabled' : ''}>${v === null ? 'perdu' : `Cash-out ${v.toFixed(2)} €`}</button></div>`; }).join('') : '';
+      el('#bn-open').querySelectorAll('[data-co]').forEach(b => b.addEventListener('click', () => cashOut(+b.dataset.co)));
+    };
+    // what the operator offers to buy the bet back for: 85 % of its fair value right now
+    const cashValue = (b) => {
+      const m = M(); if (m.idx !== b.idx) return null;
+      let p;
+      if (b.type === 'G') { if (m.minute >= b.until) return null; p = goalSoonP(m.minute, b.until - m.minute); }
+      else { const [ph, pd, pa] = outcomeProbs(m.score, m.minute); p = { '1': ph, 'X': pd, '2': pa }[b.type]; }
+      return Math.round(b.stake * b.odds * p * 0.85 * 100) / 100;
+    };
+    const settle = () => {
+      const m = M();
+      for (const b of B.open.slice()) {
+        let done = false, won = false;
+        if (b.idx !== m.idx) { done = true; const g = s.matchGoals[b.idx] || []; const sc = [0, 0]; g.forEach(x => sc[x.side]++); won = b.type === 'G' ? g.some(x => x.min > b.placed && x.min <= b.until) : b.type === '1' ? sc[0] > sc[1] : b.type === 'X' ? sc[0] === sc[1] : sc[1] > sc[0]; }
+        else if (b.type === 'G') { const hit = m.goals.some(x => x.min > b.placed && x.min <= Math.min(b.until, m.minute)); if (hit) { done = true; won = true; } else if (m.minute >= b.until) done = true; }
+        else if (m.phase === 'fini') { done = true; won = b.type === '1' ? m.score[0] > m.score[1] : b.type === 'X' ? m.score[0] === m.score[1] : m.score[1] > m.score[0]; }
+        if (!done) continue;
+        B.open.splice(B.open.indexOf(b), 1); B.settled++;
+        if (won) { const gain = b.stake * b.odds - (b.free ? b.stake : 0); B.balance += gain; this.payout(b.stake * b.odds); B.net += gain - (b.free ? 0 : b.stake); s.stats.trueWins++; s.stats.celebrations++; audio.fanfare(b.odds >= 3); msg.innerHTML = `${b.label} : <b>gagné +${gain.toFixed(2)} €</b>`; msg.className = 'slot-msg win'; }
+        else { B.net -= b.free ? 0 : b.stake; audio.lose(); msg.textContent = `${b.label} : perdu`; msg.className = 'slot-msg near'; }
+        this.api.hud();
+      }
+    };
+    const cashOut = (i) => {
+      const b = B.open[i]; const v = cashValue(b); if (v === null) return;
+      B.open.splice(i, 1); B.balance += v; B.cashouts++; B.settled++; B.net += v - (b.free ? 0 : b.stake); this.payout(v); audio.coin();
+      msg.innerHTML = `Cash-out : <b>${v.toFixed(2)} €</b> récupérés sur ${b.stake} € misés.`; msg.className = 'slot-msg';
+      render(); this.api.hud(); check();
+    };
+    const place = () => {
+      const m = M(); if (m.phase !== 'live' && m.phase !== 'avant') { msg.textContent = 'Match terminé. Le suivant commence dans quelques minutes.'; return; }
+      let useFree = false;
+      if (B.free > 0 && stake <= B.free) useFree = true;
+      else if (B.balance < stake) { msg.textContent = 'Solde insuffisant — dépose pour parier.'; msg.className = 'slot-msg near'; return; }
+      const o = odds();
+      const b = { type: pick, label: label(pick), odds: o[pick], stake, idx: m.idx, placed: m.minute, until: m.minute + 10, free: useFree };
+      if (useFree) B.free = 0; else B.balance -= stake;
+      B.open.push(b); B.placed++; this.wager(stake, 'bets'); s.stats.rounds++; this.api.addTime(1);
+      audio.click(); msg.textContent = `Pari placé : ${b.label} @ ${b.odds.toFixed(2)}.`; msg.className = 'slot-msg';
+      render(); this.api.hud(); check();
+    };
+    const check = () => {
+      if (!s.revealed.has('pari') && (B.placed >= 4 || B.cashouts >= 2)) {
+        clearInterval(timer);
+        const o = odds(); const imp = (1 / o['1'] + 1 / o['X'] + 1 / o['2']) * 100;
+        this.api.reveal('pari', { bets: B.placed, net: B.net, odds: `${o['1'].toFixed(2)} · ${o['X'].toFixed(2)} · ${o['2'].toFixed(2)}`, overround: imp.toFixed(1).replace('.', ','), margin: (imp - 100).toFixed(1).replace('.', ',') });
+      }
+    };
+    screen.querySelectorAll('.bn-stake .bet').forEach(b => b.addEventListener('click', () => { stake = +b.dataset.b; screen.querySelectorAll('.bn-stake .bet').forEach(x => x.classList.toggle('on', x === b)); audio.click(); }));
+    screen.querySelectorAll('[data-d]').forEach(b => b.addEventListener('click', () => {
+      const v = +b.dataset.d;
+      if (s.money >= v) s.money -= v; else if (s.bank - v >= -300) { s.bank -= v; ui.toast('Paiement par carte accepté (découvert).'); } else { ui.toast('Carte refusée. Plafond de découvert atteint.'); return; }
+      B.balance += v; B.deposited += v; audio.coin(); msg.textContent = `+${v} € crédités. Le retrait prendra 3 à 5 jours.`; msg.className = 'slot-msg win'; render(); this.api.hud();
+    }));
+    el('#bn-place').addEventListener('click', place);
+    // the match runs while you watch it on the phone: one match minute per second
+    timer = setInterval(() => { if (!screen.isConnected) { clearInterval(timer); return; } this.api.addTime(1); settle(); render(); }, 1000);
+    const prev = ui.panel.onClose; ui.panel.onClose = () => { clearInterval(timer); prev && prev(); };
+    root._spin = place;
+    settle(); render();
+  }
+
+  // ---------------------------------------------------------------- CRAPS
+  openCraps() {
+    const s = this.s;
+    const T = { pass: { name: 'Ligne de passe', pay: '1 pour 1', edge: 1.41 }, field: { name: 'Field', pay: '1 pour 1 · 2 et 12 payés double', edge: 5.56 }, any7: { name: 'N\'importe quel 7', pay: '4 pour 1', edge: 16.67 }, hard8: { name: 'Hard 8 (4 + 4)', pay: '9 pour 1', edge: 9.09 } };
+    let type = 'pass', amount = 10, busy = false, point = null;
+    const on = { pass: 0, field: 0, any7: 0, hard8: 0 };
+    const session = { rolls: 0, used: new Set(), net: 0 };
+    const SHOUTS = ['« Yo, onze ! »', '« Sept, on dégage. »', '« Hard eight, hard eight ! »', '« Le point est six ! »', '« Allez les dés ! »', '« Field ! »'];
+    const root = ui.panel.open(`
+      <div class="craps">
+        <div class="craps-top"><div class="dice"><div class="die" id="d1">⚄</div><div class="die" id="d2">⚂</div></div><div class="point" id="c-point">PAS DE POINT · sortie</div><div class="roul-res" id="c-res">Pose une mise, lance les dés.</div></div>
+        <div class="craps-bets">${Object.entries(T).map(([k, v]) => `<button class="cb ${k === 'pass' ? 'on' : ''}" data-t="${k}"><span>${v.name}</span><small>${v.pay}</small><em id="cb-${k}"></em></button>`).join('')}</div>
+        <div class="bacc-ctrl">
+          ${this.chipsHTML()}
+          <div class="bets">Mise <button class="bet" data-b="5">5</button><button class="bet on" data-b="10">10</button><button class="bet" data-b="25">25</button><button class="bet" data-b="50">50</button></div>
+          <button class="btn" id="c-put">Poser la mise</button>
+          <button class="btn spin" id="c-roll">Lancer les dés <kbd>Espace</kbd></button>
+          ${this.insertHTML()}
+        </div>
+      </div>`, { title: 'Craps', kicker: 'La table la plus bruyante · quatre mises, quatre prix', cls: 'roul-panel' });
+    this.bindInsert(root);
+    const el = (q) => root.querySelector(q);
+    const res = el('#c-res'), pt = el('#c-point');
+    const renderBets = () => { for (const k of Object.keys(T)) el('#cb-' + k).textContent = on[k] ? on[k] + ' posés' : ''; };
+    root.querySelectorAll('.cb').forEach(b => b.addEventListener('click', () => { type = b.dataset.t; root.querySelectorAll('.cb').forEach(x => x.classList.toggle('on', x === b)); audio.click(); }));
+    root.querySelectorAll('.bet').forEach(b => b.addEventListener('click', () => { amount = +b.dataset.b; root.querySelectorAll('.bet').forEach(x => x.classList.toggle('on', x === b)); audio.click(); }));
+    el('#c-put').addEventListener('click', () => {
+      if (busy) return;
+      if (type === 'pass' && point !== null) { res.textContent = 'La ligne de passe se pose avant le point.'; return; }
+      if (s.chips < amount) { this.checkInsert(root, amount); return; }
+      s.chips -= amount; on[type] += amount; this.wager(amount, type); session.used.add(type); this.refreshCredits(root); renderBets(); audio.coin();
+      res.textContent = `${amount} sur ${T[type].name.toLowerCase()}.`;
+    });
+    const FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+    const roll = async () => {
+      if (busy) return;
+      const total = on.pass + on.field + on.any7 + on.hard8;
+      if (!total) { res.textContent = 'Pose au moins une mise.'; return; }
+      busy = true; session.rolls++; s.stats.rounds++; this.api.addTime(1);
+      const d1 = el('#d1'), d2 = el('#d2');
+      for (let i = 0; i < 9; i++) { d1.textContent = FACES[Math.floor(Math.random() * 6)]; d2.textContent = FACES[Math.floor(Math.random() * 6)]; audio.spinTick(i); await wait(70); }
+      const a = 1 + Math.floor(Math.random() * 6), b = 1 + Math.floor(Math.random() * 6), sum = a + b;
+      d1.textContent = FACES[a - 1]; d2.textContent = FACES[b - 1]; audio.reelStop();
+      const lines = [];
+      let won = 0, lost = 0;
+      // one-roll bets
+      if (on.field) { const w = [2, 3, 4, 9, 10, 11, 12].includes(sum); const mult = sum === 2 || sum === 12 ? 2 : 1; if (w) { const g = on.field * (mult + 1); s.chips += g; this.payout(g); won += on.field * mult; lines.push(`Field gagne ${on.field * mult}`); } else { lost += on.field; lines.push(`Field perd ${on.field}`); } on.field = 0; }
+      if (on.any7) { if (sum === 7) { const g = on.any7 * 5; s.chips += g; this.payout(g); won += on.any7 * 4; lines.push(`N'importe quel 7 gagne ${on.any7 * 4}`); } else { lost += on.any7; lines.push(`N'importe quel 7 perd ${on.any7}`); } on.any7 = 0; }
+      if (on.hard8) { if (a === 4 && b === 4) { const g = on.hard8 * 10; s.chips += g; this.payout(g); won += on.hard8 * 9; lines.push(`Hard 8 gagne ${on.hard8 * 9}`); on.hard8 = 0; } else if (sum === 7 || sum === 8) { lost += on.hard8; lines.push(`Hard 8 perd ${on.hard8}`); on.hard8 = 0; } }
+      // pass line
+      if (on.pass) {
+        if (point === null) {
+          if (sum === 7 || sum === 11) { const g = on.pass * 2; s.chips += g; this.payout(g); won += on.pass; lines.push(`Passe gagne ${on.pass}`); on.pass = 0; }
+          else if (sum === 2 || sum === 3 || sum === 12) { lost += on.pass; lines.push(`Passe perd ${on.pass}`); on.pass = 0; }
+          else { point = sum; lines.push(`Le point est ${sum}`); }
+        } else if (sum === point) { const g = on.pass * 2; s.chips += g; this.payout(g); won += on.pass; lines.push(`Point fait : passe gagne ${on.pass}`); on.pass = 0; point = null; }
+        else if (sum === 7) { lost += on.pass; lines.push(`Sept : passe perd ${on.pass}`); on.pass = 0; point = null; }
+      } else if (point !== null && (sum === 7 || sum === point)) point = null;
+      pt.textContent = point === null ? 'PAS DE POINT · sortie' : `POINT : ${point}`;
+      session.net += won - lost;
+      if (won > lost) { s.stats.trueWins++; s.stats.celebrations++; audio.fanfare(won >= 40); } else if (lost) audio.lose();
+      res.innerHTML = `<b>${sum}</b> (${a} + ${b}). ${lines.join(' · ') || 'Rien ne bouge.'}`;
+      if (Math.random() < 0.5) ui.toast(SHOUTS[Math.floor(Math.random() * SHOUTS.length)], 1800);
+      this.refreshCredits(root); this.checkInsert(root, amount); renderBets(); busy = false;
+      if (!s.revealed.has('bruit') && session.rolls >= 10) {
+        const used = [...session.used].map(k => T[k].edge); const best = Math.min(...used, 1.41), worst = Math.max(...used, 1.41);
+        this.api.reveal('bruit', { rolls: session.rolls, best: best.toFixed(1).replace('.', ','), worst: worst.toFixed(1).replace('.', ',') });
+      }
+    };
+    el('#c-roll').addEventListener('click', roll);
+    root._spin = roll;
+    renderBets();
+  }
+
+  // ---------------------------------------------------------------- LOYALTY SHOP
+  openShop() {
+    const s = this.s;
+    const ITEMS = [
+      { id: 'verre', name: 'Un verre au bar', pts: 100, value: 8 },
+      { id: 'casquette', name: 'La casquette du casino', pts: 300, value: 12 },
+      { id: 'montre', name: 'Une montre gravée', pts: 2000, value: 120 },
+      { id: 'weekend', name: 'Un week-end pour deux', pts: 6000, value: 400 }
+    ];
+    s.bought = s.bought || [];
+    const root = ui.panel.open(`
+      <div class="shop">
+        <p class="lead">Vos points : <b id="sh-pts">${Math.floor(s.points || 0)}</b>. Un point par jeton misé, sur toutes les tables.</p>
+        <div class="shop-grid">${ITEMS.map(it => `<div class="sh-item"><b>${it.name}</b><span>${it.pts} points</span><button class="btn" data-id="${it.id}" ${s.bought.includes(it.id) ? 'disabled' : ''}>${s.bought.includes(it.id) ? 'Déjà pris' : 'Échanger'}</button></div>`).join('')}</div>
+        <p class="muted" id="sh-msg"></p>
+      </div>`, { title: 'La boutique fidélité', kicker: 'Le hall · vos points, nos cadeaux', cls: 'small-panel', onClose: () => { if (s.bought.length && !s.revealed.has('tapis')) this.api.reveal('tapis', { theo: s.stats.theo, credit: s.debt > 0 }); } });
+    const msg = root.querySelector('#sh-msg');
+    root.querySelectorAll('[data-id]').forEach(b => b.addEventListener('click', () => {
+      const it = ITEMS.find(x => x.id === b.dataset.id); const pts = Math.floor(s.points || 0);
+      if (pts < it.pts) { msg.textContent = `Il vous manque ${it.pts - pts} points. Continuez à jouer, ça vient vite.`; audio.lose(); return; }
+      s.points -= it.pts; s.bought.push(it.id); b.disabled = true; b.textContent = 'Déjà pris'; audio.coin();
+      root.querySelector('#sh-pts').textContent = Math.floor(s.points);
+      const cost = Math.round(it.pts * 0.06);
+      msg.innerHTML = `${it.name} : à vous. <span class="ko">${it.pts} points, c'est ${it.pts} jetons misés. À 6 % de marge moyenne, vous les avez payés ${fmt(cost)} de pertes attendues — ${cost > it.value ? `${Math.round(cost / it.value * 10) / 10} fois` : 'à peu près'} le prix en magasin.</span>`;
+      this.api.hud();
+    }));
+  }
+
+  // ---------------------------------------------------------------- POKER (watching the rake)
+  openPokerWatch() {
+    const s = this.s;
+    const NAMES = ['Marco', 'Léa', 'Sofiane', 'Le régulier'];
+    let hand = 0, rake = 0; const nets = [0, 0, 0, 0]; let busy = false;
+    const root = ui.panel.open(`
+      <div class="poker">
+        <p class="lead">Tournoi à minuit, inscription 200 jetons. En attendant, une partie de cash game : regarde qui gagne.</p>
+        <div class="pk-players">${NAMES.map((n, i) => `<div class="pk-p"><b>${n}</b><span id="pk-${i}">0</span></div>`).join('')}</div>
+        <div class="pk-pot" id="pk-pot">Pot : —</div>
+        <div class="pk-rake">Commission prélevée par la maison : <b id="pk-rake">0</b> jetons</div>
+        <button class="btn spin" id="pk-next">Regarder une main <kbd>Espace</kbd></button>
+        <p class="muted" id="pk-msg">Le poker est le seul jeu où tu ne joues pas contre le casino. Tu joues contre les autres — et le casino prend sa part sur chaque pot.</p>
+      </div>`, { title: 'La table de poker', kicker: 'Cash game · 5 % du pot, plafonné à 15 · quel que soit le gagnant', cls: 'small-panel' });
+    const el = (q) => root.querySelector(q);
+    const next = async () => {
+      if (busy) return; busy = true; hand++;
+      const pot = 60 + Math.floor(Math.random() * 340); const r = Math.min(15, Math.round(pot * 0.05)); const w = Math.floor(Math.random() * 4);
+      el('#pk-pot').textContent = `Main ${hand} · pot ${pot}`; audio.card(); await wait(700);
+      for (let i = 0; i < 4; i++) nets[i] -= Math.round(pot / 4);
+      nets[w] += pot - r; rake += r;
+      for (let i = 0; i < 4; i++) { const e = el('#pk-' + i); e.textContent = (nets[i] > 0 ? '+' : '') + nets[i]; e.className = nets[i] > 0 ? 'ok' : nets[i] < 0 ? 'ko' : ''; }
+      el('#pk-rake').textContent = rake; audio.coin();
+      el('#pk-msg').textContent = `${NAMES[w]} remporte ${pot - r}. La maison prend ${r}.`;
+      if (hand >= 6) { el('#pk-msg').innerHTML = `Six mains : la maison a pris <b>${rake}</b> jetons sans jouer une carte. ${nets.filter(n => n > 0).length ? `Le meilleur joueur en est à +${Math.max(...nets)}.` : 'Personne n\'est en positif.'} Sur une nuit, le rake dépasse ce que gagne le meilleur de la table.`; el('#pk-next').disabled = true; }
+      busy = false;
+    };
+    el('#pk-next').addEventListener('click', next);
+    root._spin = next;
   }
 
   // ---------------------------------------------------------------- CAISSE / ATM

@@ -5,6 +5,7 @@ import { ui } from './ui.js';
 import { audio } from './audio.js';
 import { Games } from './games.js';
 import { REVELATIONS, WITNESSES, STAFF, STORY, PATRON_LINES, STAFF_LINES, NARRATIONS, fmt, fmtSigned } from './content.js';
+import { runEvents, restoreEvents } from './events.js';
 
 export const ROOM_HINTS = {
   street: 'Vendredi, 21 h. Ton ami est en retard.',
@@ -27,9 +28,10 @@ export function freshState() {
     money: 500, chips: 0, bank: 0, debt: 0, points: 0, rewards: [],
     timeMin: 21 * 60, drunkUntil: 0,
     flags: { entered: false, exited: false, chipsMode: false, card: false, vipOpen: false, vipInvited: false, suite: false, board: false, vigile: false, phoneSeen: false },
-    revealed: new Set(), witnesses: new Set(), visited: new Set(), roomSeen: new Set(),
+    revealed: new Set(), witnesses: new Set(), visited: new Set(), roomSeen: new Set(), events: new Set(),
     stats: { spins: 0, rounds: 0, wagered: 0, returned: 0, net: 0, celebrations: 0, trueWins: 0, drinks: 0, theo: 0 },
-    dynamicWalls: [], zone: false, activeSlot: null, roulette: null, phone: null, room: null, started: false
+    dynamicWalls: [], zone: false, activeSlot: null, roulette: null, phone: null, room: null, started: false,
+    night: 1, prev: null
   };
 }
 
@@ -89,8 +91,18 @@ export function createStory(ctx = {}) {
   }
   const said = {};
   function pick(id, arr) { const k = (said[id] = (said[id] || 0) + 1); return arr[(k - 1 + Math.floor(id.length * 7)) % arr.length]; }
+  async function talkLines(n, lines) {
+    // scripted lines "what they say — what is true", one pair per visit
+    const line = pick(n.id, lines);
+    const [a, b] = line.split(' — ');
+    const who = n.name || 'Quelqu\'un';
+    await ui.dialog.run([a], { speaker: who, color: n.color || '#9e9e9e', initial: who[0] });
+    if (b) await ui.dialog.run([b], { speaker: '', initial: '·', color: '#c6a14f' });
+  }
   async function talkPatron(n) {
-    const r = roomAt(n.x, n.y); const pool = PATRON_LINES[r ? r.id : 'default'] || PATRON_LINES.default;
+    const r = roomAt(n.x, n.y);
+    let pool = PATRON_LINES[n.pool] || PATRON_LINES[r ? r.id : 'default'] || PATRON_LINES.default;
+    if (!n.pool && r && r.id === 'machines' && state.flags.jackpot && Math.random() < 0.5) pool = PATRON_LINES.jackpot;
     const line = pick(n.id, pool);
     const [a, b] = line.split(' — ');
     const who = n.name || (n.kind === 'walker' ? 'Un passant' : 'Un joueur');
@@ -111,15 +123,18 @@ export function createStory(ctx = {}) {
     if (t.kind === 'slot') return `Jouer — ${t.s.label}`;
     if (t.kind === 'npc') return `Parler — ${t.n.name}`;
     const o = t.o;
-    const verbs = { narr: 'Regarder — ', caisse: 'Changer — ', cage: 'Changer — ', fidelite: '', atm: 'Retirer — ', roulette: 'Jouer — ', baccarat: 'Jouer — ', blackjack: 'Jouer — ', wheel: 'Jouer — ', poker: 'Regarder — ', craps: 'Regarder — ', phone: '', exitdoor: 'Ouvrir — ', staffdoor: 'Entrer — ', theo: 'Lire — ', board: 'Lire — ', poster: 'Lire — ', plaque: 'Lire — ', busstop: '', clock: 'Regarder — ', entrance: '' };
+    const verbs = { narr: 'Regarder — ', caisse: 'Changer — ', cage: 'Changer — ', fidelite: '', atm: 'Retirer — ', roulette: 'Jouer — ', baccarat: 'Jouer — ', blackjack: 'Jouer — ', wheel: 'Jouer — ', poker: 'Regarder — ', craps: 'Jouer — ', phone: '', exitdoor: 'Ouvrir — ', staffdoor: 'Entrer — ', theo: 'Lire — ', board: 'Lire — ', poster: 'Lire — ', plaque: 'Lire — ', busstop: '', clock: 'Regarder — ', entrance: '' };
     return (verbs[o.type] ?? '') + o.label;
   }
 
   async function interactNPC(n) {
     if (n.witness) return talkWitness(n);
+    if (n.id === 'karim') return talkKarim();
+    if (n.say) return talkLines(n, n.say);
     if (n.kind === 'patron' || n.kind === 'walker') return talkPatron(n);
     switch (n.id) {
       case 'vigile': {
+        if (state.night === 2 && !state.flags.vigile) { state.flags.vigile = true; await say(["Bon retour parmi nous. On vous attendait : l'hôtesse a votre carte.", state.flags.karimMet ? "Votre ami ? Il est passé mardi. Pas pour jouer : pour déposer un papier. Il ne reviendra pas avant trois ans." : "Votre ami ? Pas vu cette semaine."], STAFF.vigile.name, { color: '#9fa8da' }); break; }
         if (!state.flags.vigile) { state.flags.vigile = true; await say(STAFF.vigile.intro, STAFF.vigile.name, { color: '#9fa8da' }); }
         else await say(STAFF.vigile.again, STAFF.vigile.name, { color: '#9fa8da' });
         break;
@@ -147,6 +162,33 @@ export function createStory(ctx = {}) {
     }
   }
 
+  // the friend who was "late": he was upstairs all along
+  async function talkKarim() {
+    const K = { speaker: 'Karim', color: '#ff8a65', initial: 'K' };
+    if (state.flags.karimTalked) {
+      if (state.flags.karimOut) await ui.dialog.run(['Encore une main. Encore une. Je te rejoins dehors, promis.'], K);
+      else if (state.flags.lent) await ui.dialog.run(['Je me refais, t\'inquiète. Lundi, je te rends tout. Lundi.'], K);
+      else await ui.dialog.run(['Vincent m\'a arrangé. Ça va aller. Va jouer, profite.'], K);
+      return;
+    }
+    state.flags.karimTalked = true;
+    await ui.dialog.run([
+      'T\'es là ! Désolé, désolé. J\'étais… en fait j\'étais là depuis 22 h. Ici, en haut. Ils m\'avaient invité. Un hôte m\'a appelé mardi, il connaissait mon prénom.',
+      'Écoute. Je suis à sec. Complètement. Ils m\'ont fait crédit deux fois ce soir. Je suis à moins mille deux cents.',
+      { text: 'Tu peux me prêter deux cents ? Je te les rends lundi. Promis. Lundi.', choices: [
+        { label: state.chips >= 200 ? 'Prêter 200 jetons' : 'Prêter 200 jetons (tu ne les as pas)', run: async () => {
+          if (state.chips < 200) { await ui.dialog.run(['T\'as plus rien non plus ? Ah. Ah, ok.', 'On est deux, alors.'], K); return; }
+          state.chips -= 200; state.flags.lent = true; ui.updateHUD(state);
+          await ui.dialog.run(['T\'es un frère. Je me refais et je te rends tout. Va boire un verre, c\'est offert.'], K);
+          await narr(['Tu viens de faire exactement ce que le casino fait depuis 21 h : avancer de l\'argent à quelqu\'un qui ne peut plus s\'arrêter.']);
+        } },
+        { label: 'Refuser', run: async () => { state.flags.refused = true; await ui.dialog.run(['Ok. Ok. C\'est pas grave. Je vais voir Vincent, il comprend, lui.'], K); await narr(['Il retourne vers l\'hôte. L\'hôte lui sourit.']); } },
+        { label: 'Lui dire de sortir avec toi', run: async () => { state.flags.karimOut = true; await ui.dialog.run(['Sortir ? … Ouais. Ouais, peut-être. Encore une main et je te suis. Une seule.'], K); await narr(['Il ne te suivra pas tout de suite. Mais quelqu\'un lui a dit le mot « sortir » ce soir. Ça compte.']); } }
+      ] }
+    ], K);
+    save();
+  }
+
   async function interactObject(o) {
     switch (o.type) {
       case 'clock': await narr([`Il est ${ui.fmtTime(state.timeMin)}. Ton ami a dit « vers 21 h 30 ».`, 'C\'est la dernière horloge que tu verras ce soir.']); break;
@@ -166,7 +208,11 @@ export function createStory(ctx = {}) {
           const pts = Math.floor(state.points || 0); const next = REWARDS.find(r => pts < r.at);
           await say([
             `Bonne soirée, membre ${tier(pts)}. Vous avez ${pts} point${pts > 1 ? 's' : ''} : un point par jeton misé, sur toutes les tables.`,
-            next ? `Prochain palier à ${next.at} points : ${next.label}. ${REWARDS.filter(r => pts >= r.at).length ? 'Vos avantages déjà débloqués vous attendent.' : 'Continuez à jouer, ça vient vite.'}` : 'Vous avez tout débloqué. La maison vous appelle par votre prénom, maintenant.'
+            next ? `Prochain palier à ${next.at} points : ${next.label}. ${REWARDS.filter(r => pts >= r.at).length ? 'Vos avantages déjà débloqués vous attendent.' : 'Continuez à jouer, ça vient vite.'}` : 'Vous avez tout débloqué. La maison vous appelle par votre prénom, maintenant.',
+            { text: 'La boutique fidélité vous intéresse ? Nos cadeaux sont juste là.', choices: [
+              { label: 'Voir la boutique', run: () => games.openShop() },
+              { label: 'Plus tard', run: () => {} }
+            ] }
           ], STAFF.hotesse.name, { color: '#f48fb1' });
           break;
         }
@@ -184,8 +230,8 @@ export function createStory(ctx = {}) {
       case 'blackjack': games.openBlackjack(); break;
       case 'wheel': games.openWheel(); break;
       case 'cage': games.openCaisse(); break;
-      case 'poker': await narr(['Tournoi à minuit. Inscription : 200 jetons.', 'Au poker, la maison ne joue pas contre toi : elle prend une commission sur chaque pot. Elle gagne quoi qu\'il arrive.']); break;
-      case 'craps': await narr(['Table fermée ce soir. Le croupier range les dés.', 'Le craps a les meilleures et les pires mises du casino sur la même table. Personne ne les distingue à l\'œil.']); break;
+      case 'poker': games.openPokerWatch(); break;
+      case 'craps': games.openCraps(); break;
       case 'plaque': await narr(['« Le 18 août 1913, à cette table, le noir est sorti vingt-six fois de suite. »', 'Quelqu\'un a gravé en dessous, plus petit : « et la salle a misé rouge pendant vingt tours ».']); break;
       case 'vipdoor': {
         if (state.flags.vipInvited) {
@@ -241,15 +287,33 @@ export function createStory(ctx = {}) {
       'Tu es entré à 21 h 00.',
       cashed > 0 ? `La caisse de sortie te rend tes jetons : <b>${fmt(cashed)}</b>.` : 'Il ne te reste aucun jeton à rendre.',
       `Bilan de la nuit : <b>${fmtSigned(net)}</b>${state.debt + Math.max(0, -state.bank) > 0 ? `, et <b>${fmt(state.debt + Math.max(0, -state.bank))}</b> de dette` : ''}.`,
-      'Ton ami n\'est jamais venu.',
+      state.flags.karimOut ? 'Karim t\'a suivi dix minutes plus tard. Il n\'a pas dit un mot jusqu\'à l\'arrêt de bus.' : state.flags.lent ? 'Karim est resté. Tes 200 jetons aussi.' : state.flags.refused ? 'Karim est resté. L\'hôte lui a trouvé une solution.' : state.flags.karimArrived ? 'Karim était là depuis 22 h, au salon. Tu ne l\'as pas vu.' : 'Ton ami n\'est jamais venu.',
       'La ruelle remonte vers l\'arrêt de bus.'
     ]);
+    if (state.flags.karimOut) { const k = state.npcs.find(n => n.id === 'karim2'); if (k) k.hidden = false; }
     save();
   }
 
   function endNight() {
     save();
-    ui.epilogue(state, () => { localStorage.removeItem('rnvp-save'); location.reload(); });
+    ui.epilogue(state, () => { localStorage.removeItem('rnvp-save'); location.reload(); }, state.night === 1 ? nextNight : null);
+  }
+
+  // the week after: same casino, same person, one debt and one loyalty card heavier
+  function nextNight() {
+    const st = state.stats;
+    const prev = { net: st.net, timeMin: state.timeMin, wagered: st.wagered, debt: state.debt + Math.max(0, -state.bank) };
+    const keep = { points: state.points, rewards: state.rewards, bought: state.bought || [], revealed: [...state.revealed], witnesses: [...state.witnesses], flags: state.flags, matchSeed: null };
+    const fresh = freshState();
+    const data = {
+      player: fresh.player, money: 500, chips: 0, bank: 0, debt: prev.debt, timeMin: 21 * 60, drunkUntil: 0,
+      points: keep.points, rewards: keep.rewards, bought: keep.bought,
+      flags: { ...fresh.flags, card: keep.flags.card, vipInvited: keep.flags.card || keep.flags.vipInvited, vipOpen: false, freeDrink: true, karimMet: !!keep.flags.karimTalked, karimOut: false, lent: false, refused: false, night2: true },
+      revealed: keep.revealed, witnesses: keep.witnesses, visited: [], roomSeen: [], events: [], stats: { spins: 0, rounds: 0, wagered: 0, returned: 0, net: 0, celebrations: 0, trueWins: 0, drinks: 0, theo: 0 },
+      dynamicWalls: [], roulette: null, phone: null, bets: null, matchSeed: null, matchGoals: null, night: 2, prev
+    };
+    try { localStorage.setItem('rnvp-save', JSON.stringify(data)); localStorage.setItem('rnvp-night2', '1'); } catch (e) { }
+    location.reload();
   }
 
   function enterRoom(r) {
@@ -262,7 +326,9 @@ export function createStory(ctx = {}) {
       state.flags.entered = true;
       audio.door();
       ctx.onEntered && ctx.onEntered();
-      setTimeout(() => ui.toast('Dernier coup d\'œil dehors : il est 21 h. Il n\'y a plus une seule horloge à partir d\'ici.', 4500), 600);
+      if (state.night === 2) {
+        setTimeout(async () => { ui.toast('L\'hôtesse te fait signe de la main. Elle a déjà sorti ta carte.', 4500); if (!state.revealed.has('retour')) await reveal('retour', { first: state.prev ? state.prev.net : 0 }); }, 900);
+      } else setTimeout(() => ui.toast('Dernier coup d\'œil dehors : il est 21 h. Il n\'y a plus une seule horloge à partir d\'ici.', 4500), 600);
     }
     if (!state.visited.has(r.id) && r.label) {
       state.visited.add(r.id);
@@ -286,12 +352,14 @@ export function createStory(ctx = {}) {
     }
     document.body.classList.toggle('drunk', state.drunkUntil > state.timeMin && !state.flags.exited);
     state.zone = document.body.classList.contains('zone');
+    runEvents(state, eventApi, uiOpen);
   }
+  const eventApi = { toast: (t, ms) => ui.toast(t, ms), banner: (t, sub) => ui.banner(t, sub), flash: (c) => ui.flash(c), chime: () => audio.chime(), narr, reveal };
 
   function save() {
     try {
       const s = state;
-      const data = { player: { x: s.player.x, y: s.player.y }, money: s.money, chips: s.chips, bank: s.bank, debt: s.debt, timeMin: s.timeMin, drunkUntil: s.drunkUntil, points: s.points, rewards: s.rewards, flags: s.flags, revealed: [...s.revealed], witnesses: [...s.witnesses], visited: [...s.visited], roomSeen: [...s.roomSeen], stats: s.stats, dynamicWalls: s.dynamicWalls, roulette: s.roulette, phone: s.phone };
+      const data = { player: { x: s.player.x, y: s.player.y }, money: s.money, chips: s.chips, bank: s.bank, debt: s.debt, timeMin: s.timeMin, drunkUntil: s.drunkUntil, points: s.points, rewards: s.rewards, flags: s.flags, revealed: [...s.revealed], witnesses: [...s.witnesses], visited: [...s.visited], roomSeen: [...s.roomSeen], events: [...s.events], stats: s.stats, bets: s.bets, matchSeed: s.matchSeed, matchGoals: s.matchGoals, bought: s.bought, night: s.night, prev: s.prev, dynamicWalls: s.dynamicWalls, roulette: s.roulette, phone: s.phone };
       localStorage.setItem('rnvp-save', JSON.stringify(data));
     } catch (e) { }
   }
@@ -301,7 +369,10 @@ export function createStory(ctx = {}) {
       state.player.x = d.player.x; state.player.y = d.player.y;
       Object.assign(state, { money: d.money, chips: d.chips, bank: d.bank, debt: d.debt, points: d.points || 0, rewards: d.rewards || [], timeMin: d.timeMin, drunkUntil: d.drunkUntil, stats: d.stats, dynamicWalls: d.dynamicWalls || [], roulette: d.roulette, phone: d.phone });
       state.flags = { ...state.flags, ...d.flags }; state.revealed = new Set(d.revealed); state.witnesses = new Set(d.witnesses); state.visited = new Set(d.visited); state.roomSeen = new Set(d.roomSeen || d.visited);
-      if (state.flags.exited) state.npcs.find(n => n.id === 'nour').hidden = false;
+      state.events = new Set(d.events || []); restoreEvents(state);
+      state.bets = d.bets || null; state.matchSeed = d.matchSeed || null; state.matchGoals = d.matchGoals || null; state.bought = d.bought || [];
+      state.night = d.night || 1; state.prev = d.prev || null;
+      if (state.flags.exited) { state.npcs.find(n => n.id === 'nour').hidden = false; if (state.flags.karimOut) state.npcs.find(n => n.id === 'karim2').hidden = false; }
       return true;
     } catch (e) { return false; }
   }
@@ -310,11 +381,17 @@ export function createStory(ctx = {}) {
   // boot: intro → optional story cards → start
   function boot(onStart) {
     const hasSave = !!localStorage.getItem('rnvp-save');
+    const night2 = localStorage.getItem('rnvp-night2') === '1';
     const cont = document.getElementById('btn-continue');
-    if (hasSave && cont) { cont.hidden = false; cont.addEventListener('click', () => { if (!ui._introGo) return; load(); ui.updateHUD(state); ctx.onLoaded && ctx.onLoaded(); ui._introGo(); }); }
+    if (hasSave && cont) {
+      cont.hidden = false; cont.textContent = night2 ? 'Revenir vendredi prochain' : 'Continuer la soirée';
+      if (night2) { const st = document.getElementById('btn-start'); if (st) { st.textContent = 'Recommencer depuis le début'; st.classList.remove('primary'); } cont.classList.add('primary'); }
+      cont.addEventListener('click', () => { if (!ui._introGo) return; load(); ui.updateHUD(state); ctx.onLoaded && ctx.onLoaded(); ui._introGo(); });
+    }
     ui.intro(async () => {
       ui.updateHUD(state);
-      if (!state.flags.entered && !state.visited.size) await ui.storyCards(STORY.intro);
+      if (night2 && state.night === 2) { localStorage.removeItem('rnvp-night2'); await ui.storyCards(STORY.intro2); }
+      else if (!state.flags.entered && !state.visited.size) await ui.storyCards(STORY.intro);
       state.started = true;
       const r = roomAt(state.player.x, state.player.y); enterRoom(r);
       onStart && onStart();

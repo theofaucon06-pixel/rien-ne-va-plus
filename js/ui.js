@@ -1,5 +1,5 @@
 // DOM user interface: dialogues, panels, reveal modal, codex, HUD, intro, epilogue.
-import { REVELATIONS, WITNESSES, SOURCES, STORY, fmt, fmtSigned, fmtChips } from './content.js';
+import { REVELATIONS, WITNESSES, SOURCES, STORY, QUIZ, fmt, fmtSigned, fmtChips } from './content.js';
 import { audio } from './audio.js';
 
 const $ = (s) => document.querySelector(s);
@@ -303,15 +303,45 @@ export const ui = {
       show();
     });
   },
-  epilogue(s, onRestart) {
+  // end-of-night quiz: one question per mechanic, a score, and a line to share
+  quiz(s) {
+    let i = 0, score = 0; const answers = [];
+    const root = this.panel.open('<div class="quiz" id="quiz"></div>', { title: 'Tu as compris ?', kicker: `${QUIZ.length} questions · une par mécanique`, cls: 'small-panel' });
+    const box = root.querySelector('#quiz');
+    const show = () => {
+      if (i >= QUIZ.length) {
+        const share = `J'ai fait ${score}/${QUIZ.length} au quiz de « Rien ne va plus ». La maison gagne toujours — teste-toi : ${location.origin}${location.pathname}`;
+        box.innerHTML = `<div class="q-score"><b>${score} / ${QUIZ.length}</b><span>${score === QUIZ.length ? 'Tout. Tu sais maintenant exactement ce que le casino sait de toi.' : score >= QUIZ.length * 0.7 ? 'Presque tout. Les questions ratées sont celles que le casino préfère.' : 'C\'est normal : tout ici est fait pour ne pas être compris. Relis le carnet.'}</span></div>
+          <ul class="q-recap">${answers.map((a, k) => `<li class="${a ? 'ok' : 'ko'}">${String(k + 1).padStart(2, '0')} · ${QUIZ[k].q}<br><small>${QUIZ[k].why}</small></li>`).join('')}</ul>
+          <div class="q-actions"><button class="btn" id="q-copy">Copier mon résultat</button><span class="muted" id="q-copied"></span></div>`;
+        box.querySelector('#q-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(share); box.querySelector('#q-copied').textContent = 'Copié.'; } catch { box.querySelector('#q-copied').textContent = share; } });
+        return;
+      }
+      const q = QUIZ[i];
+      box.innerHTML = `<div class="q-n">Question ${i + 1} sur ${QUIZ.length}</div><p class="lead">${q.q}</p><div class="q-choices">${q.a.map((t, k) => `<button class="choice" data-k="${k}"><span class="k">${k + 1}</span>${t}</button>`).join('')}</div><p class="muted q-why" id="q-why" hidden></p>`;
+      box.querySelectorAll('.choice').forEach(b => b.addEventListener('click', () => {
+        if (box.dataset.done) return; box.dataset.done = '1';
+        const k = +b.dataset.k, ok = k === q.ok; if (ok) score++; answers.push(ok);
+        box.querySelectorAll('.choice').forEach(x => { x.classList.toggle('good', +x.dataset.k === q.ok); x.classList.toggle('bad', +x.dataset.k === k && !ok); x.disabled = true; });
+        const why = box.querySelector('#q-why'); why.hidden = false; why.textContent = (ok ? 'Oui. ' : 'Non. ') + q.why;
+        ok ? audio.coin() : audio.lose();
+        const n = document.createElement('button'); n.className = 'btn'; n.textContent = i + 1 < QUIZ.length ? 'Question suivante' : 'Voir mon score'; n.style.marginTop = '10px';
+        n.addEventListener('click', () => { i++; delete box.dataset.done; show(); }); box.appendChild(n);
+      }));
+    };
+    show();
+  },
+  epilogue(s, onRestart, onNext = null) {
     const el = this.el.epilogue; el.hidden = false; this.stack.push('epilogue');
+    const night2 = s.night === 2, prev = s.prev || null;
     const st = s.stats;
     const hours = (s.timeMin - 21 * 60) / 60;
     const debtTotal = s.debt + Math.max(0, -s.bank);
     const revs = REVELATIONS.map(r => `<li class="${s.revealed.has(r.id) ? 'on' : ''}">${String(r.n).padStart(2, '0')} · ${s.revealed.has(r.id) ? r.title : '<i>non découverte</i>'}</li>`).join('');
     el.innerHTML = `<div class="epi-inner">
-      <div class="m-kicker">Fin de soirée</div>
+      <div class="m-kicker">${night2 ? 'Fin de la deuxième soirée' : 'Fin de soirée'}</div>
       <h1>Rien ne va plus<span>.</span></h1>
+      ${prev ? `<p class="epi-prev">La semaine dernière : <b>${fmtSigned(prev.net)}</b>, sorti à ${this.fmtTime(prev.timeMin)}. Ce soir : <b>${fmtSigned(st.net)}</b>. Les deux soirées : <b>${fmtSigned(prev.net + st.net)}</b>.</p>` : ''}
       <div class="epi-grid">
         <div class="tn"><b>${this.fmtTime(s.timeMin)}</b><span>tu es sorti — entré à 21:00, soit ${hours.toFixed(1).replace('.', ',')} h à l'intérieur</span></div>
         <div class="tn ${st.net < 0 ? 'neg' : ''}"><b>${fmtSigned(st.net)}</b><span>résultat de la nuit</span></div>
@@ -330,11 +360,13 @@ export const ui = {
           <p class="epi-help"><b>Joueurs Info Service — 09 74 75 13 13</b><br>tous les jours de 8 h à 2 h, anonyme, non surtaxé.<br>joueurs-info-service.fr · interdiction volontaire de jeux sur anj.fr</p>
         </div>
       </div>
-      <div class="epi-actions"><button id="epi-codex">Relire le carnet</button><button id="epi-restart" class="primary">Recommencer la soirée</button></div>
+      <div class="epi-actions"><button id="epi-codex">Relire le carnet</button><button id="epi-quiz">Tester ce que tu as compris</button>${onNext ? '<button id="epi-next" class="primary">Revenir vendredi prochain</button>' : ''}<button id="epi-restart" class="${onNext ? '' : 'primary'}">Recommencer depuis le début</button></div>
       <p class="epi-foot">Jouer comporte des risques : endettement, isolement, dépendance. Pour être aidé, appelez le 09 74 75 13 13.</p>
     </div>`;
     el.querySelector('#epi-restart').addEventListener('click', onRestart);
     el.querySelector('#epi-codex').addEventListener('click', () => this.openCodex('mecaniques'));
+    el.querySelector('#epi-quiz').addEventListener('click', () => this.quiz(s));
+    const nb = el.querySelector('#epi-next'); if (nb) nb.addEventListener('click', () => { audio.click(); onNext(); });
   },
 
   // ------------------------------------------------------------- key routing

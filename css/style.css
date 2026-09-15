@@ -356,3 +356,48 @@ body[data-mode="3d"] .hud-money, body[data-mode="3d"] .hud-right button, body[da
 .src ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.5; color: rgba(245,241,232,0.85); }
 .src li + li { margin-top: 5px; }
 .src .muted, .src-note { font-size: 13px; color: rgba(245,241,232,0.5); margin: 6px 0 0; }
+
+/* ---- sports betting app ---- */
+.ph-app-ic.bet { background: linear-gradient(135deg, #1565c0, #00c853); }
+.ph-app.bets { background: linear-gradient(180deg, #0d2a1f, #0b0d12); }
+.bn-live { margin: 12px 0 8px; padding: 10px 12px; background: rgba(0,0,0,0.35); border-radius: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.bn-live b { font-family: var(--serif); font-size: 20px; } .bn-live span { font-size: 11px; color: #ccc; } .bn-live .live { color: #ff5252; font-weight: 700; }
+.bn-picks { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.bp { background: #142a1f; color: var(--paper); border: 2px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 8px 6px; display: grid; gap: 2px; cursor: pointer; font-size: 12px; }
+.bp b { font-family: var(--serif); font-size: 18px; color: #ffd54f; } .bp.on { border-color: #00e676; box-shadow: 0 0 0 3px rgba(0,230,118,0.25); }
+.bp.goal { grid-column: 1 / -1; background: #2a1a10; } .bp[disabled] { opacity: 0.4; cursor: default; }
+.bn-stake { display: flex; align-items: center; gap: 6px; margin: 10px 0; font-size: 12px; color: #bbb; } .bn-stake .bet { width: 44px; height: 32px; border-radius: 8px; font-size: 12px; }
+.bn-title { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #9ccc65; margin: 12px 0 4px; }
+.bn-bet { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: rgba(255,255,255,0.06); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; }
+.bn-bet button { background: #ffd54f; color: #111; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: 11px; cursor: pointer; } .bn-bet button[disabled] { background: #444; color: #999; }
+.bets .ph-dep { margin-top: 4px; }
+
+/* ---- craps ---- */
+.craps { display: grid; gap: 12px; }
+.craps-top { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+.dice { display: flex; gap: 8px; } .die { width: 64px; height: 64px; border-radius: 12px; background: #f5f1e8; color: #b3261e; font-size: 52px; line-height: 64px; text-align: center; box-shadow: 0 4px 0 #c9c3b6, 0 8px 18px rgba(0,0,0,0.5); }
+.point { grid-column: 1 / -1; font-size: 12px; letter-spacing: 0.14em; color: var(--gold); font-weight: 700; }
+.craps-bets { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.cb { background: #17392a; color: var(--paper); border: 2px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px; text-align: left; cursor: pointer; display: grid; gap: 2px; }
+.cb span { font-weight: 700; } .cb small { color: rgba(245,241,232,0.55); font-size: 11px; } .cb em { font-style: normal; color: #ffd54f; font-size: 11px; min-height: 14px; }
+.cb.on { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,161,79,0.3); }
+
+/* ---- loyalty shop & poker ---- */
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 12px 0; }
+.sh-item { background: rgba(255,255,255,0.05); border: 1px solid rgba(198,161,79,0.25); border-radius: 12px; padding: 12px; display: grid; gap: 6px; }
+.sh-item b { font-family: var(--serif); font-weight: normal; font-size: 18px; } .sh-item span { font-size: 12px; color: var(--gold); }
+.sh-item .btn { padding: 8px 10px; font-size: 13px; }
+.pk-players { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+.pk-p { background: rgba(255,255,255,0.05); border-radius: 10px; padding: 10px; text-align: center; } .pk-p b { display: block; font-size: 13px; } .pk-p span { font-family: var(--serif); font-size: 22px; }
+.pk-p .ok { color: #9ccc65; } .pk-p .ko { color: #ff8a80; }
+.pk-pot { font-size: 13px; color: rgba(245,241,232,0.7); } .pk-rake { margin: 8px 0 12px; padding: 10px 12px; background: rgba(198,161,79,0.12); border: 1px solid var(--gold); border-radius: 10px; } .pk-rake b { color: var(--gold); font-size: 18px; }
+
+/* ---- quiz & second night ---- */
+.q-n { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); margin-bottom: 6px; }
+.q-choices { display: grid; gap: 8px; margin: 10px 0; }
+.q-choices .choice { text-align: left; }
+.q-choices .choice.good { border-color: #9ccc65; background: rgba(156,204,101,0.15); } .q-choices .choice.bad { border-color: #ff8a80; background: rgba(255,138,128,0.15); }
+.q-score { text-align: center; margin: 6px 0 14px; } .q-score b { display: block; font-family: var(--serif); font-size: 44px; font-weight: normal; color: var(--gold-2); } .q-score span { font-size: 14px; color: rgba(245,241,232,0.8); }
+.q-recap { list-style: none; padding: 0; margin: 0 0 12px; font-size: 13px; } .q-recap li { padding: 8px 10px; border-left: 3px solid #ff8a80; margin-bottom: 6px; background: rgba(255,255,255,0.03); } .q-recap li.ok { border-left-color: #9ccc65; } .q-recap small { color: rgba(245,241,232,0.55); }
+.q-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.epi-prev { text-align: center; color: rgba(245,241,232,0.8); font-size: 14px; margin: -6px 0 14px; } .epi-prev b { color: var(--gold-2); }
