@@ -17,7 +17,7 @@ export const ui = {
     };
     $('#btn-codex').addEventListener('click', () => this.toggleCodex());
     $('#btn-sound').addEventListener('click', () => this.toggleSound());
-    document.addEventListener('keydown', (e) => { if (e.key === 'm' || e.key === 'M') this.toggleSound(); });
+    document.addEventListener('keydown', (e) => { if (!e.target.closest?.('input,textarea,select,[contenteditable]') && (e.key === 'm' || e.key === 'M')) this.toggleSound(); });
   },
   isOpen() { return this.stack.length > 0; },
   onIdle: null,
@@ -98,6 +98,7 @@ export const ui = {
         if (k % 6 === 0) audio.talk();
         if (k >= text.length) { this.finishLine(); }
       }, 18);
+      if (document.body.classList.contains('calm-mode')) this.finishLine();
     },
     finishLine() {
       clearInterval(this.timer); this.typing = false;
@@ -250,21 +251,21 @@ export const ui = {
     <p class="cx-note"><b>Joueurs Info Service — 09 74 75 13 13</b>, tous les jours de 8 h à 2 h, appel anonyme et non surtaxé. joueurs-info-service.fr</p>`;
   },
   // every story and figure in the game, with what is real, what is composite, and where it comes from.
-  // Witnesses not yet met stay anonymous so the list does not spoil the night.
+  // Sources remain accessible without requiring play or gambling simulation.
   sourcesHTML(s) {
     const wits = SOURCES.witnesses.map(src => {
-      const w = WITNESSES.find(x => x.id === src.id); const met = s.witnesses.has(src.id);
-      return `<div class="src"><div class="src-h"><b>${met ? w.name : 'Inconnu·e — ' + w.where}</b><span class="src-st">${src.status}</span></div>${met ? `<ul>${src.refs.map(r => `<li>${r}</li>`).join('')}</ul>` : '<p class="muted">Rencontre cette personne pour voir ses sources.</p>'}</div>`;
+      const w = WITNESSES.find(x => x.id === src.id);
+      return `<div class="src"><div class="src-h"><b>${w.name}</b><span class="src-st">${src.status}</span></div><ul>${src.refs.map(r => `<li>${r}</li>`).join('')}</ul></div>`;
     }).join('');
     const mecs = SOURCES.mechanics.map(src => {
-      const r = REVELATIONS.find(x => x.id === src.id); const on = s.revealed.has(src.id);
-      return `<div class="src"><div class="src-h"><b>${String(r.n).padStart(2, '0')} · ${on ? r.title : '???'}</b></div>${on ? `<ul>${src.refs.map(x => `<li>${x}</li>`).join('')}</ul>` : '<p class="muted">Découvre cette mécanique pour voir ses sources.</p>'}</div>`;
+      const r = REVELATIONS.find(x => x.id === src.id);
+      return `<div class="src"><div class="src-h"><b>${String(r.n).padStart(2, '0')} · ${r.title}</b></div><ul>${src.refs.map(x => `<li>${x}</li>`).join('')}</ul></div>`;
     }).join('');
-    return `<p class="cx-note">Tout ce que racontent les témoins est documenté. Trois d'entre eux sont des personnages composites, construits à partir de sources publiques ; les autres ont existé et ont dit, à peu de chose près, ce qu'ils disent ici.</p>
+    return `<p class="cx-note">Les dialogues sont des reconstitutions pédagogiques, pas des citations verbatim. Quatre témoins sont composites (Sami, l’architecte, le parieur et le croupier) ; Nour est fictive. Les fiches ci-dessous distinguent leur statut et les références utilisées.</p>
       <h3 class="src-t">Témoins</h3>${wits}
       <h3 class="src-t">Mécaniques</h3>${mecs}
       <h3 class="src-t">Chiffres</h3><div class="src"><ul>${SOURCES.figures.map(x => `<li>${x}</li>`).join('')}</ul></div>
-      <p class="cx-note">Une erreur, une source manquante ? Le jeu est un projet de prévention indépendant : signale-la, elle sera corrigée.</p>`;
+      <p class="cx-note">Les références sont accessibles dès le début : tu peux consulter les sources sans miser ni terminer un parcours.</p>`;
   },
   closeCodex() { this.el.codex.hidden = true; this.el.codex.innerHTML = ''; this._pop('codex'); },
   codexKey(e) { if (e.key === 'Escape' || e.key === 'c' || e.key === 'C') { this.closeCodex(); return true; } return true; },
@@ -274,7 +275,7 @@ export const ui = {
     const el = this.el.intro; el.hidden = false; this.stack.push('intro');
     const list = document.body.dataset.mode === '3d' ? STORY.controls3d : STORY.controls;
     el.querySelector('#intro-controls').innerHTML = list.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('');
-    const btn = el.querySelector('#btn-start');
+    const btn = el.querySelector('#btn-start'); btn.disabled = false;
     let started = false;
     const go = () => {
       if (started) return; started = true; this._introGo = null;
@@ -294,7 +295,7 @@ export const ui = {
       let i = 0;
       const show = () => {
         if (i >= lines.length) { el.classList.add('out'); setTimeout(() => el.remove(), 600); const k = this.stack.lastIndexOf('modal'); if (k >= 0) this.stack.splice(k, 1); this._modalClose = null; resolve(); queueMicrotask(() => { if (!this.stack.length && this.onIdle) this.onIdle(); }); return; }
-        el.innerHTML = `<div class="story-line">${lines[i]}</div><div class="story-hint">Entrée pour continuer</div>`;
+        el.innerHTML = `<div class="story-line">${lines[i]}</div><div class="story-hint">Clique ou appuie sur Entrée pour continuer</div>`;
         el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse');
         i++;
       };

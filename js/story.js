@@ -50,6 +50,7 @@ const tier = (pts) => pts >= 1000 ? 'Platine' : pts >= 500 ? 'Or+' : 'Or';
 
 export function createStory(ctx = {}) {
   const state = freshState();
+  let replacingSave = false;
   const games = new Games(state, { reveal, hud: () => ui.updateHUD(state), addTime });
   ui.init(state);
 
@@ -341,7 +342,7 @@ export function createStory(ctx = {}) {
 
   function endNight() {
     save();
-    ui.epilogue(state, () => { localStorage.removeItem('rnvp-save'); location.reload(); }, state.night === 1 ? nextNight : null);
+    ui.epilogue(state, () => { replacingSave = true; localStorage.removeItem('rnvp-save'); localStorage.removeItem('rnvp-night2'); location.reload(); }, state.night === 1 ? nextNight : null);
   }
 
   // the week after: same casino, same person, one debt and one loyalty card heavier
@@ -357,6 +358,7 @@ export function createStory(ctx = {}) {
       revealed: keep.revealed, witnesses: keep.witnesses, visited: [], roomSeen: [], events: [], stats: { spins: 0, rounds: 0, wagered: 0, returned: 0, net: 0, celebrations: 0, trueWins: 0, drinks: 0, theo: 0 },
       dynamicWalls: [], roulette: null, phone: null, bets: null, matchSeed: null, matchGoals: null, night: 2, prev
     };
+    replacingSave = true; // pagehide must not overwrite the next evening with this one.
     try { localStorage.setItem('rnvp-save', JSON.stringify(data)); localStorage.setItem('rnvp-night2', '1'); } catch (e) { }
     location.reload();
   }
@@ -402,16 +404,19 @@ export function createStory(ctx = {}) {
   const eventApi = { toast: (t, ms) => ui.toast(t, ms), banner: (t, sub) => ui.banner(t, sub), flash: (c) => ui.flash(c), chime: () => audio.chime(), narr, reveal };
 
   function save() {
+    // Never replace a previous evening while the welcome screen is still open.
+    if (!state.started || replacingSave) return false;
     try {
       const s = state;
-      const data = { player: { x: s.player.x, y: s.player.y }, money: s.money, chips: s.chips, bank: s.bank, debt: s.debt, timeMin: s.timeMin, drunkUntil: s.drunkUntil, points: s.points, rewards: s.rewards, flags: s.flags, revealed: [...s.revealed], witnesses: [...s.witnesses], visited: [...s.visited], roomSeen: [...s.roomSeen], events: [...s.events], stats: s.stats, bets: s.bets, matchSeed: s.matchSeed, matchGoals: s.matchGoals, bought: s.bought, night: s.night, prev: s.prev, dynamicWalls: s.dynamicWalls, roulette: s.roulette, phone: s.phone };
+      const data = { version: 2, savedAt: Date.now(), player: { x: s.player.x, y: s.player.y, facing: s.player.facing, yaw: s.player.yaw }, money: s.money, chips: s.chips, bank: s.bank, debt: s.debt, timeMin: s.timeMin, drunkUntil: s.drunkUntil, points: s.points, rewards: s.rewards, flags: s.flags, revealed: [...s.revealed], witnesses: [...s.witnesses], visited: [...s.visited], roomSeen: [...s.roomSeen], events: [...s.events], stats: s.stats, bets: s.bets, matchSeed: s.matchSeed, matchGoals: s.matchGoals, bought: s.bought, night: s.night, prev: s.prev, dynamicWalls: s.dynamicWalls, roulette: s.roulette, phone: s.phone };
       localStorage.setItem('rnvp-save', JSON.stringify(data));
     } catch (e) { }
   }
   function load() {
     try {
-      const d = JSON.parse(localStorage.getItem('rnvp-save')); if (!d) return false;
+      const d = JSON.parse(localStorage.getItem('rnvp-save')); if (!d || !d.player || !Number.isFinite(d.player.x) || !Number.isFinite(d.player.y) || !Number.isFinite(d.money) || !d.stats || !Array.isArray(d.revealed) || !Array.isArray(d.witnesses) || !Array.isArray(d.visited)) return false;
       state.player.x = d.player.x; state.player.y = d.player.y;
+      state.player.facing = d.player.facing || 'right'; state.player.yaw = Number.isFinite(d.player.yaw) ? d.player.yaw : undefined;
       Object.assign(state, { money: d.money, chips: d.chips, bank: d.bank, debt: d.debt, points: d.points || 0, rewards: d.rewards || [], timeMin: d.timeMin, drunkUntil: d.drunkUntil, stats: d.stats, dynamicWalls: d.dynamicWalls || [], roulette: d.roulette, phone: d.phone });
       state.flags = { ...state.flags, ...d.flags }; state.revealed = new Set(d.revealed); state.witnesses = new Set(d.witnesses); state.visited = new Set(d.visited); state.roomSeen = new Set(d.roomSeen || d.visited);
       state.events = new Set(d.events || []); restoreEvents(state);
@@ -422,6 +427,8 @@ export function createStory(ctx = {}) {
     } catch (e) { return false; }
   }
   setInterval(save, 15000);
+  window.addEventListener('pagehide', save);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
   // boot: intro → optional story cards → start
   function boot(onStart) {
@@ -431,7 +438,7 @@ export function createStory(ctx = {}) {
     if (hasSave && cont) {
       cont.hidden = false; cont.textContent = night2 ? 'Revenir vendredi prochain' : 'Continuer la soirée';
       if (night2) { const st = document.getElementById('btn-start'); if (st) { st.textContent = 'Recommencer depuis le début'; st.classList.remove('primary'); } cont.classList.add('primary'); }
-      cont.addEventListener('click', () => { if (!ui._introGo) return; load(); ui.updateHUD(state); ctx.onLoaded && ctx.onLoaded(); ui._introGo(); });
+      cont.addEventListener('click', () => { if (!ui._introGo) return; if (!load()) { cont.textContent = 'Sauvegarde illisible — commence une nouvelle soirée'; cont.disabled = true; return; } ui.updateHUD(state); ctx.onLoaded && ctx.onLoaded(); ui._introGo(); });
     }
     ui.intro(async () => {
       ui.updateHUD(state);

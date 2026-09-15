@@ -323,6 +323,7 @@ export class Renderer {
     for (const s of SLOTS) if (this.visible(s)) items.push({ y: s.y + s.h, draw: () => this.drawSlot(s, state) });
     for (const o of OBJECTS) if (this.visible(o) && o.solid !== false) items.push({ y: o.y + o.h, draw: () => this.drawObject(o, state) });
     for (const n of state.npcs) if (!n.hidden && this.visible({ x: n.x - 20, y: n.y - 40, w: 40, h: 50 })) items.push({ y: n.y + 6, draw: () => this.drawCharacter(n, state, false) });
+    for (const n of state.remotePlayers || []) if (this.visible({ x:n.x-30,y:n.y-70,w:60,h:90 })) items.push({ y:n.y+6,draw:()=>this.drawCharacter(n,state,false) });
     items.push({ y: state.player.y + 6, draw: () => this.drawCharacter(state.player, state, true) });
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
