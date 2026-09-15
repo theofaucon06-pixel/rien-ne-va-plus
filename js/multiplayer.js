@@ -1,8 +1,11 @@
-// A single event stream per tab; only positions and learning progress leave the solo game.
+import { cloudEndpoint } from "./cloud.js";
+// One connection per tab: local SSE or Supabase polling, with separate sessions.
 export class Multiplayer extends EventTarget {
   constructor(state) {
     super();
     this.state = state;
+    this.cloud = cloudEndpoint();
+    this.storageKey = this.cloud ? "rnvp-cloud-room" : "rnvp-room";
     this.room = null;
     this.session = null;
     this.status = "solo";
@@ -11,7 +14,7 @@ export class Multiplayer extends EventTarget {
     this.lastAt = 0;
     this.busy = false;
     try {
-      this.saved = JSON.parse(sessionStorage.getItem("rnvp-room"));
+      this.saved = JSON.parse(sessionStorage.getItem(this.storageKey));
     } catch {}
     const invited = new URLSearchParams(location.search)
       .get("room")
@@ -21,7 +24,7 @@ export class Multiplayer extends EventTarget {
     window.addEventListener("pageshow", (e) => {
       if (e.persisted && this.session) this.openStream();
     });
-    this.timer = setInterval(() => this.sync(), 180);
+    if (!this.cloud) this.timer = setInterval(() => this.sync(), 180);
   }
   changed() {
     this.dispatchEvent(new Event("change"));
@@ -30,15 +33,18 @@ export class Multiplayer extends EventTarget {
     this.dispatchEvent(new CustomEvent("problem", { detail: message }));
   }
   async request(route, data = {}, auth = true) {
+    const requestSession = this.session;
     const controller = new AbortController(),
       timeout = setTimeout(() => controller.abort(), 7000);
     try {
-      const res = await fetch("/api/" + route, {
+      const res = await fetch((this.cloud || "/api/") + route, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(auth && this.session
-            ? { Authorization: "Bearer " + this.session.token }
+            ? this.cloud
+              ? { "X-Room-Token": this.session.token }
+              : { Authorization: "Bearer " + this.session.token }
             : {}),
         },
         body: JSON.stringify(data),
@@ -56,6 +62,14 @@ export class Multiplayer extends EventTarget {
         throw Object.assign(new Error(value.error || "Connexion impossible."), {
           status: res.status,
         });
+      if (
+        this.cloud &&
+        value.room &&
+        this.session === requestSession &&
+        this.session?.code === value.room.code &&
+        route.endsWith("/action")
+      )
+        this.update(value.room);
       return value;
     } catch (e) {
       if (e.name === "AbortError" || e instanceof TypeError)
@@ -86,7 +100,7 @@ export class Multiplayer extends EventTarget {
   accept(data) {
     this.session = { id: data.id, token: data.token, code: data.room.code };
     try {
-      sessionStorage.setItem("rnvp-room", JSON.stringify(this.session));
+      sessionStorage.setItem(this.storageKey, JSON.stringify(this.session));
     } catch {}
     this.update(data.room);
     this.openStream();
@@ -104,6 +118,12 @@ export class Multiplayer extends EventTarget {
     }
   }
   update(room) {
+    if (
+      this.room?.code === room.code &&
+      room.revision &&
+      room.revision <= (this.room.revision || 0)
+    )
+      return;
     this.room = room;
     const ids = new Set();
     for (const p of room.players) {
@@ -135,6 +155,7 @@ export class Multiplayer extends EventTarget {
   }
   openStream() {
     this.stream?.close();
+    if (this.cloud) return this.openCloudStream();
     this.status = "connecting";
     this.changed();
     const stream = (this.stream = new EventSource(
@@ -174,22 +195,67 @@ export class Multiplayer extends EventTarget {
       throw new Error("Attends que le salon soit reconnecté.");
     return this.request(`rooms/${this.session.code}/action`, data);
   }
+  position() {
+    const p = this.state.player;
+    return {
+      type: "position",
+      x: Math.round(p.x),
+      y: Math.round(p.y),
+      yaw:
+        p.yaw ??
+        ({ up: 0, down: Math.PI, left: Math.PI / 2, right: -Math.PI / 2 }[
+          p.facing
+        ] ||
+          0),
+      moving: !!p.moving,
+      discoveries: [...this.state.revealed],
+    };
+  }
+  openCloudStream() {
+    let stopped = false,
+      timer;
+    const session = this.session;
+    this.stream = {
+      close() {
+        stopped = true;
+        clearTimeout(timer);
+      },
+    };
+    this.status = "online";
+    this.changed();
+    const poll = async () => {
+      try {
+        const value = await this.request(
+          `rooms/${session.code}/action`,
+          this.position(),
+        );
+        if (stopped) return;
+        this.update(value.room);
+        if (this.status !== "online") {
+          this.status = "online";
+          this.changed();
+        }
+      } catch (e) {
+        if (stopped) return;
+        if ([401, 404].includes(e.status)) {
+          this.reset();
+          this.error(e.message);
+          return;
+        }
+        this.status = "reconnecting";
+        this.changed();
+      }
+      if (!stopped)
+        timer = setTimeout(
+          poll,
+          document.hidden ? 3000 : this.status === "online" ? 650 : 2000,
+        );
+    };
+    poll();
+  }
   async sync() {
     if (!this.session || this.status !== "online" || this.busy) return;
-    const p = this.state.player,
-      data = {
-        type: "position",
-        x: Math.round(p.x),
-        y: Math.round(p.y),
-        yaw:
-          p.yaw ??
-          ({ up: 0, down: Math.PI, left: Math.PI / 2, right: -Math.PI / 2 }[
-            p.facing
-          ] ||
-            0),
-        moving: !!p.moving,
-        discoveries: [...this.state.revealed],
-      };
+    const data = this.position();
     const key = JSON.stringify(data),
       time = Date.now();
     if (key === this.lastSent && time - this.lastAt < 3000) return;
@@ -245,7 +311,7 @@ export class Multiplayer extends EventTarget {
     this.peers.clear();
     this.state.remotePlayers = [];
     try {
-      sessionStorage.removeItem("rnvp-room");
+      sessionStorage.removeItem(this.storageKey);
     } catch {}
     this.changed();
   }

@@ -2,7 +2,7 @@
 
 ## Vérifications réussies
 
-- `npm test` : **5 tests serveur**. Deux flux temps réel indépendants ; positions,
+- `npm test` : **11 tests serveur et moteur cloud**. Deux flux temps réel indépendants ; positions,
   identités et découvertes ; quiz complet à cinq questions et score ; roulette
   commune ; accès, entrées invalides, capacité, reprise, départ et expiration.
 - `node tools/smoke.mjs --only 2d` : **3/3 étapes**, sans erreur console.
@@ -29,9 +29,27 @@ Le test 3D inter-appareils utilise la qualité minimale pour le rendu logiciel ;
 il vérifie le rendu et la synchronisation, pas les performances de chaque GPU.
 Le long parcours 3D exhaustif de `smoke.mjs` n’est pas intégralement validé ici.
 
-Le serveur écoute sur toutes les interfaces : le site et les salons sont prêts
-pour ce Mac et le réseau local. Le déploiement public n’a pas été effectué.
-Le Dockerfile et la configuration d’hébergement sont préparés ; l’image Docker
-n’a pas été construite sur ce poste, où Docker n’est pas disponible.
-Les salons vivent en mémoire sur une seule instance ; un redémarrage les ferme.
-Les sauvegardes personnelles restent dans le navigateur.
+## Supabase et publication
+
+- API `casino` déployée dans le projet Supabase `rien-ne-va-plus`.
+- `tools/cloud-smoke.mjs` : sept vérifications sur le vrai serveur, dont deux
+  actions simultanées, l’absence de fuite de jetons, un tirage unique et le quiz.
+- `tools/browser-cloud.cjs` : les six scénarios d’interface passent avec deux
+  navigateurs et le véritable backend Supabase, sans erreur JavaScript.
+- `tools/browser-cloud-3d.cjs` : avatar 2D mobile en 3D, déplacement tactile et
+  reprise 3D validés avec Supabase, sans erreur JavaScript.
+- `deno check` valide le code de la fonction. Les tables et RPC privés ne sont
+  accessibles ni au rôle `anon` ni aux utilisateurs authentifiés.
+- L’advisor Supabase ne remonte plus d’avertissement de sécurité. Les deux
+  informations « RLS enabled, no policy » correspondent au refus volontaire
+  de tout accès client aux tables réservées à la fonction serveur.
+
+La version cloud utilise des requêtes courtes, espacées d’environ 650 ms plus
+la latence réseau (3 s en arrière-plan). Ce n’est pas un flux WebSocket.
+Les salons sont temporaires ; les sessions inactives expirent après 60 s.
+Les anciennes lignes sont nettoyées à la création de nouveaux salons.
+Aucun essai de charge massive n’a été réalisé.
+
+Le serveur Node local continue à utiliser SSE et des salons en mémoire ; un
+redémarrage les ferme. Les sauvegardes personnelles restent dans le navigateur.
+Le Dockerfile n’a pas été construit sur ce poste, où Docker est absent.
