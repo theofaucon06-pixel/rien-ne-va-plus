@@ -128,11 +128,11 @@ export function applyRoomVisibility(byRoom, roomId) {
 
 // ------------------------------------------------------------------ adaptive quality
 export const TIERS = [
-  { name: 'Ultra', dpr: 1.5, msaa: 4, bloom: 1 },
-  { name: 'Haute', dpr: 1.25, msaa: 2, bloom: 0.5 },
-  { name: 'Moyenne', dpr: 1.0, msaa: 0, bloom: 0.5 },
-  { name: 'Basse', dpr: 0.8, msaa: 0, bloom: 0 },
-  { name: 'Minimale', dpr: 0.6, msaa: 0, bloom: 0 },
+  { name: 'Ultra', dpr: 1.5, msaa: 4, bloom: 1, hdr: true },
+  { name: 'Haute', dpr: 1.25, msaa: 2, bloom: 0.5, hdr: true },
+  { name: 'Moyenne', dpr: 1.0, msaa: 0, bloom: 0.5, hdr: false },
+  { name: 'Basse', dpr: 0.8, msaa: 0, bloom: 0, hdr: false },
+  { name: 'Minimale', dpr: 0.6, msaa: 0, bloom: 0, hdr: false },
 ];
 
 /** Rolling frame-time monitor that steps a tier index up or down. */

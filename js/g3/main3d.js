@@ -13,7 +13,7 @@ import { createStory } from '../story.js';
 import { buildLevel, S } from './level.js';
 import { buildActors, updateActors } from './actors.js';
 import { Player } from './player.js';
-import { mergeStatic, applyRoomVisibility, Adaptive, TIERS } from './optimize.js';
+import { mergeStatic, applyRoomVisibility, Adaptive, TIERS, roomOfPoint } from './optimize.js';
 import { setTextureInit } from './textures.js';
 
 // ------------------------------------------------------------------ renderer
@@ -47,12 +47,21 @@ bloom.setSize = (w, h) => bloomSetSize(Math.max(64, Math.round(w * bloomScale)),
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const film = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, vig: { value: 0.5 }, grain: { value: 0.035 }, zone: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, vig: { value: 0.5 }, grain: { value: 0.035 }, zone: { value: 0 }, drunk: { value: 0 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float time, vig, grain, zone; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float time, vig, grain, zone, drunk; varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
-      vec4 c = texture2D(tDiffuse, vUv);
+      vec2 uv = vUv;
+      vec4 c;
+      if (drunk > 0.001) {
+        // a slow sway, a soft double image and a saturation push: the bar's cocktails, done in four taps
+        uv += vec2(sin(time * 0.8), cos(time * 0.6)) * 0.004 * drunk;
+        vec2 o = vec2(0.0035, 0.0) * drunk, o2 = vec2(0.0, 0.0035) * drunk;
+        c = (texture2D(tDiffuse, uv + o) + texture2D(tDiffuse, uv - o) + texture2D(tDiffuse, uv + o2) + texture2D(tDiffuse, uv - o2)) * 0.25;
+        float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+        c.rgb = mix(vec3(l), c.rgb, 1.0 + 0.35 * drunk);
+      } else c = texture2D(tDiffuse, uv);
       vec2 d = vUv - 0.5; float r = length(d) * 1.15;
       float v = smoothstep(0.95, 0.35, r);
       c.rgb *= mix(1.0 - vig - zone * 0.35, 1.0, v);
@@ -69,7 +78,9 @@ let dpr = 1;
 function applyTier(tier) {
   dpr = Math.min(window.devicePixelRatio || 1, tier.dpr);
   bloom.enabled = tier.bloom > 0; bloomScale = tier.bloom || 0.5;
-  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { if (rt.samples !== tier.msaa) { rt.samples = tier.msaa; rt.dispose(); } }
+  // MSAA and the 16-bit (HDR) colour buffer are the two big bandwidth costs; both are recreated on change
+  const type = tier.hdr ? THREE.HalfFloatType : THREE.UnsignedByteType;
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { if (rt.samples !== tier.msaa || rt.texture.type !== type) { rt.samples = tier.msaa; rt.texture.type = type; rt.dispose(); } }
   renderer.setPixelRatio(dpr); composer.setPixelRatio(dpr);
   renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
   const b = document.getElementById('btn-quality'); if (b) b.textContent = 'Qualité : ' + (quality && !quality.auto ? tier.name : 'auto (' + tier.name.toLowerCase() + ')');
@@ -98,6 +109,7 @@ const actors = buildActors(scene, state, L);
 // static props are merged into one mesh per material and per room, then rooms out of sight are hidden
 const chunks = mergeStatic(L.root, { skip: new Set([...L.wallMeshes, ...L.hits]), S });
 let curRoomId = null, visibleSet = applyRoomVisibility(chunks.byRoom, null);
+for (const l of L.lightSpots) l.room = roomOfPoint(l.x, l.z, S);
 player.colliders = L.colliders;
 player.onStep = () => audio.step();
 // compile every shader and upload every geometry now, behind the intro, instead of stuttering the first
@@ -152,7 +164,7 @@ function updateLights(t, force = false) {
   if (force || (lightTick++ % 6 === 0)) {
     // re-rank the closest spots ~10 times a second; between two ranks only intensities move
     // rank by influence at the player's position (a bright chandelier matters more than a near, dim glow)
-    const score = (l) => { const d2 = Math.max(1, (l.x - p.x) ** 2 + (l.z - p.z) ** 2); const reach = l.distance * l.distance; return d2 > reach ? 0 : l.intensity / d2; };
+    const score = (l) => { if (l.room !== 'none' && !visibleSet.has(l.room)) return 0; const d2 = Math.max(1, (l.x - p.x) ** 2 + (l.z - p.z) ** 2); const reach = l.distance * l.distance; return d2 > reach ? 0 : l.intensity / d2; };
     spotOrder = L.lightSpots.map((l, i) => i).sort((a, b) => score(L.lightSpots[b]) - score(L.lightSpots[a])).slice(0, POOL);
     for (let i = 0; i < POOL; i++) {
       const pl = pool[i], e = L.lightSpots[spotOrder[i]];
@@ -243,7 +255,7 @@ function frame() {
   const zone = document.body.classList.contains('zone');
   const wantFov = zone ? 60 : 72; if (Math.abs(camera.fov - wantFov) > 0.1) { camera.fov += (wantFov - camera.fov) * 0.05; camera.updateProjectionMatrix(); }
   bloom.strength = zone ? 0.8 : 0.42;
-  film.uniforms.time.value = t; film.uniforms.zone.value += ((zone ? 1 : 0) - film.uniforms.zone.value) * 0.05; film.uniforms.vig.value = drunk ? 0.7 : 0.5;
+  film.uniforms.time.value = t; film.uniforms.zone.value += ((zone ? 1 : 0) - film.uniforms.zone.value) * 0.05; film.uniforms.vig.value = drunk ? 0.7 : 0.5; film.uniforms.drunk.value += ((drunk ? 1 : 0) - film.uniforms.drunk.value) * 0.03;
   rayTick++; if (rayTick % 3 === 0 && !open) updateHover(); else if (open) { hovered = null; ui.setPrompt(null); }
   for (const u of L.updaters) if (!u.room || visibleSet.has(u.room)) u(t, dt);
   updateDust(t, dt);
