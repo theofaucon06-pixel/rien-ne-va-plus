@@ -56,12 +56,13 @@ Le Dockerfile n’a pas été construit sur ce poste, où Docker est absent.
 
 ## Blackjack et découvert — mise à jour
 
-- `npm test` : **23 tests réussis**, dont 12 sur le blackjack. Composition et
+- `npm test` : **24 tests réussis**, dont 13 sur le blackjack. Composition et
   renouvellement du sabot, absence d’influence du solde, paiement 3:2, égalités,
   vérification du blackjack du croupier, assurance/paiement égal, S17, doubles,
-  partages et repartages, As partagés, abandon, dépassement, reprise JSON.
-- `tools/browser-blackjack.cjs` : **6 scénarios réussis** dans Chrome :
-  partage/double avec fermeture puis rechargement, abandon, assurance,
+  partages et repartages, As partagés, abandon, dépassement, reprise JSON,
+  mise maximale de 100 000 jetons et refus des valeurs supérieures.
+- `tools/browser-blackjack.cjs` : **7 scénarios réussis** dans Chrome :
+  mise libre de 100 000 jetons, partage/double avec fermeture puis rechargement, abandon, assurance,
   croupier sur 17 souple, quatre mains sur écran de 390 px, découvert dépassant
   1 000 € dans les trois parcours. Aucune erreur JavaScript.
 - `tools/browser-blackjack-3d.cjs` : démarrage 3D, manche complète avec un sabot

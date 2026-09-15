@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Blackjack, handValue, cardRank, natural} from '../js/blackjack.js';
+import {Blackjack, BLACKJACK_LIMITS, handValue, cardRank, natural} from '../js/blackjack.js';
 import {shuffledDeck} from '../js/random.js';
 const rankCard=r=>r-1;
 test('fresh shoe burns one card; no reshuffle during a round; bankroll never selects cards',()=>{
@@ -14,6 +14,11 @@ test('fresh shoe burns one card; no reshuffle during a round; bankroll never sel
  if(a.active){if(a.round.phase==='insurance')a.insurance(false);if(a.active)a.act('stand');}
  a.data.shoe=a.data.shoe.slice(0,77);a.start(25);
  assert.equal(a.data.shoeNumber,2);assert.equal(a.data.shoe.length,307);
+});
+test('table accepts a 100,000-jeton stake and rejects stakes above its displayed limit',()=>{
+ const t=table([10,10,7,9],300000);t.game.start(BLACKJACK_LIMITS.maxBet);
+ assert.equal(t.state.chips,200000);assert.equal(t.game.round.baseBet,100000);
+ assert.throws(()=>new Blackjack({chips:300000}).start(BLACKJACK_LIMITS.maxBet+1),/100/);
 });
 function table(ranks, chips=1000) {
   const remaining=Array.from({length:312},(_,i)=>i), drawn=[];

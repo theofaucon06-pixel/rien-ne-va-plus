@@ -1,6 +1,7 @@
 import { randomInt, shuffledDeck } from './random.js';
 
 export const BLACKJACK_RULES = Object.freeze({decks:6,standSoft17:true,blackjackPayout:1.5,maxHands:4,doubleAfterSplit:true,resplitAces:false,lateSurrender:true,cutRemaining:78});
+export const BLACKJACK_LIMITS = Object.freeze({minBet:10,maxBet:100000});
 export const cardRank = card => card % 13 + 1;
 export const cardValue = card => Math.min(cardRank(card),10);
 export function handValue(cards) {
@@ -32,7 +33,7 @@ export class Blackjack {
   draw(){if(!this.data.shoe.length)fail('Sabot épuisé.');return this.data.shoe.pop();}
   start(bet) {
     if(this.active)fail('Termine la main en cours.');
-    if(!Number.isInteger(bet)||bet<10||bet>500)fail('La mise de cette table va de 10 à 500 jetons.');
+    if(!Number.isInteger(bet)||bet<BLACKJACK_LIMITS.minBet||bet>BLACKJACK_LIMITS.maxBet)fail(`La mise de cette table va de ${BLACKJACK_LIMITS.minBet.toLocaleString('fr-FR')} à ${BLACKJACK_LIMITS.maxBet.toLocaleString('fr-FR')} jetons.`);
     this.debit(bet);
     if(this.data.shoe.length<BLACKJACK_RULES.cutRemaining){this.data.shoe=shuffledDeck(BLACKJACK_RULES.decks,this.random);this.data.shoeNumber++;this.draw();}
     const p1=this.draw(),d1=this.draw(),p2=this.draw(),d2=this.draw();

@@ -1,6 +1,6 @@
 // Mini-games with real odds: slot machines, roulette, baccarat, the phone casino,
 // plus the cashier, ATM, VIP profile and back-office panels.
-import { Blackjack, cardRank, handValue, natural } from './blackjack.js';
+import { Blackjack, BLACKJACK_LIMITS, cardRank, handValue, natural } from './blackjack.js';
 import { randomInt, randomUnit } from './random.js';
 import { ui } from './ui.js';
 import { audio } from './audio.js';
@@ -415,6 +415,7 @@ export class Games {
   openBlackjack() {
     const s = this.s;
     let amount = 25;
+    const presets = [10,100,500,1000,5000,10000,100000];
     const engine = new Blackjack(s, {
       onWager: (v,kind) => this.wager(v,kind),
       onPayout: v => this.payout(v),
@@ -440,7 +441,8 @@ export class Games {
         <div class="bacc-res" id="g-res" role="status" aria-live="polite">Choisis ta mise, puis distribue.</div>
         <div class="bacc-ctrl">
           ${this.chipsHTML()}
-          <div class="bets" aria-label="Mise">${[10,25,50,100,250,500].map(v=>`<button class="bet ${v===25?'on':''}" data-b="${v}">${v}</button>`).join('')}</div>
+          <div class="bets bj-bets" aria-label="Mise">${presets.map(v=>`<button class="bet ${v===amount?'on':''}" data-b="${v}">${v.toLocaleString('fr-FR')}</button>`).join('')}</div>
+          <div class="bj-bet-controls"><label for="g-bet-custom">Mise libre <input id="g-bet-custom" type="number" min="${BLACKJACK_LIMITS.minBet}" max="${BLACKJACK_LIMITS.maxBet}" step="10" inputmode="numeric" value="${amount}" aria-label="Mise de blackjack personnalisée"></label><button class="btn ghost" id="g-bet-apply">Choisir</button><span class="muted">de ${BLACKJACK_LIMITS.minBet.toLocaleString('fr-FR')} à ${BLACKJACK_LIMITS.maxBet.toLocaleString('fr-FR')} jetons</span></div>
           <div class="bj-actions">
             <button class="btn spin" id="g-deal">Distribuer <kbd>Espace</kbd></button>
             <button class="btn" id="g-hit" data-bj="hit">Tirer</button>
@@ -463,7 +465,7 @@ export class Games {
           <li>Abandon tardif sur les deux cartes initiales, après vérification du croupier : la moitié de la mise est rendue. Pas d’abandon après partage.</li>
           <li>Assurance face à un As : mise supplémentaire égale à la moitié de ta mise, payée 2:1 si le croupier a blackjack. Avec ton propre blackjack, tu peux choisir un gain égal à ta mise.</li></ul>
           <p>Les résultats viennent uniquement des cartes et de tes décisions. Aucun pourcentage de défaites n’est imposé. Au début d’un sabot neuf de six paquets, un blackjack naturel a environ 4,75 % de chances de sortir. L’avantage de la maison dépend des règles et des décisions ; il ne garantit pas une perte sur ta soirée.</p>
-          <p>Mises de table : 10 à 500 jetons. La main et le sabot sont conservés si tu quittes cette table.</p>
+          <p>Mises de table : ${BLACKJACK_LIMITS.minBet.toLocaleString('fr-FR')} à ${BLACKJACK_LIMITS.maxBet.toLocaleString('fr-FR')} jetons. La main et le sabot sont conservés si tu quittes cette table.</p>
           <a href="https://massgaming.com/wp-content/uploads/RULES-Blackjack-4-9-26.pdf" target="_blank" rel="noopener noreferrer">Référence : règles de blackjack de la Massachusetts Gaming Commission</a>
         </details>
       </div>`, {title:'Blackjack',kicker:'Sabot de six paquets · cartes sans remise · mises fictives',cls:'bacc-panel',onClose:()=>this.api.save?.()});
@@ -487,6 +489,7 @@ export class Games {
       el('#g-ins-yes').disabled=!insuring||s.chips<(r?.baseBet||0)/2;
       el('#g-even-money').hidden=!(insuring&&natural(r.hands[0].cards));
       root.querySelectorAll('.bet').forEach(b=>b.disabled=engine.active);
+      el('#g-bet-custom').disabled=engine.active;el('#g-bet-apply').disabled=engine.active;
       el('#bj-action-hint').textContent=playing?'La main en surbrillance attend ton choix. Les options grisées ne sont pas disponibles.':engine.active?'Choisis une option d’assurance.':'Tu peux quitter et retrouver le même sabot plus tard.';
       el('#bj-shoe').textContent=engine.data.shoeNumber?`Sabot n° ${engine.data.shoeNumber} · ${engine.data.shoe.length} cartes restantes · table : ${fmtSignedPlain(engine.data.summary.net)}`:'Sabot neuf de 312 cartes au prochain départ.';
       if(settled)el('#g-res').textContent=`Manche terminée : ${fmtSignedPlain(r.net)}${r.insuranceBet?` · Assurance : ${fmtSignedPlain(r.insurancePayout-r.insuranceBet)}`:''}`;
@@ -496,12 +499,19 @@ export class Games {
     };
     const perform = fn => {try {fn();audio.card();}catch(e){el('#g-res').textContent=e.message;}};
     this.bindInsert(root,render);
-    root.querySelectorAll('.bet').forEach(b=>b.addEventListener('click',()=>{if(engine.active)return;amount=+b.dataset.b;root.querySelectorAll('.bet').forEach(x=>x.classList.toggle('on',x===b));render();}));
+    const chooseBet = () => {
+      const value=Number(el('#g-bet-custom').value);
+      if(!Number.isInteger(value)||value<BLACKJACK_LIMITS.minBet||value>BLACKJACK_LIMITS.maxBet){el('#g-res').textContent=`Choisis une mise entière entre ${BLACKJACK_LIMITS.minBet.toLocaleString('fr-FR')} et ${BLACKJACK_LIMITS.maxBet.toLocaleString('fr-FR')} jetons.`;return false;}
+      amount=value;root.querySelectorAll('.bet').forEach(x=>x.classList.toggle('on',+x.dataset.b===value));render();return true;
+    };
+    root.querySelectorAll('.bet').forEach(b=>b.addEventListener('click',()=>{if(engine.active)return;el('#g-bet-custom').value=b.dataset.b;chooseBet();}));
+    el('#g-bet-apply').onclick=chooseBet;
+    el('#g-bet-custom').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();chooseBet();}});
     root.querySelectorAll('[data-bj]').forEach(b=>b.addEventListener('click',()=>perform(()=>{engine.act(b.dataset.bj);this.api.addTime(.5);})));
     el('#g-ins-yes').onclick=()=>perform(()=>engine.insurance(true));
     el('#g-ins-no').onclick=()=>perform(()=>engine.insurance(false));
     el('#g-even-money').onclick=()=>perform(()=>engine.evenMoney());
-    const deal=()=>perform(()=>{if(engine.active)return;if(s.chips<amount){this.checkInsert(root,amount);return;}engine.start(amount);this.api.addTime(1.5);});
+    const deal=()=>perform(()=>{if(engine.active||!chooseBet())return;if(s.chips<amount){this.checkInsert(root,amount);return;}engine.start(amount);this.api.addTime(1.5);});
     el('#g-deal').onclick=deal;root._spin=deal;render();
   }
 
