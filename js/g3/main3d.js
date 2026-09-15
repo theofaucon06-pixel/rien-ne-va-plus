@@ -13,12 +13,17 @@ import { createStory } from '../story.js';
 import { buildLevel, S } from './level.js';
 import { buildActors, updateActors } from './actors.js';
 import { Player } from './player.js';
+import { mergeStatic, applyRoomVisibility, Adaptive, TIERS } from './optimize.js';
+import { setTextureInit } from './textures.js';
 
 // ------------------------------------------------------------------ renderer
 const canvas = document.getElementById('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+// anti-aliasing is done on the composer's render target (MSAA), never on the canvas: the canvas only
+// ever receives the final full-screen quad, so canvas MSAA would cost memory for nothing
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
+renderer.setPixelRatio(1);
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.info.autoReset = false;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.95;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
@@ -32,9 +37,13 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
 // post-processing: bloom, then a film pass (vignette, grain, warm grade)
-const composer = new EffectComposer(renderer);
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: THREE.HalfFloatType, samples: 2 }));
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.42, 0.4, 0.9);
+// the bloom chain runs at a fraction of the frame resolution (it is a blur anyway)
+let bloomScale = 0.5;
+const bloomSetSize = bloom.setSize.bind(bloom);
+bloom.setSize = (w, h) => bloomSetSize(Math.max(64, Math.round(w * bloomScale)), Math.max(64, Math.round(h * bloomScale)));
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const film = new ShaderPass({
@@ -55,7 +64,24 @@ const film = new ShaderPass({
     }`
 });
 composer.addPass(film);
+// ------------------------------------------------------------------ quality (resolution, MSAA, bloom) — adaptive by default
+let dpr = 1;
+function applyTier(tier) {
+  dpr = Math.min(window.devicePixelRatio || 1, tier.dpr);
+  bloom.enabled = tier.bloom > 0; bloomScale = tier.bloom || 0.5;
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { if (rt.samples !== tier.msaa) { rt.samples = tier.msaa; rt.dispose(); } }
+  renderer.setPixelRatio(dpr); composer.setPixelRatio(dpr);
+  renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
+  const b = document.getElementById('btn-quality'); if (b) b.textContent = 'Qualité : ' + (quality && !quality.auto ? tier.name : 'auto (' + tier.name.toLowerCase() + ')');
+}
+const weak = (navigator.hardwareConcurrency || 8) <= 4 || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+let quality = null; quality = new Adaptive(applyTier, { start: weak ? 2 : 1 });
 window.addEventListener('resize', () => { renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight); camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); });
+const btnQuality = document.getElementById('btn-quality');
+if (btnQuality) btnQuality.addEventListener('click', () => { // auto → ultra → haute → moyenne → basse → minimale → auto
+  if (quality.auto) quality.set(0, false); else if (quality.tier >= TIERS.length - 1) { quality.auto = true; quality.set(weak ? 2 : 1, true); } else quality.set(quality.tier + 1, false);
+  btnQuality.blur();
+});
 
 // ------------------------------------------------------------------ story + level
 const player = new Player(camera, document.body);
@@ -69,8 +95,23 @@ const story = createStory({
 const { state, interact, targetLabel, tick } = story;
 const L = buildLevel(scene, state);
 const actors = buildActors(scene, state, L);
+// static props are merged into one mesh per material and per room, then rooms out of sight are hidden
+const chunks = mergeStatic(L.root, { skip: new Set([...L.wallMeshes, ...L.hits]), S });
+let curRoomId = null, visibleSet = applyRoomVisibility(chunks.byRoom, null);
 player.colliders = L.colliders;
 player.onStep = () => audio.step();
+// compile every shader and upload every geometry now, behind the intro, instead of stuttering the first
+// time each room comes into view
+setTextureInit((t) => renderer.initTexture(t));
+function warmUp() {
+  applyRoomVisibility(chunks.byRoom, null);
+  const culled = []; scene.traverse(o => { if (o.isMesh || o.isPoints || o.isSprite) { culled.push([o, o.frustumCulled]); o.frustumCulled = false; } });
+  renderer.compile(scene, camera);
+  renderer.render(scene, camera);
+  for (const [o, v] of culled) o.frustumCulled = v;
+  curRoomId = undefined; // the next frame re-applies the room gating
+}
+warmUp();
 function syncFromState() {
   player.setPosition(state.player.x * S, state.player.y * S, state.player.facing === 'up' ? Math.PI : state.player.facing === 'left' ? Math.PI / 2 : state.player.facing === 'down' ? 0 : -Math.PI / 2);
   player.colliders = L.colliders;
@@ -102,17 +143,26 @@ function updateDust(t, dt) {
 }
 
 // ------------------------------------------------------------------ light pool
-const POOL = 14;
+// eight point lights follow the player (every light costs a full BRDF evaluation per pixel)
+const POOL = 8;
 const pool = []; for (let i = 0; i < POOL; i++) { const pl = new THREE.PointLight(0xffffff, 0, 10, 2); scene.add(pl); pool.push(pl); }
-function updateLights() {
+let spotOrder = [];
+function updateLights(t, force = false) {
   const p = camera.position;
-  const sorted = L.lightSpots.map(l => ({ l, d: (l.x - p.x) ** 2 + (l.z - p.z) ** 2 })).sort((a, b) => a.d - b.d).slice(0, POOL);
-  for (let i = 0; i < POOL; i++) {
-    const pl = pool[i], e = sorted[i];
-    if (!e) { pl.intensity = 0; continue; }
-    pl.position.set(e.l.x, e.l.y, e.l.z); pl.color.copy(e.l.color); pl.distance = e.l.distance; pl.intensity = e.l.intensity * (e.l.neon ? 0.85 + 0.15 * Math.sin(clock.elapsedTime * 6) : 1);
+  if (force || (lightTick++ % 6 === 0)) {
+    // re-rank the closest spots ~10 times a second; between two ranks only intensities move
+    // rank by influence at the player's position (a bright chandelier matters more than a near, dim glow)
+    const score = (l) => { const d2 = Math.max(1, (l.x - p.x) ** 2 + (l.z - p.z) ** 2); const reach = l.distance * l.distance; return d2 > reach ? 0 : l.intensity / d2; };
+    spotOrder = L.lightSpots.map((l, i) => i).sort((a, b) => score(L.lightSpots[b]) - score(L.lightSpots[a])).slice(0, POOL);
+    for (let i = 0; i < POOL; i++) {
+      const pl = pool[i], e = L.lightSpots[spotOrder[i]];
+      if (!e) { pl.intensity = 0; continue; }
+      pl.position.set(e.x, e.y, e.z); pl.color.copy(e.color); pl.distance = e.distance; pl.userData.base = e.intensity; pl.userData.neon = !!e.neon;
+    }
   }
+  for (let i = 0; i < POOL; i++) { const pl = pool[i]; if (pl.userData.base) pl.intensity = pl.userData.base * (pl.userData.neon ? 0.85 + 0.15 * Math.sin(t * 6) : 1); }
 }
+let lightTick = 0;
 
 // ------------------------------------------------------------------ input & pointer lock
 const lockOverlay = document.getElementById('lock');
@@ -150,10 +200,12 @@ function watchUI() {
 const ray = new THREE.Raycaster(); ray.far = 3.4;
 let hovered = null; let rayTick = 0;
 const crosshair = document.getElementById('crosshair');
+const rayOrigin = { x: 0, y: 0 }; let rayTargets = [], rayTargetsFor = -1;
 function updateHover() {
   hovered = null;
-  ray.setFromCamera({ x: 0, y: 0 }, camera);
-  const hits = ray.intersectObjects(L.hits.concat(L.wallMeshes), false);
+  ray.setFromCamera(rayOrigin, camera);
+  if (rayTargetsFor !== L.hits.length) { rayTargets = L.hits.concat(L.wallMeshes); rayTargetsFor = L.hits.length; }
+  const hits = ray.intersectObjects(rayTargets, false);
   if (hits.length) {
     const h = hits[0];
     if (h.object.userData.target) { const t = h.object.userData.target; if (!(t.kind === 'npc' && t.n.hidden)) hovered = t; }
@@ -162,13 +214,19 @@ function updateHover() {
   crosshair.classList.toggle('on', !!hovered);
 }
 
+// ------------------------------------------------------------------ perf overlay (F3)
+const perf = { el: null, acc: 0, n: 0, last: performance.now() };
+window.addEventListener('keydown', (e) => { if (e.key === 'F3') { e.preventDefault(); if (!perf.el) { perf.el = document.createElement('pre'); perf.el.id = 'perf'; document.body.appendChild(perf.el); } else { perf.el.remove(); perf.el = null; } } });
+
 // ------------------------------------------------------------------ loop
 const clock = new THREE.Clock();
-let hudTick = 0, fogTarget = 0.035, boardLen = -1;
+let hudTick = 0, fogTarget = 0.035, boardLen = -1, frameIdx = 0;
 function frame() {
   requestAnimationFrame(frame);
+  const frameStart = performance.now();
   const dt = Math.min(0.05, clock.getDelta());
   const t = clock.elapsedTime;
+  renderer.info.reset();
   const open = ui.isOpen();
   watchUI();
   const drunk = state.drunkUntil > state.timeMin && !state.flags.exited;
@@ -177,6 +235,8 @@ function frame() {
   state.player.moving = player.moving;
   tick(dt, open);
   const r = roomAt(state.player.x, state.player.y);
+  const rid = r ? r.id : null;
+  if (rid !== curRoomId) { curRoomId = rid; visibleSet = applyRoomVisibility(chunks.byRoom, rid); updateLights(t, true); }
   fogTarget = !r || r.outdoor ? (state.flags.exited ? 0.008 : 0.016) : r.id === 'machines' ? 0.045 : r.id === 'labyrinth' ? 0.055 : 0.03;
   scene.fog.density += (fogTarget - scene.fog.density) * 0.05;
   scene.fog.color.setHex(!r || r.outdoor ? (state.flags.exited ? 0x6b5570 : 0x07080f) : 0x07080f);
@@ -185,16 +245,21 @@ function frame() {
   bloom.strength = zone ? 0.8 : 0.42;
   film.uniforms.time.value = t; film.uniforms.zone.value += ((zone ? 1 : 0) - film.uniforms.zone.value) * 0.05; film.uniforms.vig.value = drunk ? 0.7 : 0.5;
   rayTick++; if (rayTick % 3 === 0 && !open) updateHover(); else if (open) { hovered = null; ui.setPrompt(null); }
-  for (const u of L.updaters) u(t, dt);
+  for (const u of L.updaters) if (!u.room || visibleSet.has(u.room)) u(t, dt);
   updateDust(t, dt);
   if (L.clock && Math.floor(t * 2) % 10 === 0) L.clock.update(state.timeMin);
   if (state.roulette && state.roulette.hist.length !== boardLen) { boardLen = state.roulette.hist.length; L.rouletteBoards.forEach(b => b.update(state.roulette.hist)); }
-  updateActors(actors, t, dt, camera.position, hovered);
-  updateLights();
-  composer.render();
+  updateActors(actors, t, dt, camera.position, hovered, visibleSet);
+  updateLights(t);
+  // behind an open menu the world only needs a few frames a second
+  frameIdx++; if (!open || frameIdx % 3 === 0) composer.render();
   hudTick += dt; if (hudTick > 0.25) { hudTick = 0; ui.updateHUD(state); }
+  // frame pacing → adaptive quality; F3 overlay
+  const now = performance.now(); const ms = now - perf.last; perf.last = now;
+  if (document.visibilityState === 'visible' && ms < 250) quality.push(ms);
+  if (perf.el) { perf.acc += ms; if (++perf.n >= 20) { const cpu = (now - frameStart).toFixed(1); perf.el.textContent = `${(1000 / (perf.acc / perf.n)).toFixed(0)} fps · ${(perf.acc / perf.n).toFixed(1)} ms (cpu ${cpu})\n${renderer.info.render.calls} draws · ${(renderer.info.render.triangles / 1000).toFixed(0)}k tris\n${TIERS[quality.tier].name}${quality.auto ? ' (auto)' : ''} · dpr ${dpr.toFixed(2)} · ${rid || 'dehors'}`; perf.acc = 0; perf.n = 0; } }
 }
 
 story.boot(() => { syncFromState(); tryLock(); setTimeout(() => { if (!ui.isOpen() && !player.locked) lockOverlay.hidden = false; }, 400); });
 frame();
-window.__game = { renderer, state, ui, games: story.games, player, tp: (px, py) => player.setPosition(px * S, py * S), L, scene, camera, interact: () => interact(hovered) };
+window.__game = { renderer, state, ui, games: story.games, player, tp: (px, py) => player.setPosition(px * S, py * S), L, scene, camera, interact: () => interact(hovered), quality, chunks, actors, renderOnce: () => { renderer.info.reset(); composer.render(); return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles }; } };

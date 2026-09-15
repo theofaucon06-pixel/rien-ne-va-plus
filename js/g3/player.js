@@ -16,7 +16,11 @@ export class Player {
     this._dir = new THREE.Vector3(); this._right = new THREE.Vector3(); this._up = new THREE.Vector3(0, 1, 0);
   }
   get locked() { return this.controls.isLocked; }
-  lock() { try { this.controls.lock(); } catch (e) { } }
+  lock() {
+    // same as PointerLockControls.lock(), but the browser's promise is caught: a refused lock (too soon after
+    // Escape, or no user gesture) must not surface as an uncaught error
+    try { const p = this.controls.domElement.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { }
+  }
   unlock() { if (this.controls.isLocked) this.controls.unlock(); }
   setPosition(x, z, yaw) {
     this.camera.position.set(x, EYE, z);

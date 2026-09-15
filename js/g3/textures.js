@@ -12,7 +12,7 @@ function tex(c, { repeat = true, srgb = true, filter = true } = {}) {
   const t = new THREE.CanvasTexture(c);
   if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = repeat ? 4 : 1; // tiling surfaces benefit from it, text and signs do not
   if (!filter) { t.magFilter = THREE.NearestFilter; }
   return t;
 }
@@ -180,32 +180,54 @@ export function feltTexture(kind) {
 }
 
 // Slot machine screen animation (shared per kind). Returns { texture, update(t) }.
-export function slotScreen(kind) {
+// reel symbols drawn once into a sprite strip (emoji text is slow to rasterise every frame)
+let symStrip = null;
+function symbolStrip() {
+  if (symStrip) return symStrip;
   const SYMS = ['🍒', '🍋', '🔔', '⭐', '7', '💎'];
+  const c = document.createElement('canvas'); c.width = 6 * 68; c.height = 60;
+  const g = c.getContext('2d'); g.textAlign = 'center'; g.textBaseline = 'middle';
+  SYMS.forEach((sym, i) => { g.font = sym === '7' ? 'bold 44px "Bodoni 72", Georgia, serif' : '40px serif'; g.fillStyle = sym === '7' ? '#b3261e' : '#222'; g.fillText(sym, i * 68 + 34, 30); });
+  return (symStrip = c);
+}
+export function slotScreen(kind) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 192;
   const g = c.getContext('2d');
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
   const speeds = [1.3, 1.7, 2.1];
-  let bg = null; loadImage('slot_' + kind, (img) => { bg = img; });
-  const update = (time) => {
-    g.fillStyle = '#0a0a12'; g.fillRect(0, 0, 256, 192);
-    if (bg) { g.drawImage(bg, 0, 0, 256, 192); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, 0, 256, 192); }
-    g.fillStyle = 'rgba(255,255,255,0.85)'; g.fillRect(0, 0, 256, 26);
-    g.fillStyle = '#111'; g.font = 'bold 15px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(kind === 'mega' ? '20 LIGNES · JACKPOT' : kind === 'pharaon' ? 'JACKPOT 500×' : 'JACKPOT 100×', 128, 13);
+  let bg = null; loadImage('slot_' + kind, (img) => { bg = img; last = -1; });
+  // static layers (background, header, footer text) are drawn once into their own canvas
+  const base = document.createElement('canvas'); base.width = 256; base.height = 192; const gb = base.getContext('2d');
+  let baseFor = null;
+  const drawBase = () => {
+    gb.fillStyle = '#0a0a12'; gb.fillRect(0, 0, 256, 192);
+    if (bg) { gb.drawImage(bg, 0, 0, 256, 192); gb.fillStyle = 'rgba(0,0,0,0.25)'; gb.fillRect(0, 0, 256, 192); }
+    gb.fillStyle = 'rgba(255,255,255,0.85)'; gb.fillRect(0, 0, 256, 26);
+    gb.fillStyle = '#111'; gb.font = 'bold 15px Inter, sans-serif'; gb.textAlign = 'center'; gb.textBaseline = 'middle';
+    gb.fillText(kind === 'mega' ? '20 LIGNES · JACKPOT' : kind === 'pharaon' ? 'JACKPOT 500×' : 'JACKPOT 100×', 128, 13);
+    for (let r = 0; r < 3; r++) { gb.fillStyle = '#f4f1ea'; gb.fillRect(14 + r * 80, 40, 68, 120); }
+    baseFor = bg;
+  };
+  let last = -1;
+  const update = (time, force = false) => {
+    if (!force && time - last < 0.1) return; // 10 fps is plenty for a reel seen from a metre away
+    last = time;
+    if (baseFor !== bg) drawBase();
+    const strip = symbolStrip();
+    g.drawImage(base, 0, 0);
     for (let r = 0; r < 3; r++) {
-      const x = 14 + r * 80; g.fillStyle = '#f4f1ea'; g.fillRect(x, 40, 68, 120);
-      const off = (time * speeds[r]) % 1; const base = Math.floor(time * speeds[r]);
+      const x = 14 + r * 80;
+      const off = (time * speeds[r]) % 1; const b = Math.floor(time * speeds[r]);
       g.save(); g.beginPath(); g.rect(x, 40, 68, 120); g.clip();
-      for (let k = -1; k < 3; k++) { const sym = SYMS[((base + k) % 6 + 6) % 6]; g.font = sym === '7' ? 'bold 44px "Bodoni 72", Georgia, serif' : '40px serif'; g.fillStyle = sym === '7' ? '#b3261e' : '#222'; g.fillText(sym, x + 34, 100 + (k - off) * 60); }
+      for (let k = -1; k < 3; k++) { const si = ((b + k) % 6 + 6) % 6; g.drawImage(strip, si * 68, 0, 68, 60, x, 100 + (k - off) * 60 - 30, 68, 60); }
       g.restore();
     }
     const pulse = 0.5 + 0.5 * Math.sin(time * 4);
     g.fillStyle = `rgba(255,220,120,${0.35 + 0.5 * pulse})`; g.fillRect(0, 170, 256, 22);
-    g.fillStyle = '#111'; g.font = 'bold 12px Inter, sans-serif'; g.fillText(kind === 'presque' ? 'LA CHANCE EST PROCHE' : 'MISEZ · GAGNEZ · REJOUEZ', 128, 181);
+    g.fillStyle = '#111'; g.font = 'bold 12px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(kind === 'presque' ? 'LA CHANCE EST PROCHE' : 'MISEZ · GAGNEZ · REJOUEZ', 128, 181);
     t.needsUpdate = true;
   };
-  update(0);
+  update(0, true);
   return { texture: t, update };
 }
 
@@ -283,14 +305,20 @@ export function posterTexture(lines, colors = ['#141210', '#ffd98a', '#f5f1e8'])
 export function tickerTexture() {
   const c = document.createElement('canvas'); c.width = 1024; c.height = 96;
   const g = c.getContext('2d');
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
   const msg = 'JACKPOT PROGRESSIF  1 248 391 €   ·   MÉGA JACKPOT  87 214 €   ·   DERNIER GAGNANT : JEAN-MARC, 4 200 €   ·   BONUS FIDÉLITÉ CE SOIR   ·   ';
+  // the glowing text is rasterised once into a strip; each frame only copies a window of it
+  g.font = 'bold 54px "Bodoni 72", Georgia, serif';
+  const wdt = Math.ceil(g.measureText(msg).width);
+  const strip = document.createElement('canvas'); strip.width = wdt * 2; strip.height = 96;
+  const gs = strip.getContext('2d'); gs.fillStyle = '#0a0a12'; gs.fillRect(0, 0, strip.width, 96);
+  gs.font = g.font; gs.textBaseline = 'middle'; gs.fillStyle = '#ff9ab0'; gs.shadowColor = '#ff4d6d'; gs.shadowBlur = 14;
+  gs.fillText(msg, 0, 50); gs.fillText(msg, wdt, 50);
+  let last = -1;
   const update = (time) => {
-    g.fillStyle = '#0a0a12'; g.fillRect(0, 0, 1024, 96);
-    g.font = 'bold 54px "Bodoni 72", Georgia, serif'; g.textBaseline = 'middle'; g.fillStyle = '#ff9ab0'; g.shadowColor = '#ff4d6d'; g.shadowBlur = 14;
-    const wdt = g.measureText(msg).width; const off = (time * 90) % wdt;
-    g.fillText(msg, -off, 50); g.fillText(msg, wdt - off, 50);
-    const jp = 1248391 + Math.floor(time * 3.7); g.shadowBlur = 0;
+    if (time - last < 1 / 15) return; last = time;
+    const off = Math.floor((time * 90) % wdt);
+    g.drawImage(strip, off, 0, 1024, 96, 0, 0, 1024, 96);
     t.needsUpdate = true;
   };
   update(0); return { texture: t, update };
@@ -301,7 +329,9 @@ export function tvTexture() {
   const c = document.createElement('canvas'); c.width = 512; c.height = 288;
   const g = c.getContext('2d');
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter;
+  let last = -1;
   const update = (time) => {
+    if (time - last < 0.1) return; last = time;
     g.fillStyle = '#2e7d32'; g.fillRect(0, 0, 512, 288);
     g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 3; g.strokeRect(20, 20, 472, 248); g.beginPath(); g.moveTo(256, 20); g.lineTo(256, 268); g.stroke(); g.beginPath(); g.arc(256, 144, 50, 0, TAU); g.stroke();
     for (let i = 0; i < 10; i++) { g.fillStyle = i < 5 ? '#e53935' : '#1e88e5'; const x = 60 + ((i * 97 + time * (20 + i * 3)) % 400), y = 50 + ((i * 53 + time * (15 + i * 2)) % 190); g.fillRect(x, y, 10, 20); }
@@ -337,10 +367,16 @@ export function neonTexture(text, color, glow) {
 // ---------------------------------------------------------------- generated image assets (optional, procedural fallback)
 const ASSET_MAP = { carpet: 'carpet_green', carpet2: 'carpet_purple', carpetred: 'carpet_red', marble: 'marble', wood: 'wood', brick: 'brick', wall: 'wall', wallpaper: 'wallpaper', ceiling: 'ceiling', tile: 'tile' };
 const loader = new THREE.TextureLoader();
+// the renderer registers itself here so a freshly loaded image is uploaded to the GPU right away,
+// off the critical path, instead of stalling the first frame that happens to use it
+let textureInit = null;
+export function setTextureInit(fn) { textureInit = fn; }
 export function loadAsset(name, cb, opts = {}) {
   loader.load(`assets/tex/${name}.jpg`, (t) => {
     if (opts.repeat !== false) t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.needsUpdate = true; cb(t);
+    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.needsUpdate = true;
+    if (textureInit) textureInit(t);
+    cb(t);
   }, undefined, () => {});
 }
 // Swap a material's procedural map for the generated image once it is available

@@ -22,7 +22,7 @@ const YAW = { east: Math.PI / 2, west: -Math.PI / 2, north: Math.PI, south: 0 };
 
 export function buildLevel(scene, state) {
   const L = { colliders: [], hits: [], wallMeshes: [], updaters: [], lightSpots: [], dynamic: {}, rouletteBoards: [] };
-  const root = new THREE.Group(); scene.add(root);
+  const root = new THREE.Group(); scene.add(root); L.root = root;
   const wallMat = std('wall', { map: patternTexture('wall', 256), roughness: 0.85 }); upgradeMaterial(wallMat, 'wall');
   const brickMat = std('brick', { map: patternTexture('brick', 256), roughness: 0.95 }); upgradeMaterial(brickMat, 'brick');
   const wallpaperMat = std('wallpaper', { map: patternTexture('wallpaper', 256), roughness: 0.9 }); upgradeMaterial(wallpaperMat, 'wallpaper');
@@ -207,10 +207,11 @@ export function buildLevel(scene, state) {
   });
   for (const im of Object.values(parts)) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
   const tmpC = new THREE.Color();
-  L.updaters.push((t) => { for (let i = 0; i < N; i++) { const k = 0.55 + 0.45 * Math.max(0, Math.sin(t * 2.2 + i * 0.7)); tmpC.copy(slotHues[i]).multiplyScalar(k); parts.stripL.setColorAt(i, tmpC); parts.stripR.setColorAt(i, tmpC); } parts.stripL.instanceColor.needsUpdate = true; parts.stripR.instanceColor.needsUpdate = true; });
+  let stripT = -1;
+  L.updaters.push(Object.assign((t) => { if (t - stripT < 1 / 30) return; stripT = t; for (let i = 0; i < N; i++) { const k = 0.55 + 0.45 * Math.max(0, Math.sin(t * 2.2 + i * 0.7)); tmpC.copy(slotHues[i]).multiplyScalar(k); parts.stripL.setColorAt(i, tmpC); parts.stripR.setColorAt(i, tmpC); } parts.stripL.instanceColor.needsUpdate = true; parts.stripR.instanceColor.needsUpdate = true; }, { room: 'machines' }));
   const screenGeo = new THREE.PlaneGeometry(0.82, 0.62);
   for (const [kind, idx] of Object.entries(byKind)) {
-    screens[kind] = slotScreen(kind); L.updaters.push((t) => screens[kind].update(t));
+    screens[kind] = slotScreen(kind); L.updaters.push(Object.assign((t) => screens[kind].update(t), { room: 'machines' }));
     const im = new THREE.InstancedMesh(screenGeo, new THREE.MeshBasicMaterial({ map: screens[kind].texture, toneMapped: false }), idx.length); im.frustumCulled = false;
     idx.forEach((i, j) => { const s = SLOTS[i]; placeInstance(im, j, s, 0, 1.4, 0.29); im.setColorAt(j, new THREE.Color().setHSL(s.hue / 360, 0.85, 0.55).lerp(new THREE.Color(0xffffff), 0.6)); });
     im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; root.add(im);
@@ -248,8 +249,8 @@ export function buildLevel(scene, state) {
     t.g.add(cyl(0.68, 0.72, 0.1, std('wheelSide', { color: 0x3b2412 }), wx, 0.97, 0, 48));
     const wheel = cyl(0.6, 0.62, 0.16, [std('wheelSide', { color: 0x3b2412 }), new THREE.MeshStandardMaterial({ map: wheelTex, roughness: 0.6 }), std('wheelSide', { color: 0x3b2412 })], wx, 1.02, 0, 48);
     const rim = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.035, 10, 48), gold); rim.rotation.x = Math.PI / 2; rim.position.set(wx, 1.1, 0);
-    t.g.add(wheel, rim); L.updaters.push((tm) => { wheel.rotation.y = tm * 0.6; });
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 10), white); t.g.add(ball); L.updaters.push((tm) => { ball.position.set(wx + Math.cos(-tm * 2.4) * 0.5, 1.12, Math.sin(-tm * 2.4) * 0.5); });
+    wheel.userData.dynamic = true; t.g.add(wheel, rim); L.updaters.push((tm) => { wheel.rotation.y = tm * 0.6; });
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 10), white); ball.userData.dynamic = true; t.g.add(ball); L.updaters.push((tm) => { ball.position.set(wx + Math.cos(-tm * 2.4) * 0.5, 1.12, Math.sin(-tm * 2.4) * 0.5); });
     chipStack(t.g, 0.3, 0.3, 0xb3261e, 4); chipStack(t.g, 0.8, -0.2, 0x1565c0, 3); chipStack(t.g, 1.2, 0.4, 0xc6a14f, 6); chipStack(t.g, 0.5, -0.5, 0xffffff, 2);
     t.g.add(cyl(0.02, 0.03, 0.12, chrome, 0.95, 1.0, 0.1, 8));
     const hb = historyBoardTexture(); L.rouletteBoards.push(hb);
@@ -276,7 +277,8 @@ export function buildLevel(scene, state) {
         root.add(cyl(1.1, 1.25, 0.5, marbleWhite, cx, 0.25, cz, 32)); const lip = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.06, 10, 48), marbleWhite); lip.rotation.x = Math.PI / 2; lip.position.set(cx, 0.5, cz); root.add(lip);
         const water = cyl(1.0, 1.0, 0.06, new THREE.MeshStandardMaterial({ color: 0x2b6f8a, emissive: 0x1d6fa0, emissiveIntensity: 0.6, transparent: true, opacity: 0.85, roughness: 0.05, metalness: 0.4 }), cx, 0.5, cz, 32); root.add(water);
         root.add(cyl(0.12, 0.18, 0.9, gold, cx, 0.9, cz, 12)); root.add(cyl(0.45, 0.3, 0.1, gold, cx, 1.3, cz, 24)); const orb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), gold); orb.position.set(cx, 1.5, cz); root.add(orb);
-        const drops = []; for (let k = 0; k < 8; k++) { const dm = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), std('drop', { color: 0x9fd0ff, transparent: true, opacity: 0.7 })); root.add(dm); drops.push(dm); }
+        const drops = []; for (let k = 0; k < 8; k++) { const dm = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), std('drop', { color: 0x9fd0ff, transparent: true, opacity: 0.7 })); dm.userData.dynamic = true; root.add(dm); drops.push(dm); }
+        water.userData.dynamic = true;
         L.updaters.push((t) => { water.material.emissiveIntensity = 0.5 + 0.25 * Math.sin(t * 2); drops.forEach((dm, k) => { const ph = (t * 1.6 + k / 8) % 1; const a = k / 8 * TAU; dm.position.set(cx + Math.cos(a) * (0.2 + ph * 0.7), 1.5 + Math.sin(ph * Math.PI) * 0.5 - ph * 0.9, cz + Math.sin(a) * (0.2 + ph * 0.7)); }); });
         blob(cx, cz, 3.0); narrHit('fountain', 'La fontaine', cx, 0.8, cz, 2.6, 1.6, 2.6);
         L.colliders.push({ x0: cx - 1.25, z0: cz - 1.25, x1: cx + 1.25, z1: cz + 1.25 });
@@ -314,7 +316,7 @@ export function buildLevel(scene, state) {
         const g = new THREE.Group(); g.position.set(cx, 0, cz);
         g.add(cyl(0.14, 0.24, 1.3, darkMetal, 0, 0.65, 0, 12)); g.add(cyl(0.5, 0.55, 0.08, darkMetal, 0, 0.04, 0, 20));
         const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 0.08, 54), [std('wheelSide', { color: 0x3b2412 }), new THREE.MeshStandardMaterial({ map: bigSixTexture(256), roughness: 0.6 }), std('wheelSide', { color: 0x3b2412 })]);
-        disc.rotation.x = Math.PI / 2; disc.position.set(0, 1.75, 0.1); g.add(disc);
+        disc.rotation.x = Math.PI / 2; disc.position.set(0, 1.75, 0.1); disc.userData.dynamic = true; g.add(disc);
         const rim = new THREE.Mesh(new THREE.TorusGeometry(0.87, 0.04, 10, 54), gold); rim.position.set(0, 1.75, 0.1); g.add(rim);
         L.updaters.push((t) => { disc.rotation.y = t * 0.25; });
         const pointer = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 8), white); pointer.position.set(0, 2.7, 0.12); pointer.rotation.x = Math.PI; g.add(pointer);
@@ -355,7 +357,7 @@ export function buildLevel(scene, state) {
       case 'phone': {
         root.add(box(0.08, 0.01, 0.16, black, cx, 0.86, cz));
         const scr = plane(0.07, 0.14, new THREE.MeshBasicMaterial({ color: 0x4fc3f7, toneMapped: false }), cx, 0.866, cz, 0, -Math.PI / 2); root.add(scr);
-        L.updaters.push((t) => { scr.material.color.setHSL(0.55, 0.9, 0.45 + 0.25 * Math.max(0, Math.sin(t * 6))); });
+        scr.userData.dynamic = true; L.updaters.push((t) => { scr.material.color.setHSL(0.55, 0.9, 0.45 + 0.25 * Math.max(0, Math.sin(t * 6))); });
         hitSize = [0.6, 0.5, 0.6]; hy = 0.86;
         break;
       }
@@ -426,7 +428,7 @@ export function buildLevel(scene, state) {
       }
       case 'exitdoor': {
         const dz = (o.y + o.h / 2) * S, dx = (o.x + o.w / 2) * S;
-        const door = box(0.1, 2.1, o.h * S - 0.1, std('exitdoor', { color: 0x44484f, roughness: 0.7 }), dx, 1.05, dz); root.add(door); L.dynamic.exitDoor = door;
+        const door = box(0.1, 2.1, o.h * S - 0.1, std('exitdoor', { color: 0x44484f, roughness: 0.7 }), dx, 1.05, dz); door.userData.dynamic = true; root.add(door); L.dynamic.exitDoor = door;
         root.add(box(0.03, 0.06, 0.06, gold, dx + 0.06, 1.0, dz + 0.5)); root.add(box(0.2, 0.06, 0.4, basic('exitlamp', { color: 0x7fd0ff, toneMapped: false }), dx + 0.2, 2.35, dz));
         hitSize = [1.4, 2.2, 2.2]; hx = dx; hz = dz;
         break;
@@ -438,7 +440,7 @@ export function buildLevel(scene, state) {
         const k1 = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), gold); k1.position.set(x0 + 0.15, 1.02, z); g.add(k1); const k2 = k1.clone(); k2.position.x = x1 - 0.15; g.add(k2);
         const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(x0 + 0.15, 0.95, z), new THREE.Vector3((x0 + x1) / 2, 0.7, z), new THREE.Vector3(x1 - 0.15, 0.95, z));
         g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.03, 8, false), velvet));
-        g.visible = !state.flags.vipOpen; root.add(g); L.dynamic.vipRope = g;
+        g.visible = !state.flags.vipOpen; g.userData.dynamic = true; root.add(g); L.dynamic.vipRope = g;
         const c = { x0: x0, z0: z - 0.2, x1: x1, z1: z + 0.2, vip: true }; L.colliders.push(c); L.dynamic.vipCollider = c;
         hitSize = state.flags.vipOpen ? null : [2.2, 1.6, 1.2];
         break;
@@ -461,8 +463,11 @@ export function buildLevel(scene, state) {
   root.add(plane(6.4, 1.6, neonMat, 1520 * S, 3.45, 320 * S - 0.12, Math.PI));
   root.add(box(6.8, 1.9, 0.12, std('marqueeBox', { color: 0x15161c }), 1520 * S, 3.45, 320 * S - 0.03));
   root.add(box(6.8, 0.06, 0.06, gold, 1520 * S, 4.42, 320 * S - 0.1)); root.add(box(6.8, 0.06, 0.06, gold, 1520 * S, 2.48, 320 * S - 0.1));
-  const bulbs = []; for (let i = 0; i < 22; i++) { for (const y of [2.6, 4.3]) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffe082, toneMapped: false })); b.position.set(1520 * S - 3.2 + i * 0.305, y, 320 * S - 0.14); root.add(b); bulbs.push(b); } }
-  L.updaters.push((t) => { const on = Math.floor(t * 6); bulbs.forEach((b, i) => { b.material.color.setHex((on + i) % 4 === 0 ? 0x4d3d1f : 0xffe082); }); neonMat.opacity = 0.85 + 0.15 * Math.sin(t * 6); });
+  const bulbs = new THREE.InstancedMesh(new THREE.SphereGeometry(0.05, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), 44);
+  { const d = new THREE.Object3D(); let j = 0; for (let i = 0; i < 22; i++) for (const y of [2.6, 4.3]) { d.position.set(1520 * S - 3.2 + i * 0.305, y, 320 * S - 0.14); d.updateMatrix(); bulbs.setMatrixAt(j, d.matrix); bulbs.setColorAt(j, new THREE.Color(0xffe082)); j++; } }
+  bulbs.userData.dynamic = true; root.add(bulbs);
+  const bulbOn = new THREE.Color(0xffe082), bulbOff = new THREE.Color(0x4d3d1f); let bulbPhase = -1;
+  L.updaters.push((t) => { const on = Math.floor(t * 6); if (on !== bulbPhase) { bulbPhase = on; for (let i = 0; i < 44; i++) bulbs.setColorAt(i, (on + i) % 4 === 0 ? bulbOff : bulbOn); bulbs.instanceColor.needsUpdate = true; } neonMat.opacity = 0.85 + 0.15 * Math.sin(t * 6); });
   root.add(box(3.2, 0.08, 1.4, velvet, 1520 * S, 2.35, 320 * S - 0.8)); root.add(box(3.2, 0.12, 0.08, gold, 1520 * S, 2.3, 320 * S - 1.5));
   for (let k = 0; k < 4; k++) root.add(cyl(0.02, 0.02, 0.5, gold, 1520 * S - 1.5 + k, 2.6, 320 * S - 1.45, 6));
   root.add(box(1.6, 0.02, 4.6, velvet, 1520 * S, 0.01, 350 * S));
@@ -496,10 +501,10 @@ export function buildLevel(scene, state) {
   root.add(box(1.0, 1.25, 1.0, std('safe', { color: 0x37474f, metalness: 0.7, roughness: 0.4 }), 2360 * S, 0.625, 1865 * S)); const dial = cyl(0.12, 0.12, 0.05, gold, 2360 * S - 0.52, 0.7, 1865 * S, 12); dial.rotation.z = Math.PI / 2; root.add(dial);
   L.colliders.push({ x0: 2360 * S - 0.5, z0: 1865 * S - 0.5, x1: 2360 * S + 0.5, z1: 1865 * S + 0.5 }); narrHit('safe', 'Le coffre', 2360 * S, 0.6, 1865 * S, 1.2, 1.3, 1.2);
   root.add(box(1.0, 2.0, 0.05, std('stall', { color: 0xb0bec5 }), 1310 * S, 1.0, 1050 * S)); root.add(box(0.05, 2.0, 0.8, std('stall', { color: 0xb0bec5 }), 1290 * S, 1.0, 1066 * S)); root.add(box(0.3, 0.4, 0.2, chrome, 1184 * S + 0.12, 1.3, 1000 * S));
-  const ticker = tickerTexture(); L.updaters.push((t) => { if (Math.floor(t * 30) % 2 === 0) ticker.update(t); });
+  const ticker = tickerTexture(); L.updaters.push(Object.assign((t) => ticker.update(t), { room: 'machines' }));
   root.add(box(8.2, 0.7, 0.14, black, 680 * S, 2.35, 344 * S + 0.07)); root.add(plane(8, 0.6, new THREE.MeshBasicMaterial({ map: ticker.texture, toneMapped: false }), 680 * S, 2.35, 344 * S + 0.15)); narrHit('ticker', 'Le jackpot progressif', 680 * S, 2.35, 344 * S + 0.5, 8, 0.8, 1.0);
   root.add(box(1.2, 1.4, 0.6, chrome, 1120 * S, 0.7, 1300 * S)); root.add(plane(1.0, 0.3, new THREE.MeshBasicMaterial({ map: textTexture('MONNAIE', { w: 512, h: 128, font: 'bold 60px Inter, sans-serif', color: '#ffe8b0', bg: '#1b1b22' }), toneMapped: false }), 1120 * S, 1.6, 1300 * S + 0.31)); L.colliders.push({ x0: 1120 * S - 0.6, z0: 1300 * S - 0.3, x1: 1120 * S + 0.6, z1: 1300 * S + 0.3 });
-  const tv = tvTexture(); L.updaters.push((t) => { if (Math.floor(t * 30) % 3 === 0) tv.update(t); });
+  const tv = tvTexture(); L.updaters.push(Object.assign((t) => tv.update(t), { room: 'bar' }));
   root.add(box(0.06, 1.0, 1.7, black, 1840 * S - 0.06, 2.1, 900 * S)); root.add(plane(1.6, 0.9, new THREE.MeshBasicMaterial({ map: tv.texture, toneMapped: false }), 1840 * S - 0.1, 2.1, 900 * S, -Math.PI / 2)); narrHit('tv', 'La télé du bar', 1840 * S - 0.4, 2.1, 900 * S, 0.8, 1.1, 1.8);
   const piano = new THREE.Group(); piano.position.set(1400 * S, 0, 800 * S); piano.add(box(1.5, 0.5, 0.7, std('piano', { color: 0x0d0d10, metalness: 0.4, roughness: 0.15, envMapIntensity: 0.8 }), 0, 0.85, 0)); piano.add(box(1.4, 0.03, 0.2, white, 0, 1.11, 0.3)); for (let k = 0; k < 20; k++) if (k % 7 !== 2 && k % 7 !== 6) piano.add(box(0.03, 0.03, 0.12, black, -0.66 + k * 0.07, 1.14, 0.26)); [[-0.65, -0.3], [0.65, -0.3], [-0.65, 0.3], [0.65, 0.3]].forEach(([x, z]) => piano.add(box(0.08, 0.6, 0.08, black, x, 0.3, z))); piano.add(cyl(0.2, 0.2, 0.06, leather, 0, 0.55, 0.75, 14)); piano.add(cyl(0.03, 0.03, 0.5, chrome, 0, 0.27, 0.75, 8)); root.add(piano); blob(1400 * S, 800 * S, 2.2, 1.6); narrHit('piano', 'Le piano', 1400 * S, 0.8, 800 * S, 1.8, 1.4, 1.6);
   L.colliders.push({ x0: 1400 * S - 0.8, z0: 800 * S - 0.4, x1: 1400 * S + 0.8, z1: 800 * S + 0.95 });
