@@ -414,5 +414,8 @@ body[data-mode="3d"] .hud-money, body[data-mode="3d"] .hud-right button, body[da
 .bj-rules a { color:var(--gold-2); }
 .bj-rules li { margin:8px 0; }
 .bj .insure { flex-wrap:wrap; }
+.bj-bet-controls { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.bj-bet-controls label { display:flex; align-items:center; gap:7px; font-size:13px; color:rgba(245,241,232,.78); }
+.bj-bet-controls input { width:112px; padding:8px 9px; border:1px solid rgba(255,255,255,.24); border-radius:8px; background:#0d0f15; color:var(--paper); font:700 14px var(--sans); font-variant-numeric:tabular-nums; }
 .bj button:disabled { opacity:.45; cursor:not-allowed; }
-@media(max-width:550px) { .bj-table {padding:16px 8px;border-width:4px;border-radius:40px 40px 20px 20px;} .bj .card {width:45px;height:65px;font-size:17px;} .bj .cards {min-height:65px;gap:5px;} .bj-hands {grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;} .bj-hand {padding:8px 2px;} .bj-actions .btn {flex:1 1 30%;} }
+@media(max-width:550px) { .bj-table {padding:16px 8px;border-width:4px;border-radius:40px 40px 20px 20px;} .bj .card {width:45px;height:65px;font-size:17px;} .bj .cards {min-height:65px;gap:5px;} .bj-hands {grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;} .bj-hand {padding:8px 2px;} .bj-actions .btn {flex:1 1 30%;} .bj-bet-controls {align-items:flex-start;} .bj-bet-controls .muted {flex-basis:100%;} }

@@ -8,6 +8,9 @@ async (page) => {
  const table=async(ranks,chips=1000)=>{await close();await p.evaluate(({ranks,chips})=>{const g=window.__game,remaining=Array.from({length:312},(_,i)=>i),drawn=[];for(const r of ranks){const i=remaining.findIndex(c=>c%13+1===r);drawn.push(remaining.splice(i,1)[0]);}g.state.chips=chips;g.state.blackjack={version:1,shoe:[...remaining,...drawn.reverse()],shoeNumber:1,round:null};g.games.openBlackjack();},{ranks,chips});};
  try {
   await p.goto('http://localhost:8787/classic.html');await p.getByRole('button',{name:'Explorer en solo ↗'}).click();await cards();
+  await table([10,10,7,9],300000);await p.locator('#g-bet-custom').fill('100000');await p.locator('#g-bet-apply').click();
+  check(await p.locator('#g-bet-custom').inputValue()==='100000','custom 100,000 stake not retained');await p.locator('#g-deal').click();
+  check(await p.evaluate(()=>window.__game.state.blackjack.round.baseBet)===100000,'100,000 stake refused');check(await p.evaluate(()=>window.__game.state.chips)===200000,'100,000 stake debited incorrectly');passed.push('Mise libre de 100 000 jetons');
   await table([8,6,8,10,3,10,2,10,5]);await p.locator('#g-deal').click();await p.locator('#g-split').click();await p.locator('#g-double').click();
   const before=await p.evaluate(()=>JSON.stringify({bj:window.__game.state.blackjack,chips:window.__game.state.chips}));
   await close();await p.evaluate(()=>window.__game.games.openBlackjack());check(await p.locator('.bj-hand').count()===2,'split hands not restored');
