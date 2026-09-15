@@ -1,7 +1,7 @@
 # Rien ne va plus — le casino, de l'intérieur
 
 Une simulation 3D à la première personne (Three.js, sans build) pour comprendre,
-mécanique par mécanique, pourquoi la maison gagne toujours. Toutes les
+mécanique par mécanique, comment fonctionne l’avantage de la maison. Toutes les
 probabilités sont réelles ; l'argent, lui, est faux. Une version 2D vue de
 dessus reste disponible sur `classic.html` (tactile, petites machines).
 
@@ -114,7 +114,7 @@ le jeu descend d'un cran tout seul s'il ne tient pas 60 i/s.
   sportif, les mises côte à côte (craps), la sortie — et le retour, la deuxième
   soirée.
 - **Les jeux** : 101 machines à sous (cinq familles avec leurs vraies tables de
-  paiement), roulette européenne, blackjack (assurance, doubler, croupier à 17),
+  paiement), roulette européenne, blackjack (sabot de six paquets, partage, double, assurance, abandon, croupier à 17),
   baccara punto banco, Big Six, craps (quatre mises, quatre prix), une table de
   poker à regarder (le rake), le casino en ligne du téléphone et une appli de
   paris sportifs branchée sur le match de la télé du bar (`js/match.js`).
@@ -196,3 +196,28 @@ Les résultats et la portée des vérifications sont détaillés dans `VALIDATIO
 - `playwright-cli run-code --filename tools/browser-cloud.cjs` : deux navigateurs
   sur l’interface locale utilisant le vrai backend Supabase.
 - `npx deno check supabase/functions/casino/index.ts` : vérification du runtime.
+
+## Blackjack et hasard
+
+La table propose une variante américaine précise : six paquets mélangés (312 cartes),
+carte fermée vérifiée avant les décisions, croupier restant sur 17 souple,
+blackjack payé 3:2, égalité remboursée. Double sur les deux premières cartes,
+même après partage ; partage des cartes de même valeur jusqu’à quatre mains.
+Les As partagés reçoivent une seule carte, sans repartage. Un 21 après partage
+est une main ordinaire. Assurance 2:1 et paiement égal avec un blackjack contre
+un As ; abandon tardif de la main initiale avec remboursement de la demi-mise.
+Les choix de variante sont affichés dans la table ; les casinos peuvent en proposer d’autres.
+Référence : [Massachusetts Gaming Commission, règles de blackjack](https://massgaming.com/wp-content/uploads/RULES-Blackjack-4-9-26.pdf).
+
+Le sabot utilise un mélange Fisher–Yates et crypto.getRandomValues, sans remise.
+Une carte est brûlée au début ; mélange après environ 75 % du sabot, entre les manches.
+Aucun solde, dette ou résultat passé n’influence les tirages. La probabilité d’un
+blackjack naturel dans un sabot neuf est 2 × 24 × 96 / (312 × 311), soit 4,749 %.
+Le taux de mains gagnantes dépend des règles et décisions : aucun quota de pertes
+n’est programmé. Les coefficients du profil « théo » sont des estimations pédagogiques,
+séparées du calcul des résultats. Les machines ont leurs propres tables de gains.
+
+La main, les mises et le sabot sont sauvegardés après chaque décision, y compris
+si l’on ferme la table ou recharge la page. Le découvert fictif est sans plafond
+au distributeur et sur les deux applications du téléphone. Les frais de retrait
+et les limites de mise propres à chaque table restent affichés.

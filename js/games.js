@@ -1,5 +1,7 @@
 // Mini-games with real odds: slot machines, roulette, baccarat, the phone casino,
 // plus the cashier, ATM, VIP profile and back-office panels.
+import { Blackjack, cardRank, handValue, natural } from './blackjack.js';
+import { randomInt, randomUnit } from './random.js';
 import { ui } from './ui.js';
 import { audio } from './audio.js';
 import { fmt, fmtSigned, fmtChips } from './content.js';
@@ -11,7 +13,8 @@ const REDS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32,
 const SYMS = [
   { g: '🍒', k: 'cerise' }, { g: '🍋', k: 'citron' }, { g: '🔔', k: 'cloche' }, { g: '⭐', k: 'etoile' }, { g: '7', k: 'sept', seven: true }, { g: '💎', k: 'diamant' }
 ];
-const EDGE = { slot: 0.10, mega: 0.13, roulette: 0.027, baccarat: 0.012, phone: 0.08, blackjack: 0.02, wheel: 0.16, insurance: 0.074, bets: 0.08, pass: 0.0141, field: 0.0556, any7: 0.1667, hard8: 0.0909 };
+// Educational accounting estimates; never used to select cards or outcomes.
+const EDGE = { slot: 0.10, mega: 0.13, roulette: 0.027, baccarat: 0.012, phone: 0.10, blackjack: 0.005, wheel: 0.16, insurance: 0.074, bets: 0.08, pass: 0.0141, field: 0.0556, any7: 0.1667, hard8: 0.0909 };
 // Pay tables: [probability, multiplier] tiers, highest first. Remaining probability = loss.
 export const SLOT_CFG = {
   lucky:   { name: 'Lucky 7',    kicker: 'Machine à sous · 1 ligne · jackpot 100×',            lines: 1,  near: 0.30, table: [[0.001, 100], [0.006, 30], [0.05, 6], [0.16, 2]] },
@@ -44,14 +47,14 @@ export class Games {
     if (this.s.chips < bet && this.s.money < 20) ins.innerHTML = `<p>Plus de jetons.</p><p class="muted">Ton portefeuille est vide. Il y a un distributeur dans le hall${this.s.flags.card ? ', et le salon VIP fait crédit' : ''}.</p>`;
   }
   wager(amount, edgeKey) {
-    const st = this.s.stats; st.wagered += amount; st.theo += amount * EDGE[edgeKey];
+    const st = this.s.stats; st.wagered += amount; st.theo += amount * EDGE[edgeKey]; st.net = st.returned - st.wagered;
     if (this.s.flags.card) this.s.points = (this.s.points || 0) + amount;
   }
   payout(amount) { this.s.stats.returned += amount; this.s.stats.net = this.s.stats.returned - this.s.stats.wagered; }
 
   // ---------------------------------------------------------------- SLOTS
   singleOutcome(nearMissP, table = SLOT_CFG.lucky.table) {
-    const r = Math.random();
+    const r = randomUnit();
     let acc = 0, tier = -1, mult = 0;
     for (let i = 0; i < table.length; i++) { acc += table[i][0]; if (r < acc) { tier = i; mult = table[i][1]; break; } }
     let reels;
@@ -112,10 +115,10 @@ export class Games {
 
       let payout = 0, near = false, ldw = false, reelsOut = [];
       if (mega) {
-        const r = Math.random();
+        const r = randomUnit();
         let mult = 0, acc = 0;
         for (const [p, m] of cfg.table) { acc += p; if (r < acc) { mult = m; break; } }
-        if (!mult && r < acc + cfg.ldw) { mult = [0.2, 0.3, 0.4, 0.5, 0.6, 0.8][Math.floor(Math.random() * 6)]; ldw = true; }
+        if (!mult && r < acc + cfg.ldw) { mult = [0.2, 0.3, 0.4, 0.5, 0.6, 0.8][randomInt(6)]; ldw = true; }
         payout = Math.round(mult * bet * 100) / 100;
         await this.animateGrid(root, mult > 0);
       } else {
@@ -201,11 +204,7 @@ export class Games {
   openRoulette() {
     const s = this.s;
     if (!s.roulette) {
-      const hist = [];
-      for (let i = 0; i < 9; i++) hist.push(WHEEL_ORDER[1 + Math.floor(Math.random() * 36)]);
-      // bait: last four are black
-      const blacks = WHEEL_ORDER.filter(n => n !== 0 && !REDS.has(n));
-      for (let i = 0; i < 4; i++) hist.push(blacks[Math.floor(Math.random() * blacks.length)]);
+      const hist = []; // Only actual spins populate the history.
       s.roulette = { hist, wheelA: 0 };
     }
     const R = s.roulette;
@@ -252,7 +251,7 @@ export class Games {
     const renderHist = () => {
       histEl.innerHTML = R.hist.slice(-16).map(n => `<span class="h ${colorOf(n)}">${n}</span>`).join('');
       const st = streak();
-      trend.innerHTML = st.n >= 3 ? `<b>${st.c.toUpperCase()} × ${st.n}</b> — série en cours` : `Chauds : ${R.hist.slice(-6).slice(0, 3).join(', ')} · Froids : ${[7, 22, 31].join(', ')}`;
+      trend.innerHTML = st.n >= 3 ? `<b>${st.c.toUpperCase()} × ${st.n}</b> — série en cours` : (R.hist.length ? `Derniers tirages : ${R.hist.slice(-6).join(', ')} · chaque tour reste indépendant` : 'Aucun tirage : l’historique se remplit avec tes tours.');
       trend.classList.toggle('hot', st.n >= 3);
     };
     renderHist();
@@ -292,7 +291,7 @@ export class Games {
       s.chips -= bet; this.wager(bet, 'roulette'); this.refreshCredits(root); s.stats.rounds++; session.rounds++;
       this.api.addTime(2);
       res.textContent = 'Rien ne va plus.';
-      const k = Math.floor(Math.random() * 37); const n = WHEEL_ORDER[k];
+      const k = randomInt(37); const n = WHEEL_ORDER[k];
       const pocketA = (k + 0.5) / 37 * TAU - Math.PI / 2;
       const T = fast ? 1100 : 3200, t0 = performance.now(), w0 = R.wheelA, omega = 1.4;
       const wEnd = w0 + omega * (T / 1000); const ballEnd = wEnd + pocketA; const b0 = ballA;
@@ -359,7 +358,7 @@ export class Games {
     const res = root.querySelector('#g-res'), deal = root.querySelector('#g-deal'), ref = root.querySelector('#g-refaire'), refAmt = root.querySelector('#g-ref-amt');
     const pc = root.querySelector('#g-pc'), bc = root.querySelector('#g-bc'), pt = root.querySelector('#g-pt'), bt = root.querySelector('#g-bt');
     const SUITS = ['♠', '♥', '♦', '♣'];
-    const draw = () => { const v = 1 + Math.floor(Math.random() * 13); const su = SUITS[Math.floor(Math.random() * 4)]; return { v, su, val: v >= 10 ? 0 : v, label: v === 1 ? 'A' : v === 11 ? 'J' : v === 12 ? 'Q' : v === 13 ? 'K' : String(v) }; };
+    const draw = () => { const v = 1 + randomInt(13); const su = SUITS[randomInt(4)]; return { v, su, val: v >= 10 ? 0 : v, label: v === 1 ? 'A' : v === 11 ? 'J' : v === 12 ? 'Q' : v === 13 ? 'K' : String(v) }; };
     const total = (h) => h.reduce((a, c) => a + c.val, 0) % 10;
     const cardHTML = (c) => `<div class="card ${c.su === '♥' || c.su === '♦' ? 'red' : ''}"><span>${c.label}</span><small>${c.su}</small></div>`;
     const showRefaire = () => {
@@ -415,87 +414,95 @@ export class Games {
   // ---------------------------------------------------------------- BLACKJACK
   openBlackjack() {
     const s = this.s;
-    const session = { hands: 0, net: 0, insurance: 0 };
-    let amount = 25, bet = 0, busy = false, inPlay = false;
-    let P = [], D = [];
+    let amount = 25;
+    const engine = new Blackjack(s, {
+      onWager: (v,kind) => this.wager(v,kind),
+      onPayout: v => this.payout(v),
+      onRound: round => {
+        const summary = engine.data.summary;
+        summary.hands++; summary.net = Math.round((summary.net + round.net)*100)/100;
+        if(round.insuranceBet)summary.insurance++;
+        s.stats.rounds++;
+        if(round.net>0){s.stats.trueWins++;s.stats.celebrations++;audio.fanfare(round.hands.some(h=>h.outcome.startsWith('Blackjack')));}
+        else if(round.net<0)audio.lose();
+        if(!s.revealed.has('competence')&&summary.hands>=10)queueMicrotask(()=>this.api.reveal('competence',{net:summary.net,insurance:summary.insurance}));
+      },
+      onChange: () => { render(); this.api.save?.(); }
+    });
+    engine.data.summary ||= {hands:0,net:0,insurance:0};
     const root = ui.panel.open(`
       <div class="bj">
         <div class="bj-table">
           <div class="hand"><div class="label">Croupier</div><div class="cards" id="g-dc"></div><div class="tot" id="g-dt"></div></div>
-          <div class="bj-rule">Le croupier reste à 17 · Blackjack paie 3 pour 2 · Assurance 2 pour 1</div>
-          <div class="hand"><div class="label">Toi</div><div class="cards" id="g-pc"></div><div class="tot" id="g-pt"></div></div>
+          <div class="bj-rule">6 paquets · Reste à 17, même souple · Blackjack 3:2</div>
+          <div id="bj-hands" class="bj-hands"></div>
         </div>
-        <div class="bacc-res" id="g-res">Choisis ta mise, puis distribue.</div>
+        <div class="bacc-res" id="g-res" role="status" aria-live="polite">Choisis ta mise, puis distribue.</div>
         <div class="bacc-ctrl">
           ${this.chipsHTML()}
-          <div class="bets">Mise <button class="bet" data-b="10">10</button><button class="bet on" data-b="25">25</button><button class="bet" data-b="50">50</button><button class="bet" data-b="100">100</button><button class="bet" data-b="250">250</button></div>
+          <div class="bets" aria-label="Mise">${[10,25,50,100,250,500].map(v=>`<button class="bet ${v===25?'on':''}" data-b="${v}">${v}</button>`).join('')}</div>
           <div class="bj-actions">
             <button class="btn spin" id="g-deal">Distribuer <kbd>Espace</kbd></button>
-            <button class="btn" id="g-hit" hidden>Tirer</button>
-            <button class="btn" id="g-stand" hidden>Rester</button>
-            <button class="btn" id="g-double" hidden>Doubler</button>
+            <button class="btn" id="g-hit" data-bj="hit">Tirer</button>
+            <button class="btn" id="g-stand" data-bj="stand">Rester</button>
+            <button class="btn" id="g-double" data-bj="double">Doubler</button>
+            <button class="btn" id="g-split" data-bj="split">Partager</button>
+            <button class="btn ghost" id="g-surrender" data-bj="surrender">Abandonner</button>
           </div>
-          <div class="insure" id="g-insure" hidden><span>Le croupier montre un As. Assurance (${'½'} de la mise, payée 2 pour 1) ?</span><button class="btn" id="g-ins-yes">Oui</button><button class="btn ghost" id="g-ins-no">Non</button></div>
+          <div class="insure" id="g-insure" hidden><span>Le croupier montre un As. Assurance : demi-mise, gain 2:1.</span><button class="btn" id="g-ins-yes">Prendre l’assurance</button><button class="btn ghost" id="g-ins-no">Sans assurance</button><button class="btn" id="g-even-money" hidden>Paiement égal garanti (1:1)</button></div>
+          <p class="muted" id="bj-action-hint"></p>
+          <p class="muted" id="bj-shoe"></p>
           ${this.insertHTML()}
         </div>
-      </div>`, { title: 'Blackjack', kicker: 'Six paquets · le seul jeu que l\'on peut battre — en théorie', cls: 'bacc-panel' });
-    this.bindInsert(root);
-    root.querySelectorAll('.bet').forEach(b => b.addEventListener('click', () => { if (inPlay) return; amount = +b.dataset.b; root.querySelectorAll('.bet').forEach(x => x.classList.toggle('on', x === b)); audio.click(); }));
-    const el = (id) => root.querySelector(id);
-    const res = el('#g-res'), dc = el('#g-dc'), pc = el('#g-pc'), dt = el('#g-dt'), pt = el('#g-pt');
-    const bDeal = el('#g-deal'), bHit = el('#g-hit'), bStand = el('#g-stand'), bDouble = el('#g-double'), ins = el('#g-insure');
-    const SUITS = ['♠', '♥', '♦', '♣'];
-    const draw = () => { const v = 1 + Math.floor(Math.random() * 13); const su = SUITS[Math.floor(Math.random() * 4)]; return { v, su, val: v === 1 ? 11 : v >= 10 ? 10 : v, label: v === 1 ? 'A' : v === 11 ? 'J' : v === 12 ? 'Q' : v === 13 ? 'K' : String(v) }; };
-    const total = (h) => { let t = h.reduce((a, c) => a + c.val, 0); let aces = h.filter(c => c.v === 1).length; while (t > 21 && aces > 0) { t -= 10; aces--; } return t; };
-    const soft = (h) => { let t = h.reduce((a, c) => a + c.val, 0); let aces = h.filter(c => c.v === 1).length; while (t > 21 && aces > 0) { t -= 10; aces--; } return aces > 0; };
-    const cardHTML = (c, hidden = false) => hidden ? `<div class="card back"></div>` : `<div class="card ${c.su === '♥' || c.su === '♦' ? 'red' : ''}"><span>${c.label}</span><small>${c.su}</small></div>`;
-    const render = (hideHole) => {
-      dc.innerHTML = D.map((c, i) => cardHTML(c, hideHole && i === 1)).join('');
-      pc.innerHTML = P.map(c => cardHTML(c)).join('');
-      dt.textContent = hideHole ? (D[0] ? D[0].val : '') : total(D);
-      pt.textContent = P.length ? total(P) : '';
+        <details class="bj-rules"><summary>Règles de cette table et probabilités</summary>
+          <ul><li>Blackjack classique américain : six paquets de 52 cartes, mélangés ensemble. Chaque carte est retirée du sabot après son tirage. Nouveau mélange entre deux manches lorsque les trois quarts du sabot ont été utilisés.</li>
+          <li>As : 1 ou 11 ; figures : 10. Le croupier vérifie son blackjack devant un As ou une carte valant 10, avant tes actions. Il tire jusqu’à 16 et reste sur tous les 17, y compris As + 6.</li>
+          <li>Victoire : gain 1:1 ; blackjack initial : gain 3:2 ; égalité : mise rendue. Un 21 obtenu après partage n’est pas un blackjack.</li>
+          <li>Doubler sur les deux premières cartes, y compris après partage : une seule carte supplémentaire. Partager deux cartes de même valeur, jusqu’à quatre mains.</li>
+          <li>As partagés : une carte par As ; pas de nouveau partage, de tirage ou de double. Les autres paires peuvent être repartagées dans la limite de quatre mains.</li>
+          <li>Abandon tardif sur les deux cartes initiales, après vérification du croupier : la moitié de la mise est rendue. Pas d’abandon après partage.</li>
+          <li>Assurance face à un As : mise supplémentaire égale à la moitié de ta mise, payée 2:1 si le croupier a blackjack. Avec ton propre blackjack, tu peux choisir un gain égal à ta mise.</li></ul>
+          <p>Les résultats viennent uniquement des cartes et de tes décisions. Aucun pourcentage de défaites n’est imposé. Au début d’un sabot neuf de six paquets, un blackjack naturel a environ 4,75 % de chances de sortir. L’avantage de la maison dépend des règles et des décisions ; il ne garantit pas une perte sur ta soirée.</p>
+          <p>Mises de table : 10 à 500 jetons. La main et le sabot sont conservés si tu quittes cette table.</p>
+          <a href="https://massgaming.com/wp-content/uploads/RULES-Blackjack-4-9-26.pdf" target="_blank" rel="noopener noreferrer">Référence : règles de blackjack de la Massachusetts Gaming Commission</a>
+        </details>
+      </div>`, {title:'Blackjack',kicker:'Sabot de six paquets · cartes sans remise · mises fictives',cls:'bacc-panel',onClose:()=>this.api.save?.()});
+    const el = id => root.querySelector(id);
+    const cardHTML = (card,hidden=false) => {
+      if(hidden)return '<div class="card back" aria-label="Carte cachée"></div>';
+      const rank=cardRank(card),suit=['♠','♥','♦','♣'][Math.floor(card%52/13)],label=({1:'A',11:'J',12:'Q',13:'K'})[rank]||rank;
+      return `<div class="card ${['♥','♦'].includes(suit)?'red':''}"><span>${label}</span><small>${suit}</small></div>`;
     };
-    const setActions = (play) => { inPlay = play; bDeal.hidden = play; bHit.hidden = !play; bStand.hidden = !play; bDouble.hidden = !(play && P.length === 2 && s.chips >= bet); };
-    const finish = (payout, text, cls) => {
-      if (payout > 0) { s.chips += payout; this.payout(payout); }
-      if (payout > bet) { s.stats.trueWins++; s.stats.celebrations++; audio.fanfare(payout >= bet * 2.4); } else if (payout === 0) audio.lose();
-      session.net += payout - bet; session.hands++; s.stats.rounds++;
-      res.innerHTML = `<span class="${cls}">${text}</span> · <span class="muted">Table : ${fmtSignedPlain(session.net)}</span>`;
-      this.refreshCredits(root); this.checkInsert(root, amount); setActions(false); busy = false;
-      if (!s.revealed.has('competence') && session.hands >= 10) this.api.reveal('competence', { net: session.net, insurance: session.insurance });
+    const render = () => {
+      const r=engine.round,playing=r?.phase==='player',insuring=r?.phase==='insurance',settled=r?.phase==='settled';
+      el('#g-dc').innerHTML=r?r.dealer.map((c,i)=>cardHTML(c,!settled&&i===1)).join(''):'';
+      el('#g-dt').textContent=r?(settled?handValue(r.dealer).total:handValue([r.dealer[0]]).total):'';
+      el('#bj-hands').innerHTML=r?r.hands.map((h,i)=>{
+        const value=handValue(h.cards);
+        return `<section class="hand bj-hand ${playing&&i===r.activeHand?'active':''}" aria-label="Main ${i+1}"><div class="label">${r.hands.length>1?'Main '+(i+1):'Toi'} · mise ${h.bet}${playing&&i===r.activeHand?' · à toi':''}</div><div class="cards" ${i===0?'id="g-pc"':''}>${h.cards.map(c=>cardHTML(c)).join('')}</div><div class="tot" ${i===0?'id="g-pt"':''}>${value.total}${value.soft?' · souple':''}</div><small>${settled?`${h.outcome} · ${fmtSignedPlain(h.payout-h.bet)}`:h.status==='bust'?'Dépassé':h.status==='surrendered'?'Abandon':h.status==='stood'?'Main terminée':''}</small></section>`;
+      }).join(''):'<div class="hand"><div class="label">Toi</div><div class="cards" id="g-pc"></div></div>';
+      const available=engine.actions();
+      root.querySelectorAll('[data-bj]').forEach(b=>{b.hidden=!playing;b.disabled=!available[b.dataset.bj];});
+      el('#g-deal').hidden=engine.active;el('#g-insure').hidden=!insuring;
+      el('#g-ins-yes').disabled=!insuring||s.chips<(r?.baseBet||0)/2;
+      el('#g-even-money').hidden=!(insuring&&natural(r.hands[0].cards));
+      root.querySelectorAll('.bet').forEach(b=>b.disabled=engine.active);
+      el('#bj-action-hint').textContent=playing?'La main en surbrillance attend ton choix. Les options grisées ne sont pas disponibles.':engine.active?'Choisis une option d’assurance.':'Tu peux quitter et retrouver le même sabot plus tard.';
+      el('#bj-shoe').textContent=engine.data.shoeNumber?`Sabot n° ${engine.data.shoeNumber} · ${engine.data.shoe.length} cartes restantes · table : ${fmtSignedPlain(engine.data.summary.net)}`:'Sabot neuf de 312 cartes au prochain départ.';
+      if(settled)el('#g-res').textContent=`Manche terminée : ${fmtSignedPlain(r.net)}${r.insuranceBet?` · Assurance : ${fmtSignedPlain(r.insurancePayout-r.insuranceBet)}`:''}`;
+      else if(insuring)el('#g-res').textContent='As chez le croupier : assurance proposée avant vérification.';
+      else if(playing)el('#g-res').textContent=`À toi de jouer${r.hands.length>1?' — main '+(r.activeHand+1)+' / '+r.hands.length:''}.`;
+      this.refreshCredits(root);if(!engine.active)this.checkInsert(root,amount);else el('#g-insert').hidden=true;
     };
-    const dealerPlay = async () => {
-      render(false); await wait(500);
-      while (total(D) < 17) { D.push(draw()); audio.card(); render(false); await wait(500); }
-      const p = total(P), d = total(D);
-      if (d > 21) finish(bet * 2, `Le croupier saute (${d}). Gagné +${bet}`, 'ok');
-      else if (p > d) finish(bet * 2, `${p} contre ${d}. Gagné +${bet}`, 'ok');
-      else if (p < d) finish(0, `${p} contre ${d}. Perdu −${bet}`, 'ko');
-      else finish(bet, `Égalité à ${p}. Mise rendue`, '');
-    };
-    const deal = async () => {
-      if (busy || inPlay) return;
-      if (s.chips < amount) { this.checkInsert(root, amount); return; }
-      busy = true; bet = amount; s.chips -= bet; this.wager(bet, 'blackjack'); this.refreshCredits(root); this.api.addTime(1.5);
-      P = []; D = []; res.textContent = '…';
-      P.push(draw()); D.push(draw()); P.push(draw()); D.push(draw());
-      render(true); audio.card(); await wait(400);
-      const pBJ = total(P) === 21, dBJ = total(D) === 21;
-      if (D[0].v === 1 && s.chips >= bet / 2) {
-        ins.hidden = false;
-        const choice = await new Promise(r => { el('#g-ins-yes').onclick = () => r(true); el('#g-ins-no').onclick = () => r(false); });
-        ins.hidden = true;
-        if (choice) { const ib = bet / 2; s.chips -= ib; this.wager(ib, 'insurance'); session.insurance++; this.refreshCredits(root); if (dBJ) { s.chips += ib * 3; this.payout(ib * 3); res.textContent = 'Assurance payée 2 pour 1.'; } else { res.textContent = 'Pas de blackjack. Assurance perdue.'; } }
-      }
-      if (dBJ) { render(false); await wait(300); if (pBJ) finish(bet, 'Deux blackjacks. Mise rendue', ''); else finish(0, `Blackjack du croupier. Perdu −${bet}`, 'ko'); return; }
-      if (pBJ) { render(false); finish(bet * 2.5, `Blackjack ! Gagné +${bet * 1.5}`, 'ok'); return; }
-      busy = false; setActions(true);
-    };
-    bHit.addEventListener('click', async () => { if (busy || !inPlay) return; busy = true; P.push(draw()); audio.card(); render(true); bDouble.hidden = true; this.api.addTime(0.5); if (total(P) > 21) { await wait(300); render(false); finish(0, `Tu sautes à ${total(P)}. Perdu −${bet}`, 'ko'); return; } busy = false; });
-    bStand.addEventListener('click', async () => { if (busy || !inPlay) return; busy = true; await dealerPlay(); });
-    bDouble.addEventListener('click', async () => { if (busy || !inPlay || s.chips < bet) return; busy = true; s.chips -= bet; this.wager(bet, 'blackjack'); bet *= 2; this.refreshCredits(root); P.push(draw()); audio.card(); render(true); await wait(400); if (total(P) > 21) { render(false); finish(0, `Doublé, et tu sautes à ${total(P)}. Perdu −${bet}`, 'ko'); return; } await dealerPlay(); });
-    bDeal.addEventListener('click', deal);
-    root._spin = () => { if (inPlay) return; deal(); };
+    const perform = fn => {try {fn();audio.card();}catch(e){el('#g-res').textContent=e.message;}};
+    this.bindInsert(root,render);
+    root.querySelectorAll('.bet').forEach(b=>b.addEventListener('click',()=>{if(engine.active)return;amount=+b.dataset.b;root.querySelectorAll('.bet').forEach(x=>x.classList.toggle('on',x===b));render();}));
+    root.querySelectorAll('[data-bj]').forEach(b=>b.addEventListener('click',()=>perform(()=>{engine.act(b.dataset.bj);this.api.addTime(.5);})));
+    el('#g-ins-yes').onclick=()=>perform(()=>engine.insurance(true));
+    el('#g-ins-no').onclick=()=>perform(()=>engine.insurance(false));
+    el('#g-even-money').onclick=()=>perform(()=>engine.evenMoney());
+    const deal=()=>perform(()=>{if(engine.active)return;if(s.chips<amount){this.checkInsert(root,amount);return;}engine.start(amount);this.api.addTime(1.5);});
+    el('#g-deal').onclick=deal;root._spin=deal;render();
   }
 
   // ---------------------------------------------------------------- BIG SIX WHEEL
@@ -539,7 +546,7 @@ export class Games {
       if (s.chips < amount) { this.checkInsert(root, amount); return; }
       spinning = true; turn.disabled = true;
       s.chips -= amount; this.wager(amount, 'wheel'); this.refreshCredits(root); session.spins++; session.wagered += amount; s.stats.rounds++; this.api.addTime(1);
-      const k = Math.floor(Math.random() * SEG.length);
+      const k = randomInt(SEG.length);
       const target = -((k + 0.5) / SEG.length) * TAU; // segment k under the pointer at top
       const a0 = angle; const D = TAU * 4 + (((target - a0) % TAU) + TAU) % TAU;
       const T = 3600, t0 = performance.now(); let lastSeg = -1;
@@ -601,8 +608,7 @@ export class Games {
       screen.querySelectorAll('[data-d]').forEach(b => b.addEventListener('click', () => {
         const v = +b.dataset.d;
         if (s.money >= v) s.money -= v;
-        else if (s.bank - v >= -300) { s.bank -= v; ui.toast('Paiement par carte accepté (découvert).'); }
-        else { ui.toast('Carte refusée. Plafond de découvert atteint.'); return; }
+        else { s.bank = Math.round((s.bank - v)*100)/100; ui.toast('Paiement par carte accepté (découvert fictif).'); }
         P.balance += v * 3; P.bonus += v * 2; P.toWager += v * 2 * 40; P.deposited += v; audio.coin();
         msg.textContent = `+${v * 3} € crédités instantanément !`; msg.className = 'slot-msg win';
         refresh();
@@ -721,7 +727,7 @@ export class Games {
     screen.querySelectorAll('.bn-stake .bet').forEach(b => b.addEventListener('click', () => { stake = +b.dataset.b; screen.querySelectorAll('.bn-stake .bet').forEach(x => x.classList.toggle('on', x === b)); audio.click(); }));
     screen.querySelectorAll('[data-d]').forEach(b => b.addEventListener('click', () => {
       const v = +b.dataset.d;
-      if (s.money >= v) s.money -= v; else if (s.bank - v >= -300) { s.bank -= v; ui.toast('Paiement par carte accepté (découvert).'); } else { ui.toast('Carte refusée. Plafond de découvert atteint.'); return; }
+      if (s.money >= v) s.money -= v; else { s.bank = Math.round((s.bank - v)*100)/100; ui.toast('Paiement par carte accepté (découvert fictif).'); }
       B.balance += v; B.deposited += v; audio.coin(); msg.textContent = `+${v} € crédités. Le retrait prendra 3 à 5 jours.`; msg.className = 'slot-msg win'; render(); this.api.hud();
     }));
     el('#bn-place').addEventListener('click', place);
@@ -773,7 +779,7 @@ export class Games {
       busy = true; session.rolls++; s.stats.rounds++; this.api.addTime(1);
       const d1 = el('#d1'), d2 = el('#d2');
       for (let i = 0; i < 9; i++) { d1.textContent = FACES[Math.floor(Math.random() * 6)]; d2.textContent = FACES[Math.floor(Math.random() * 6)]; audio.spinTick(i); await wait(70); }
-      const a = 1 + Math.floor(Math.random() * 6), b = 1 + Math.floor(Math.random() * 6), sum = a + b;
+      const a = 1 + randomInt(6), b = 1 + randomInt(6), sum = a + b;
       d1.textContent = FACES[a - 1]; d2.textContent = FACES[b - 1]; audio.reelStop();
       const lines = [];
       let won = 0, lost = 0;
@@ -894,17 +900,16 @@ export class Games {
     const s = this.s;
     const root = ui.panel.open(`
       <div class="caisse atm">
-        <div class="atm-screen"><div class="atm-line">BANQUE — RETRAIT</div><div class="atm-line small">Frais d'opération hors réseau : 4,90 €</div><div class="atm-line" id="atm-bal">Découvert utilisé : ${fmt(Math.max(0, -s.bank))} / 300 €</div></div>
+        <div class="atm-screen"><div class="atm-line">BANQUE — RETRAIT</div><div class="atm-line small">Frais d'opération hors réseau : 4,90 €</div><div class="atm-line" id="atm-bal">Découvert utilisé : ${fmt(Math.max(0, -s.bank))} — simulation sans plafond</div></div>
         <div class="actions"><button class="btn" data-w="50">50 €</button><button class="btn" data-w="100">100 €</button><button class="btn" data-w="200">200 €</button></div>
-        <p class="muted" id="atm-msg">Chaque retrait passe sur ton découvert autorisé.</p>
+        <p class="muted" id="atm-msg">Découvert sans plafond dans cette simulation. Les montants restent fictifs.</p>
       </div>`, { title: 'Distributeur', kicker: 'Le hall · toujours à côté des jeux, jamais loin', cls: 'small-panel' });
     const msg = root.querySelector('#atm-msg');
     root.querySelectorAll('[data-w]').forEach(b => b.addEventListener('click', () => {
       const v = +b.dataset.w;
-      if (s.bank - v - 4.9 < -300) { msg.textContent = 'Plafond de découvert atteint. Opération refusée.'; audio.lose(); return; }
-      s.bank -= v + 4.9; s.money += v; audio.coin();
+      s.bank = Math.round((s.bank - v - 4.9)*100)/100; s.money += v; audio.coin();
       msg.textContent = `${fmt(v)} retirés (+ 4,90 € de frais).`;
-      root.querySelector('#atm-bal').textContent = `Découvert utilisé : ${fmt(Math.max(0, -s.bank))} / 300 €`;
+      root.querySelector('#atm-bal').textContent = `Découvert utilisé : ${fmt(Math.max(0, -s.bank))} — simulation sans plafond`;
       this.api.hud();
     }));
   }
@@ -916,11 +921,12 @@ export class Games {
     const comps = st.drinks * 8 + (s.flags.suite ? 180 : 0) + (s.flags.card ? 5 : 0);
     const root = ui.panel.open(`
       <div class="theo">
+        <p class="muted">Estimation pédagogique : les coefficients moyens ne pilotent jamais les tirages. Au blackjack, le repère de 0,5 % suppose une stratégie de base ; le résultat réel dépend du sabot et de tes décisions.</p>
         <div class="theo-head"><div class="tier">MEMBRE ${theo > 60 ? 'PLATINE' : theo > 20 ? 'OR' : 'ARGENT'}</div><div class="muted">Profil joueur · mis à jour en temps réel</div></div>
         <div class="row">
           <div class="tn"><b>${fmt(st.wagered)}</b><span>misés ce soir</span></div>
           <div class="tn"><b>${st.spins + st.rounds}</b><span>tours et coups</span></div>
-          <div class="tn"><b>${(st.wagered ? (theo / st.wagered * 100) : 0).toFixed(1).replace('.', ',')} %</b><span>avantage moyen sur tes jeux</span></div>
+          <div class="tn"><b>${(st.wagered ? (theo / st.wagered * 100) : 0).toFixed(1).replace('.', ',')} %</b><span>avantage indicatif sur tes jeux</span></div>
           <div class="tn hi"><b>${fmt(theo)}</b><span>perte théorique (« théo »)</span></div>
           <div class="tn"><b>${fmt(comps)}</b><span>valeur des attentions offertes</span></div>
           <div class="tn"><b>${theo > 0 ? Math.round(comps / theo * 100) : 0} %</b><span>du théo reversé en cadeaux</span></div>

@@ -401,3 +401,18 @@ body[data-mode="3d"] .hud-money, body[data-mode="3d"] .hud-right button, body[da
 .q-recap { list-style: none; padding: 0; margin: 0 0 12px; font-size: 13px; } .q-recap li { padding: 8px 10px; border-left: 3px solid #ff8a80; margin-bottom: 6px; background: rgba(255,255,255,0.03); } .q-recap li.ok { border-left-color: #9ccc65; } .q-recap small { color: rgba(245,241,232,0.55); }
 .q-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .epi-prev { text-align: center; color: rgba(245,241,232,0.8); font-size: 14px; margin: -6px 0 14px; } .epi-prev b { color: var(--gold-2); }
+
+/* Blackjack: independently playable split hands and the exact posted rules. */
+.bj-hands { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+.bj-hand { border:2px solid transparent; border-radius:12px; padding:10px 6px; min-width:0; }
+.bj-hand.active { border-color:var(--gold-2); background:rgba(255,217,138,.08); }
+.bj .cards { flex-wrap:wrap; }
+.bj .card { flex-shrink:0; }
+.bj-hand small { display:block; text-align:center; min-height:18px; }
+.bj-rules { margin-top:18px; font-size:13px; line-height:1.6; color:var(--paper); }
+.bj-rules summary { cursor:pointer; padding:12px; border:1px solid var(--gold); border-radius:10px; }
+.bj-rules a { color:var(--gold-2); }
+.bj-rules li { margin:8px 0; }
+.bj .insure { flex-wrap:wrap; }
+.bj button:disabled { opacity:.45; cursor:not-allowed; }
+@media(max-width:550px) { .bj-table {padding:16px 8px;border-width:4px;border-radius:40px 40px 20px 20px;} .bj .card {width:45px;height:65px;font-size:17px;} .bj .cards {min-height:65px;gap:5px;} .bj-hands {grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;} .bj-hand {padding:8px 2px;} .bj-actions .btn {flex:1 1 30%;} }
