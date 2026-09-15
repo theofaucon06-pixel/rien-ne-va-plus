@@ -302,6 +302,10 @@ export class Renderer {
         ctx.fillStyle = g; ctx.fillRect(o.x, o.y, o.w, o.h); ctx.strokeStyle = '#c6a14f'; ctx.lineWidth = 1; ctx.strokeRect(o.x, o.y, o.w, o.h);
       } else if (o.type === 'plaque') {
         ctx.fillStyle = '#c6a14f'; ctx.fillRect(o.x, o.y + 2, o.w, o.h); ctx.fillStyle = '#3b2412'; ctx.font = '600 7px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('18 AOÛT 1913', o.x + o.w / 2, o.y + 9);
+      } else if (o.type === 'narr' && o.key === 'showbill') {
+        ctx.fillStyle = '#4a0f2a'; ctx.fillRect(o.x, o.y, o.w, o.h + 6); ctx.fillStyle = '#ffd54f'; ctx.font = 'bold 7px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('NUIT DE CHANCE · 23 H', o.x + o.w / 2, o.y + o.h / 2 + 3);
+      } else if (o.type === 'sky') {
+        ctx.save(); ctx.globalAlpha = 0.35; ctx.fillStyle = '#c8d8ff'; ctx.font = '600 8px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('☾ le ciel', o.x + o.w / 2, o.y + o.h / 2); ctx.restore();
       } else if (o.type === 'theo' || o.type === 'board') {
         ctx.fillStyle = '#0b1220'; ctx.fillRect(o.x, o.y, o.w, o.h);
         ctx.fillStyle = '#4fc3f7'; for (let i = 0; i < 8; i++) ctx.fillRect(o.x + 6 + i * 9, o.y + o.h - 4 - (3 + ((i * 7 + Math.floor(t)) % 9)), 5, 3 + ((i * 7 + Math.floor(t)) % 9));
@@ -449,6 +453,28 @@ export class Renderer {
       case 'sink': break;
       case 'dumpster': ctx.fillStyle = '#2e7d32'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#1b5e20'; ctx.fillRect(x, y, w, 8); break;
       case 'vipdoor': break;
+      case 'buffet': {
+        ctx.fillStyle = '#6d4c41'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#e8e2d6'; ctx.fillRect(x, y, w, 6);
+        for (let i = 0; i < 7; i++) { ctx.fillStyle = i % 2 ? '#c98a3c' : '#d8dde3'; ctx.beginPath(); ctx.arc(x + 20 + i * (w - 40) / 6, y + 20, 8, 0, TAU); ctx.fill(); }
+        ctx.fillStyle = 'rgba(255,180,112,0.5)'; for (let i = 0; i < 3; i++) ctx.fillRect(x + w / 6 + i * w / 3 - 6, y - 4, 12, 3);
+        break;
+      }
+      case 'stage': {
+        ctx.fillStyle = '#3b2412'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#7a1f22'; ctx.fillRect(x - 10, y + h - 10, w + 20, 10);
+        for (let i = 0; i <= 12; i++) { ctx.fillStyle = '#5a1518'; ctx.fillRect(x - 10 + i * (w + 20) / 12 - 2, y + h - 10, 4, 10); }
+        ctx.fillStyle = '#c6a14f'; ctx.fillRect(x, y, w, 2);
+        ctx.fillStyle = '#9e9e9e'; ctx.fillRect(x + w / 2 - 1, y + 20, 2, 16); ctx.beginPath(); ctx.arc(x + w / 2, y + 18, 3, 0, TAU); ctx.fill();
+        break;
+      }
+      case 'chairs': { const n = Math.floor(w / 24); for (let i = 0; i < n; i++) { const cx = x + 12 + i * 24; ctx.fillStyle = '#3e2723'; ctx.fillRect(cx - 8, y + 6, 16, 16); ctx.fillStyle = '#5d4037'; ctx.fillRect(cx - 8, y + 4, 16, 5); } break; }
+      case 'sky': break;
+      case 'bench': ctx.fillStyle = '#5d4037'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#8d6e63'; ctx.fillRect(x, y, w, 6); break;
+      case 'ashtray': ctx.fillStyle = '#2c2c36'; ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, w / 2, 0, TAU); ctx.fill(); ctx.fillStyle = '#d8cfbf'; ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, w / 4, 0, TAU); ctx.fill(); break;
+      case 'narr': {
+        if (o.key === 'showbill') { ctx.fillStyle = '#4a0f2a'; ctx.fillRect(x, y, w, h + 6); ctx.fillStyle = '#ffd54f'; ctx.font = 'bold 7px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('NUIT DE CHANCE', x + w / 2, y + h / 2 + 3); }
+        else { ctx.fillStyle = '#3b2412'; ctx.fillRect(x, y, w, h); ctx.fillStyle = 'rgba(159,208,255,0.35)'; ctx.fillRect(x + 3, y + 3, w - 6, h - 6); ctx.fillStyle = '#c6a14f'; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(x + 10 + i * (w - 20) / 3, y + h / 2, 3, 0, TAU); ctx.fill(); } }
+        break;
+      }
       default: ctx.fillStyle = '#444'; ctx.fillRect(x, y, w, h);
     }
   }

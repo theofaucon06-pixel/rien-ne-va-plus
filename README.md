@@ -37,18 +37,31 @@ le jeu descend d'un cran tout seul s'il ne tient pas 60 i/s.
 
 ## Le contenu
 
-- **12 mécaniques** à découvrir en les vivant : l'avantage de la maison, le sophisme
+- **15 mécaniques** à découvrir en les vivant : l'avantage de la maison, le sophisme
   du joueur, la zone, les pertes déguisées en gains, l'illusion de contrôle, la
   poursuite des pertes, l'illusion de compétence (blackjack), le prix de la
-  simplicité (roue), l'architecture, le tapis rouge, le casino en ligne, la sortie.
-- **Les jeux** : 98 machines à sous (cinq familles avec leurs vraies tables de
+  simplicité (roue), l'architecture, le tapis rouge, le casino en ligne, le pari
+  sportif, les mises côte à côte (craps), la sortie — et le retour, la deuxième
+  soirée.
+- **Les jeux** : 101 machines à sous (cinq familles avec leurs vraies tables de
   paiement), roulette européenne, blackjack (assurance, doubler, croupier à 17),
-  baccara punto banco, Big Six, et le casino en ligne du téléphone.
-- **11 témoins** : Charles Wells, Mollie, Katrina Bookman, Dostoïevski, Archie Karas,
+  baccara punto banco, Big Six, craps (quatre mises, quatre prix), une table de
+  poker à regarder (le rake), le casino en ligne du téléphone et une appli de
+  paris sportifs branchée sur le match de la télé du bar (`js/match.js`).
+- **14 témoins** : Charles Wells, Mollie, Katrina Bookman, Dostoïevski, Archie Karas,
   Ken Uston, Terrance Watanabe, Harry Kakavas, un jeune joueur anonyme,
-  l'architecte, Nour.
-- **9 lieux** : le parvis, le hall, la salle des machines, les toilettes, la salle des
-  tables, le bar, les couloirs, le salon VIP, le bureau — et la ruelle pour sortir.
+  l'architecte, Nour, un parieur sportif, Anna Dostoïevskaïa, un croupier en pause.
+  Et Karim, l'ami « en retard », qui était au salon VIP depuis 22 h.
+- **La nuit qui avance** (`js/events.js`) : le jackpot d'un autre, le tirage au
+  sort au micro, la table « chaude », une expulsion, une femme en pleurs au
+  distributeur, le spectacle de 23 h, la salle qui se vide à 2 h puis à 4 h.
+- **13 lieux** : le parvis, le hall, la salle des machines, les toilettes, la salle
+  des tables, le bar, les couloirs, le salon VIP, le bureau, le restaurant, la
+  salle de spectacle, la terrasse fumeurs (la seule fenêtre : le ciel), le
+  prêteur sur gages de l'autre côté de la porte — et la ruelle pour sortir.
+- **Après la nuit** : un quiz de quatorze questions, et « revenir vendredi
+  prochain » — une deuxième soirée avec la dette, la carte et le carnet de la
+  première.
 
 Three.js (r160, build minifié) est embarqué dans `vendor/` ; les textures de
 `assets/tex` ont été générées une fois (`tools/gen-textures.py`), le reste —

@@ -66,7 +66,7 @@ class AudioEngine {
     if (!this.ctx) return;
     this.room = id;
     const t = this.ctx.currentTime;
-    const targets = { street: 0.25, ruelle: 0.2, hall: 0.45, machines: 0.7, tables: 0.5, bar: 0.6, toilettes: 0.25, labyrinth: 0.55, vip: 0.45, bureau: 0.3, corridor: 0.5, hallway: 0.5 };
+    const targets = { street: 0.25, ruelle: 0.2, hall: 0.45, machines: 0.7, tables: 0.5, bar: 0.6, toilettes: 0.25, labyrinth: 0.55, vip: 0.45, bureau: 0.3, corridor: 0.5, hallway: 0.5, restaurant: 0.4, scene: 0.5, fumoir: 0.2, gages: 0.25 };
     this.amb.gain.setTargetAtTime(targets[id] ?? 0.4, t, 0.8);
     this.droneGain.gain.setTargetAtTime(outdoor ? 0.02 : 0.08, t, 0.8);
     this.noiseGain.gain.setTargetAtTime(outdoor ? 0.5 : 0.35, t, 0.8);

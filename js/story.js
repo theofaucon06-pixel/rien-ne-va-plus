@@ -18,6 +18,10 @@ export const ROOM_HINTS = {
   vip: 'On vous attendait.',
   bureau: "Tu n'es pas censé être ici.",
   ruelle: "L'air est froid.",
+  restaurant: 'Buffet à volonté. Offert aux membres.',
+  scene: 'Le spectacle commence à 23 h.',
+  fumoir: 'La seule fenêtre du bâtiment : le ciel.',
+  gages: "Achat d'or · prêt sur gage · ouvert toute la nuit",
   corridor: '', hallway: ''
 };
 
@@ -85,6 +89,7 @@ export function createStory(ctx = {}) {
         if (picked) await ui.dialog.run(picked.lines, opts);
       }
     }
+    if (w.id === 'architecte' && !state.revealed.has('maison')) await reveal('maison', { time: ui.fmtTime(state.timeMin), drank: state.stats.drinks > 0 });
     if (w.id === 'nour' && !state.revealed.has('sortie')) {
       await reveal('sortie', { time: ui.fmtTime(state.timeMin), net: state.stats.net, debt: state.debt + Math.max(0, -state.bank) });
     }
@@ -123,7 +128,7 @@ export function createStory(ctx = {}) {
     if (t.kind === 'slot') return `Jouer — ${t.s.label}`;
     if (t.kind === 'npc') return `Parler — ${t.n.name}`;
     const o = t.o;
-    const verbs = { narr: 'Regarder — ', caisse: 'Changer — ', cage: 'Changer — ', fidelite: '', atm: 'Retirer — ', roulette: 'Jouer — ', baccarat: 'Jouer — ', blackjack: 'Jouer — ', wheel: 'Jouer — ', poker: 'Regarder — ', craps: 'Jouer — ', phone: '', exitdoor: 'Ouvrir — ', staffdoor: 'Entrer — ', theo: 'Lire — ', board: 'Lire — ', poster: 'Lire — ', plaque: 'Lire — ', busstop: '', clock: 'Regarder — ', entrance: '' };
+    const verbs = { buffet: '', stage: '', sky: 'Regarder — ', narr: 'Regarder — ', caisse: 'Changer — ', cage: 'Changer — ', fidelite: '', atm: 'Retirer — ', roulette: 'Jouer — ', baccarat: 'Jouer — ', blackjack: 'Jouer — ', wheel: 'Jouer — ', poker: 'Regarder — ', craps: 'Jouer — ', phone: '', exitdoor: 'Ouvrir — ', staffdoor: 'Entrer — ', theo: 'Lire — ', board: 'Lire — ', poster: 'Lire — ', plaque: 'Lire — ', busstop: '', clock: 'Regarder — ', entrance: '' };
     return (verbs[o.type] ?? '') + o.label;
   }
 
@@ -153,6 +158,8 @@ export function createStory(ctx = {}) {
       }
       case 'caissier': { await say([pick('caissier', STAFF_LINES.caissier)], STAFF.caissier.name, { color: '#bcaaa4' }); games.openCaisse(); break; }
       case 'hotesse': return interactObject({ type: 'fidelite' });
+      case 'maitre': return interactObject({ type: 'buffet' });
+      case 'preteur': return interactObject({ type: 'desk', id: 'gagesdesk' });
       case 'barman': return interactObject({ type: 'barcounter' });
       case 'croupier': case 'croupier2': {
         const open = n.id === 'croupier' ? () => games.openRoulette() : () => games.openBaccarat();
@@ -251,7 +258,45 @@ export function createStory(ctx = {}) {
         ], STAFF.barman.name, { color: '#bcaaa4' });
         break;
       }
-      case 'phone': { if (!state.flags.phoneSeen) { state.flags.phoneSeen = true; audio.vibrate(); } games.openPhone(); break; }
+      case 'phone': { if (state.flags.phoneSold) { await narr(['Tu l\'as vendu. Quatre-vingts euros. Il est dans une vitrine, de l\'autre côté de la rue.']); break; } if (!state.flags.phoneSeen) { state.flags.phoneSeen = true; audio.vibrate(); } games.openPhone(); break; }
+      case 'buffet': {
+        if (state.flags.ate) { await say(['Encore faim ? Servez-vous. C\'est toujours offert.'], "Le maître d'hôtel", { color: '#b0bec5' }); break; }
+        await say([
+          state.flags.card ? 'Bonsoir. Le buffet est offert aux membres. Prenez votre temps, la salle des tables ne ferme pas.' : 'Bonsoir. Le buffet est réservé aux membres… mais ce soir, allez-y. On vous fera une carte au passage.',
+          { text: 'Vous mangez ?', choices: [
+            { label: 'Manger (45 minutes)', run: async () => { state.flags.ate = true; state.stats.drinks++; addTime(45); ui.flash('rgba(0,0,0,0.85)'); await narr(['Quarante-cinq minutes. Le repas était bon. L\'addition n\'est jamais venue.', 'Un repas offert vaut vingt euros pour le casino. Il t\'a gardé dans le bâtiment. La sortie du restaurant donne sur la salle des tables.']); if (!state.revealed.has('maison')) await reveal('maison', { time: ui.fmtTime(state.timeMin), drank: state.stats.drinks > 0 }); } },
+            { label: 'Non merci', run: () => {} }
+          ] }
+        ], "Le maître d'hôtel", { color: '#b0bec5' });
+        break;
+      }
+      case 'stage': {
+        if (state.timeMin < 23 * 60) { await narr(['La scène est vide. Le spectacle commence à 23 h — « juste après », dit l\'affiche, quelle que soit l\'heure.', 'En attendant, la salle des tables est à deux portes.']); break; }
+        if (state.flags.showSeen) { await narr(['La chanteuse reprend la même chanson. Les paroles parlent de chance.']); break; }
+        await ui.dialog.run([{ text: 'Le spectacle a commencé. Tu t\'assieds ?', choices: [
+          { label: 'S\'asseoir (une heure)', run: async () => { state.flags.showSeen = true; addTime(60); ui.flash('rgba(0,0,0,0.85)'); await narr(['Une heure de chansons sur la chance, le destin et les nuits qui ne finissent pas. Le bar de la salle a servi deux verres.', 'À la sortie, la salle des tables est sur le chemin. C\'est le chemin.']); } },
+          { label: 'Rester debout, repartir', run: () => {} }
+        ] }], { speaker: '', initial: '·', color: '#c6a14f' });
+        break;
+      }
+      case 'sky': {
+        const t = state.timeMin;
+        if (t < 24 * 60 + 4 * 60 + 40) await narr(['Noir. Pas une étoile : les néons de la rue les effacent.', 'C\'est la seule fenêtre du bâtiment, et elle donne sur le ciel. Regarde-la de temps en temps.']);
+        else if (t < 24 * 60 + 6 * 60 + 20) await narr(['Le ciel grisonne à l\'est. Il est bientôt cinq heures — ou six.', 'La seule horloge du casino est dehors. Personne ne la regarde.']);
+        else await narr(['Le jour. Il fait jour.', 'Tu es entré hier.']);
+        if (!state.revealed.has('maison')) await reveal('maison', { time: ui.fmtTime(state.timeMin), drank: state.stats.drinks > 0 });
+        break;
+      }
+      case 'desk': {
+        if (o.id !== 'gagesdesk') break;
+        const P = { speaker: 'Le prêteur', color: '#bcaaa4', initial: 'P' };
+        const items = [];
+        if (!state.flags.soldWatch) items.push({ label: 'Vendre ta montre — 150 €', run: async () => { state.flags.soldWatch = true; state.money += 150; audio.coin(); ui.updateHUD(state); await ui.dialog.run(['Cent cinquante. Elle en vaut trois cents, mais il est tard.', 'Vous pourrez la racheter. Deux cents. Dans le mois.'], P); await narr(['Ta montre est dans la vitrine. Tu ne sauras plus l\'heure, mais ça, tu ne la savais déjà plus.']); } });
+        if (!state.flags.phoneSold) items.push({ label: 'Vendre ton téléphone — 80 €', run: async () => { state.flags.phoneSold = true; state.money += 80; audio.coin(); ui.updateHUD(state); await ui.dialog.run(['Quatre-vingts. Il y a une appli de casino dessus ? Tout le monde en a une, ici.'], P); await narr(['Sans téléphone, plus de casino dans la poche. Le vrai est à vingt mètres.']); } });
+        items.push({ label: 'Rien, juste regarder', run: async () => { await narr(['Des montres, des alliances, une console, une guitare. Chaque objet a été déposé par quelqu\'un qui allait « se refaire ».', 'Dostoïevski a mis en gage l\'alliance de sa femme. La boutique d\'en face existait déjà.']); } });
+        await ui.dialog.run([state.flags.soldWatch || state.flags.phoneSold ? 'Re-bonsoir. Il vous reste quelque chose ?' : 'Bonsoir. Ouvert toute la nuit, comme en face. Or, montres, téléphones, tout ce qui se revend.', { text: 'Alors ?', choices: items }], P);
+        break;
+      }
       case 'staffdoor': await narr(['« Personnel ». La porte n\'est pas fermée à clé.']); break;
       case 'exitdoor': {
         if (state.flags.exited) break;

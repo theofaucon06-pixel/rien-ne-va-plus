@@ -1,10 +1,11 @@
 // World geometry: rooms, walls, objects, NPCs, lights. Units are world pixels.
 
-export const WORLD = { w: 3024, h: 1952 };
+export const WORLD = { w: 3824, h: 1952 };
+export const BUILDING = { x0: 200, x1: 3800 }; // the façade runs from x0 to x1
 const T = 24; // wall thickness
 
 export const ROOMS = [
-  { id: 'street',    x: 0,    y: 0,    w: 3024, h: 320,  floor: 'asphalt', dark: 0.55, label: 'Le parvis',            outdoor: true },
+  { id: 'street',    x: 0,    y: 0,    w: 3824, h: 320,  floor: 'asphalt', dark: 0.55, label: 'Le parvis',            outdoor: true },
   { id: 'ruelle',    x: 0,    y: 320,  w: 176,  h: 1608, floor: 'concrete', dark: 0.62, label: 'La ruelle',            outdoor: true },
   { id: 'hall',      x: 1360, y: 344,  w: 480,  h: 400,  floor: 'marble',  dark: 0.30, label: 'Le hall' },
   { id: 'corridor',  x: 1160, y: 496,  w: 200,  h: 88,   floor: 'marble',  dark: 0.45, label: '' },
@@ -16,6 +17,11 @@ export const ROOMS = [
   { id: 'labyrinth', x: 200,  y: 1368, w: 1800, h: 560,  floor: 'carpet2', dark: 0.74, label: 'Les couloirs' },
   { id: 'vip',       x: 2024, y: 1368, w: 976,  h: 232,  floor: 'carpetred', dark: 0.42, label: 'Le salon VIP' },
   { id: 'bureau',    x: 2024, y: 1624, w: 376,  h: 304,  floor: 'wood',    dark: 0.50, label: 'Le bureau' },
+  // east wing: restaurant, show room, smokers' terrace (open sky) and, on the street, the pawnbroker
+  { id: 'restaurant', x: 3024, y: 344, w: 560, h: 540, floor: 'wood',      dark: 0.45, label: 'Le restaurant' },
+  { id: 'scene',      x: 3024, y: 908, w: 560, h: 436, floor: 'carpetred', dark: 0.70, label: 'La salle de spectacle' },
+  { id: 'fumoir',     x: 3608, y: 544, w: 192, h: 240, floor: 'concrete',  dark: 0.50, label: 'La terrasse fumeurs', outdoor: true },
+  { id: 'gages',      x: 3608, y: 344, w: 192, h: 176, floor: 'tile',      dark: 0.35, label: 'Le prêteur sur gages' },
 ];
 
 // Solid walls
@@ -27,9 +33,19 @@ export const WALLS = [
   { x: -T, y: 1928, w: WORLD.w + 2 * T, h: T },
   // façade (entrance gap 1480..1560)
   { x: 200, y: 320, w: 1280, h: T, id: 'facadeL' },
-  { x: 1560, y: 320, w: 1440, h: T, id: 'facadeR' },
-  // building east wall
-  { x: 3000, y: 320, w: T, h: 1632 },
+  { x: 1560, y: 320, w: 2120, h: T, id: 'facadeR' },
+  { x: 3740, y: 320, w: 60, h: T, id: 'facadeE' },
+  // tables / restaurant wall (door 600..680), then the east wall of the VIP and the office
+  { x: 3000, y: 320, w: T, h: 280 },
+  { x: 3000, y: 680, w: T, h: 1272 },
+  // east wing
+  { x: 3024, y: 884, w: 236, h: T }, { x: 3340, y: 884, w: 244, h: T },     // restaurant / show room (door 3260..3340)
+  { x: 3584, y: 344, w: T, h: 276 }, { x: 3584, y: 700, w: T, h: 184 },     // restaurant / terrace (door 620..700)
+  { x: 3584, y: 884, w: T, h: 460 },                                        // show room east wall
+  { x: 3024, y: 1344, w: 584, h: T },                                       // show room south wall
+  { x: 3608, y: 520, w: 192, h: T },                                        // pawnbroker / terrace
+  { x: 3608, y: 784, w: 216, h: T },                                        // terrace south wall
+  { x: 3800, y: 320, w: T, h: 488 },                                        // east end of the building
   // ruelle / building wall (exit gap 1850..1910)
   { x: 176, y: 320, w: T, h: 1530 },
   { x: 176, y: 1910, w: T, h: 18 },
@@ -162,6 +178,27 @@ export const OBJECTS = [
   // bureau
   { id: 'desk', x: 2160, y: 1740, w: 120, h: 56, solid: true, type: 'desk' },
   { id: 'board', x: 2120, y: 1626, w: 200, h: 16, solid: false, type: 'board', label: 'Le tableau de bord', r: 70 },
+  // restaurant
+  { id: 'buffet', x: 3070, y: 380, w: 300, h: 44, solid: true, type: 'buffet', label: 'Le buffet — « offert aux membres »', r: 64 },
+  { id: 'rtable1', x: 3090, y: 560, w: 56, h: 56, solid: true, type: 'roundtable' },
+  { id: 'rtable2', x: 3270, y: 560, w: 56, h: 56, solid: true, type: 'roundtable' },
+  { id: 'rtable3', x: 3450, y: 560, w: 56, h: 56, solid: true, type: 'roundtable' },
+  { id: 'rtable4', x: 3090, y: 730, w: 56, h: 56, solid: true, type: 'roundtable' },
+  { id: 'rtable5', x: 3450, y: 730, w: 56, h: 56, solid: true, type: 'roundtable' },
+  { id: 'signrest', x: 2930, y: 610, w: 60, h: 14, solid: false, type: 'sign', text: 'RESTAURANT →' },
+  // show room
+  { id: 'stage', x: 3084, y: 1190, w: 440, h: 130, solid: true, type: 'stage', label: 'La scène', r: 80 },
+  { id: 'chairs1', x: 3084, y: 960, w: 440, h: 28, solid: true, type: 'chairs' },
+  { id: 'chairs2', x: 3084, y: 1040, w: 440, h: 28, solid: true, type: 'chairs' },
+  { id: 'chairs3', x: 3084, y: 1120, w: 440, h: 28, solid: true, type: 'chairs' },
+  { id: 'showbill', x: 3040, y: 912, w: 60, h: 14, solid: false, type: 'narr', key: 'showbill', label: "L'affiche du spectacle", r: 60 },
+  // terrace
+  { id: 'ciel', x: 3680, y: 600, w: 60, h: 20, solid: false, type: 'sky', label: 'Le ciel', r: 90 },
+  { id: 'bench2', x: 3620, y: 700, w: 100, h: 30, solid: true, type: 'bench' },
+  { id: 'ashtray', x: 3750, y: 660, w: 24, h: 24, solid: true, type: 'ashtray' },
+  // pawnbroker
+  { id: 'gagesdesk', x: 3640, y: 400, w: 130, h: 36, solid: true, type: 'desk', label: "Le comptoir — « achat d'or · prêt sur gage »", r: 64 },
+  { id: 'vitrine', x: 3624, y: 470, w: 60, h: 40, solid: true, type: 'narr', key: 'vitrine', label: 'La vitrine', r: 60 },
   // ruelle
   { id: 'poster', x: 150, y: 1180, w: 24, h: 40, solid: false, type: 'poster', label: 'Une affiche', r: 60 },
   { id: 'dumpster', x: 40, y: 1700, w: 70, h: 40, solid: true, type: 'dumpster' },
@@ -242,13 +279,24 @@ export const NPCS = [
   { id: 'gagnante', name: 'La gagnante', kind: 'patron', x: 914, y: 712, color: '#e0b04a', r: 60, facing: 'up', hidden: true, pool: 'jackpot', say: ["Douze mille ! Douze mille ! Vous avez vu ? Ça fait deux ans que je viens tous les soirs. Deux ans ! — Deux ans à cinquante euros par soir, ça fait trente-six mille."] },
   { id: 'hotesse2', name: 'Une hôtesse', kind: 'staff', x: 914, y: 772, color: '#AD1457', r: 56, facing: 'up', hidden: true, say: ["Souriez pour la photo, madame ! Elle sera affichée dans le hall dès demain. — La photo restera dans le hall. Le chèque repartira dans les machines : c'est ce que font neuf jackpots sur dix."] },
   { id: 'expulse', name: '', kind: 'walker', x: 2300, y: 700, color: '#8d6e63', r: 0, hidden: true, once: true, path: [[2300, 700], [1900, 540], [1600, 540], [1520, 400], [1520, 200]], speed: 70 },
-  { id: 'pleure', name: '', kind: 'person', x: 1722, y: 762, color: '#7986cb', r: 56, facing: 'up', hidden: true, say: ["…Non, ça va. Ça va. Il me refuse. Le distributeur me refuse, et il faut que je récupère au moins le loyer. — Le loyer est dans la caisse depuis 22 h. Il n'y a pas de bouton pour le récupérer.", "Laissez-moi. — Elle retourne devant l'écran. Le distributeur affiche encore « opération refusée »."] },
+  { id: 'pleure', name: '', kind: 'person', x: 1722, y: 672, color: '#7986cb', r: 56, facing: 'down', hidden: true, say: ["…Non, ça va. Ça va. Il me refuse. Le distributeur me refuse, et il faut que je récupère au moins le loyer. — Le loyer est dans la caisse depuis 22 h. Il n'y a pas de bouton pour le récupérer.", "Laissez-moi. — Elle retourne devant l'écran. Le distributeur affiche encore « opération refusée »."] },
   { id: 'q15', name: '', kind: 'patron', x: 2460, y: 640, color: '#4e5a7a', r: 44, facing: 'up', standing: true, hidden: true, pool: 'hot' },
   { id: 'q16', name: '', kind: 'patron', x: 2330, y: 560, color: '#7a5a4e', r: 44, facing: 'right', standing: true, hidden: true, pool: 'hot' },
   { id: 'q17', name: '', kind: 'patron', x: 2640, y: 560, color: '#5a4e7a', r: 44, facing: 'left', standing: true, hidden: true, pool: 'hot' },
   { id: 'menage', name: 'La femme de ménage', kind: 'walker', x: 705, y: 440, color: '#546e7a', r: 50, hidden: true, path: [[705, 440], [705, 1300]], bounce: true, speed: 16, say: ["L'heure ? Je n'ai pas le droit de vous la dire. C'est dans le règlement, sérieusement. — Le règlement est écrit pour que tu restes.", "Je passe à 2 h et à 5 h. Les mêmes personnes sont assises aux mêmes machines. Elles ne me voient pas. — Tu ne l'avais pas vue non plus."] },
   { id: 'karim', name: 'Karim', kind: 'person', x: 2720, y: 1470, color: '#ff8a65', r: 66, facing: 'down', hidden: true },
   { id: 'karim2', name: 'Karim', kind: 'person', x: 380, y: 230, color: '#ff8a65', r: 66, facing: 'left', hidden: true, say: ["… — Il ne dit rien. Il regarde ses chaussures. Le bus arrive dans dix minutes."] },
+  // east wing
+  { id: 'maitre', name: "Le maître d'hôtel", kind: 'staff', x: 3220, y: 448, color: '#37474f', r: 60, facing: 'down', behind: true },
+  { id: 'r1', name: '', kind: 'patron', x: 3118, y: 636, color: '#6d5c7a', r: 44, facing: 'up', pool: 'restaurant' },
+  { id: 'r2', name: '', kind: 'patron', x: 3478, y: 636, color: '#4e6b5a', r: 44, facing: 'up', pool: 'restaurant' },
+  { id: 'r3', name: '', kind: 'patron', x: 3298, y: 520, color: '#7a6a4e', r: 44, facing: 'down', pool: 'restaurant' },
+  { id: 'chanteuse', name: 'La chanteuse', kind: 'person', x: 3304, y: 1230, color: '#c2185b', r: 0, facing: 'up', hidden: true },
+  { id: 'spec1', name: '', kind: 'patron', x: 3160, y: 1080, color: '#5a5a7a', r: 44, facing: 'down', hidden: true, pool: 'scene' },
+  { id: 'spec2', name: '', kind: 'patron', x: 3300, y: 1080, color: '#7a4e5c', r: 44, facing: 'down', hidden: true, pool: 'scene' },
+  { id: 'spec3', name: '', kind: 'patron', x: 3440, y: 1160, color: '#4e5a6b', r: 44, facing: 'down', hidden: true, pool: 'scene' },
+  { id: 'fumeur', name: '', kind: 'person', x: 3760, y: 620, color: '#455a64', r: 56, facing: 'left', say: ["On sort fumer, on voit le ciel, on se dit « déjà ? ». Et on retourne. — C'est la seule fenêtre du bâtiment. Elle donne sur la seule chose qu'ils ne peuvent pas éteindre.", "Ma femme croit que je finis à minuit. Il est quelle heure, à ton avis ? — Regarde le ciel. Lui ne ment pas."] },
+  { id: 'preteur', name: 'Le prêteur', kind: 'staff', x: 3705, y: 462, color: '#5d4037', r: 0, facing: 'up', behind: true },
   // new witnesses (js/content.js)
   { id: 'parieur', name: 'Un parieur', kind: 'person', x: 1768, y: 926, witness: 'parieur', color: '#42a5f5', r: 64, facing: 'up' },
   { id: 'anna', name: 'Anna Dostoïevskaïa', kind: 'ghost', x: 1448, y: 926, witness: 'anna', r: 70, facing: 'up' },
@@ -284,6 +332,13 @@ LIGHTS.push({ x: 190, y: 1880, r: 120, color: '#7fd0ff', a: 0.7, glow: 0.08 });
 [[2200, 1420], [2600, 1400], [2880, 1420]].forEach(([x, y]) => LIGHTS.push({ x, y, r: 300, color: '#ffcf9a', a: 0.95, glow: 0.10 }));
 // bureau
 LIGHTS.push({ x: 2220, y: 1720, r: 240, color: '#e8f4ff', a: 0.95, glow: 0.05 });
+// east wing
+[[3160, 520], [3440, 520], [3300, 760]].forEach(([x, y]) => LIGHTS.push({ x, y, r: 260, color: '#ffd9a0', a: 0.9, glow: 0.06 }));
+LIGHTS.push({ x: 3220, y: 400, r: 200, color: '#fff1d0', a: 0.8 });
+[[3160, 1200], [3440, 1200]].forEach(([x, y]) => LIGHTS.push({ x, y, r: 260, color: '#ff6b9d', a: 0.9, glow: 0.12 }));
+LIGHTS.push({ x: 3304, y: 1000, r: 220, color: '#7fb0ff', a: 0.4 });
+LIGHTS.push({ x: 3700, y: 660, r: 220, color: '#c8d8ff', a: 0.5, glow: 0.04 });
+LIGHTS.push({ x: 3704, y: 460, r: 200, color: '#dfe9ff', a: 0.45, glow: 0.04 });
 
 export function roomAt(x, y) {
   for (const r of ROOMS) if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return r;

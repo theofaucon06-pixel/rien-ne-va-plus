@@ -76,6 +76,15 @@ export const EVENTS = [
     restore: (s) => { show(s, 'karim'); s.flags.karimArrived = true; }
   },
   {
+    id: 'spectacle',
+    when: (s) => s.timeMin >= H(23, 0),
+    run: async (s, api) => {
+      show(s, 'chanteuse'); show(s, 'spec1'); show(s, 'spec2'); show(s, 'spec3');
+      api.chime(); api.toast('Au micro : « Le spectacle commence, salle de spectacle, derrière le restaurant. » Il commence toujours « maintenant ».', 6500);
+    },
+    restore: (s) => { show(s, 'chanteuse'); show(s, 'spec1'); show(s, 'spec2'); show(s, 'spec3'); }
+  },
+  {
     id: 'deux_heures',
     when: (s) => s.timeMin >= H(26, 0),
     run: async (s, api) => {
@@ -100,7 +109,7 @@ export const EVENTS = [
 
 // hide most of the crowd: every 2nd person at 2 a.m., everyone but a few at 4 a.m.
 function thinCrowd(s, keepEvery) {
-  const keep = new Set(['mollie', 'wells', 'bookman', 'dosto', 'karas', 'uston', 'watanabe', 'kakavas', 'architecte', 'nour', 'sami', 'anna', 'parieur', 'main', 'karim', 'gagnante', 'menage', 'pleure', 'vigile', 'caissier', 'hotesse', 'croupier', 'croupier2', 'barman', 'hote', 'w4', 'w6', 'w1']);
+  const keep = new Set(['chanteuse', 'maitre', 'preteur', 'fumeur', 'mollie', 'wells', 'bookman', 'dosto', 'karas', 'uston', 'watanabe', 'kakavas', 'architecte', 'nour', 'sami', 'anna', 'parieur', 'main', 'karim', 'gagnante', 'menage', 'pleure', 'vigile', 'caissier', 'hotesse', 'croupier', 'croupier2', 'barman', 'hote', 'w4', 'w6', 'w1']);
   let i = 0;
   for (const n of s.npcs) {
     if (keep.has(n.id) || n.kind === 'staff' || n.kind === 'ghost' || n.witness) continue;

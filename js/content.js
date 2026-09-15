@@ -516,6 +516,16 @@ export const PATRON_LINES = {
     "Vous avez l'heure ? — Vous êtes le premier à le demander ce soir.",
     "J'ai fait une pause. Je retourne. — Le vigile hoche la tête."
   ],
+  restaurant: [
+    "C'est offert, tout ça ? — Tout ce que tu manges est déjà compté dans ce que tu vas perdre.",
+    "On mange, et après on retourne jouer, c'est le circuit. — Le circuit est dessiné sur le plan du bâtiment.",
+    "Le maître d'hôtel connaît mon prénom. — Il connaît ta carte."
+  ],
+  scene: [
+    "Elle chante bien, non ? Les paroles parlent de chance. — Toutes les chansons d'ici parlent de chance.",
+    "Le spectacle était censé commencer à 22 h. — Il commence toujours dans une heure.",
+    "Après, on repasse par les tables, c'est sur le chemin. — C'est le seul chemin."
+  ],
   jackpot: [
     "T'as vu ? Douze mille ! À la 37 ! — Tu as vu le chèque. Tu n'as pas vu les deux ans de mises.",
     "Je vais me mettre sur celle d'à côté, elles sont liées. — Elles ne sont liées à rien.",
@@ -562,7 +572,9 @@ export const NARRATIONS = {
   champagne: ["Champagne offert. Ce soir, il coûte exactement ce que tu vas perdre en plus."],
   car: ["Une voiture garée depuis des heures. Le parking est gratuit, tant qu'on joue."],
   taxi: ["Le taxi attend. Les casinos paient parfois la course. À l'aller."],
-  showposter: ["Un spectacle à 22 h. Il n'y a pas de salle de spectacle. Le panneau, lui, existe."],
+  showposter: ["Un spectacle à 23 h. La salle est de l'autre côté du bâtiment : derrière la salle des tables, derrière le restaurant. Le panneau, lui, est ici, dans le couloir des machines."],
+  showbill: ["« Ce soir : Nuit de chance — chansons et cabaret. Entrée libre. Dès 23 h. » Le mot « chance » est écrit plus gros que le reste."],
+  vitrine: ["Des montres, trois alliances, une console de jeu, une guitare, un téléphone. Une étiquette sur chaque objet : un prénom et une date. Les dates sont toutes des vendredis."],
   bench: ["Un banc dans le couloir. Pour se reposer entre deux machines. Jamais pour partir."],
   pillar: ["Une colonne de marbre. Fausse. Le marbre, c'est pour la première minute."]
 };
@@ -712,7 +724,10 @@ export const SOURCES = {
     { id: 'maison', refs: ['Bill Friedman, <i>Designing Casinos to Dominate the Competition</i>, 2000.', 'Natasha Dow Schüll, <i>Addiction by Design</i>, 2012 : jetons, cartes de fidélité, boissons, absence d\'horloges.'] },
     { id: 'tapis', refs: ['Alexandra Berzon, <i>The Wall Street Journal</i>, 2009 (Watanabe) ; <i>Kakavas v Crown Melbourne Ltd</i>, 2013.', 'Schüll, chapitre sur le suivi des joueurs (player tracking) : la carte de fidélité sert d\'abord à mesurer la « valeur théorique » d\'un client.'] },
     { id: 'poche', refs: ['OFDT, <i>Les jeux d\'argent et de hasard en France en 2024</i> (2025) : 3,9 millions de joueurs en ligne (+7,7 %).', 'ANJ, rapports d\'activité 2023 et 2024 : la part du chiffre d\'affaires en ligne provenant de joueurs problématiques, et les casinos en ligne illégaux.'] },
-    { id: 'sortie', refs: ['Interdiction volontaire de jeux : demande auprès du ministère de l\'Intérieur (interdits de jeux), valable trois ans minimum, applicable aux casinos, clubs et sites agréés.', 'Joueurs Info Service — 09 74 75 13 13.'] }
+    { id: 'pari', refs: ['ANJ, <i>Analyse annuelle du marché des jeux d\'argent et de hasard</i>, 2023-2024 : paris sportifs en ligne, part des paris en direct, profil des joueurs.', 'La marge (overround) se lit dans les cotes elles-mêmes : 1/1,55 + 1/4,20 + 1/5,80 = 1,06, soit 6 % de commission avant le coup d\'envoi. Le cash-out est valorisé en dessous de l\'espérance du pari (voir les conditions générales des opérateurs).'] },
+    { id: 'bruit', refs: ['Avantages du craps par mise : ligne de passe 1,41 %, field (2 et 12 payés double) 5,56 %, hard 8 9,09 %, any seven 16,67 % — calculs standard, par ex. Michael Shackleford, <i>The Wizard of Odds</i>, « Craps ».'] },
+    { id: 'sortie', refs: ['Interdiction volontaire de jeux : demande auprès du ministère de l\'Intérieur (interdits de jeux), valable trois ans minimum, applicable aux casinos, clubs et sites agréés.', 'Joueurs Info Service — 09 74 75 13 13.'] },
+    { id: 'retour', refs: ['La « valeur à vie » (customer lifetime value) et la relance des clients par SMS, courrier et hôtes sont décrites dans les manuels de marketing de casino et dans Schüll, <i>Addiction by Design</i> (le suivi des joueurs) ; en France, le démarchage des joueurs interdits est prohibé, celui des autres ne l\'est pas.'] }
   ],
   figures: [
     'Produit brut des jeux en France en 2024, près de 14 milliards d\'euros ; joueurs problématiques, 2,5 % des 18-75 ans, soit environ 1 170 000 personnes : OFDT, <i>Les jeux d\'argent et de hasard en France en 2024</i>, 2025.',

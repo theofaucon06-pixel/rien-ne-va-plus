@@ -355,7 +355,7 @@ export const ui = {
         <div><h3>Les mécaniques</h3><ul class="epi-list">${revs}</ul></div>
         <div><h3>Ce qui est vrai</h3>
           <p>Tout ce que tu as joué ce soir utilisait les vraies probabilités. Si tu es en avance, c'est du hasard, et le hasard ne dure pas : sur mille tours, la soustraction gagne toujours.</p>
-          <p>Les personnes que tu as croisées ont existé. Leurs histoires sont documentées. Aucune ne finit bien au casino.</p>
+          <p>Les personnes que tu as croisées ont existé, ou sont construites à partir de témoignages réels — l'onglet Sources du carnet dit lesquelles. Aucune de ces histoires ne finit bien au casino.</p>
           <h3>Si tu t'es reconnu</h3>
           <p class="epi-help"><b>Joueurs Info Service — 09 74 75 13 13</b><br>tous les jours de 8 h à 2 h, anonyme, non surtaxé.<br>joueurs-info-service.fr · interdiction volontaire de jeux sur anj.fr</p>
         </div>

@@ -246,6 +246,35 @@ async function run3D(cdp, sid, errors, report) {
       g.interactTarget({ kind: 'npc', n }); await S.wait(200); await S.closeAll();
     }
     return out.length + ' personnages: ' + out.join(',');`);
+  await step('les événements de la nuit', `
+    const S = window.__smoke, g = window.__game; const E = await import('/js/events.js');
+    g.state.flags.vipInvited = true; g.state.stats.spins = 10;
+    const fired = [];
+    for (const room of [[700, 760], [2400, 800], [1600, 500]]) {
+      await S.go(room[0], room[1], room[0], room[1] - 100);
+      for (let i = 0; i < 40 && fired.length < E.EVENTS.length; i++) { g.state.timeMin = 29 * 60; g.state.eventCool = 0; await S.frames(2); for (const e of E.EVENTS) if (g.state.events.has(e.id) && !fired.includes(e.id)) fired.push(e.id); }
+    }
+    await S.wait(400); await S.closeAll();
+    const missing = E.EVENTS.map(e => e.id).filter(id => !g.state.events.has(id));
+    if (missing.length) throw new Error('événements non déclenchés : ' + missing.join(','));
+    // talk to the people the events brought in
+    const out = [];
+    for (const id of ['gagnante', 'hotesse2', 'pleure', 'menage', 'karim', 'fumeur', 'maitre', 'preteur']) {
+      const n = g.state.npcs.find(x => x.id === id); if (!n || n.hidden) continue;
+      await S.go(n.x, n.y + 50, n.x, n.y); g.interactTarget({ kind: 'npc', n }); await S.wait(250); const c = await S.closeAll(); if (c !== 'closed') throw new Error(id + ': ' + c); out.push(id);
+      g.interactTarget({ kind: 'npc', n }); await S.wait(200); await S.closeAll();
+    }
+    return fired.length + ' événements · parlé à ' + out.join(',');`);
+  await step('aile est : buffet, spectacle, ciel, prêteur', `
+    const S = window.__smoke, g = window.__game; const W = await import('/js/world.js');
+    const out = [];
+    for (const id of ['buffet', 'stage', 'ciel', 'gagesdesk', 'vitrine', 'showbill']) {
+      const o = W.OBJECTS.find(x => x.id === id); await S.go(o.x + o.w / 2, o.y + o.h + 40, o.x + o.w / 2, o.y);
+      g.interactTarget({ kind: 'object', o }); await S.wait(300); await S.frames(2);
+      const c = await S.closeAll(); if (c !== 'closed') throw new Error(id + ': ' + c); out.push(id);
+      g.interactTarget({ kind: 'object', o }); await S.wait(200); await S.closeAll();
+    }
+    return out.join(',') + ' · montre vendue: ' + !!g.state.flags.soldWatch + ' · mangé: ' + !!g.state.flags.ate;`);
   await step('carnet + sources', `
     const S = window.__smoke, g = window.__game;
     g.ui.openCodex('sources'); await S.frames(2);
@@ -260,9 +289,9 @@ async function run3D(cdp, sid, errors, report) {
     const bus = W.OBJECTS.find(o => o.id === 'busstop'); await S.go(330, 200, 307, 126); g.interactTarget({ kind: 'object', o: bus }); await S.wait(500);
     for (let i = 0; i < 40 && g.ui.isOpen() && g.ui.top() !== 'epilogue'; i++) { await S.closeAll(5); await S.wait(100); }
     return { exited: g.state.flags.exited, top: g.ui.top(), money: g.state.money };`);
-  await step('épilogue → recommencer', `
+  await step('épilogue → revenir vendredi prochain', `
     const g = window.__game;
-    const b = document.querySelector('#epi-restart'); if (!b) throw new Error("pas d'épilogue affiché (" + g.ui.top() + ')');
+    const b = document.querySelector('#epi-next'); if (!b) throw new Error("pas d'épilogue affiché (" + g.ui.top() + ')');
     window.__reloading = true; setTimeout(() => b.click(), 50);
     return 'clic';`);
   await waitForLoad(cdp, sid);
@@ -272,6 +301,27 @@ async function run3D(cdp, sid, errors, report) {
     while (!window.__game && performance.now() - t0 < 30000) await new Promise(r => setTimeout(r, 100));
     if (!window.__game) throw new Error('jeu absent après rechargement');
     return { continueButton: !document.querySelector('#btn-continue').hidden };`);
+  await step('deuxième soirée', `
+    const t0 = performance.now();
+    while (!window.__game && performance.now() - t0 < 30000) await new Promise(r => setTimeout(r, 100));
+    ${PAGE_HELPERS}
+    const S = window.__smoke, g = window.__game;
+    const b = document.querySelector('#btn-continue'); if (b.hidden) throw new Error('pas de bouton pour revenir');
+    b.click(); await S.wait(900);
+    for (let i = 0; i < 8 && !g.state.started; i++) { S.key('Enter'); await S.wait(250); }
+    await S.closeAll();
+    if (g.state.night !== 2) throw new Error('night = ' + g.state.night);
+    await S.go(1600, 500, 1600, 400); await S.wait(1500); await S.closeAll();
+    const W = await import('/js/world.js'); const n = g.state.npcs.find(x => x.id === 'vigile'); await S.go(1420, 250, 1420, 280); g.interactTarget({ kind: 'npc', n }); await S.wait(200); await S.closeAll();
+    const ph = W.OBJECTS.find(x => x.id === 'phone'); await S.go(1235, 1000, 1235, 950); g.interactTarget({ kind: 'object', o: ph }); await S.wait(300); const sms = document.querySelector('#ph .ph-home') ? document.querySelector('#ph .ph-home').textContent.includes('suite vous attend') : false; await S.closeAll();
+    return { night: g.state.night, debt: g.state.debt, retour: g.state.revealed.has('retour'), sms };`);
+  await step('quiz', `
+    const S = window.__smoke, g = window.__game;
+    g.ui.quiz(g.state); await S.frames(2);
+    for (let i = 0; i < 20 && document.querySelector('#quiz .q-choices'); i++) { document.querySelector('#quiz .q-choices .choice').click(); await S.wait(60); const n = [...document.querySelectorAll('#quiz > .btn')].pop(); if (n) n.click(); await S.frames(2); }
+    const score = document.querySelector('#quiz .q-score b'); if (!score) throw new Error('pas de score');
+    const txt = score.textContent; await S.closeAll();
+    return txt;`);
 }
 
 async function run2D(cdp, sid, errors, report) {

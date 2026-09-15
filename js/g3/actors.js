@@ -108,7 +108,7 @@ function humanoid(n) {
   return g;
 }
 
-const INTERACTIVE_STAFF = new Set(['vigile', 'caissier', 'hotesse', 'barman', 'hote', 'croupier', 'croupier2']);
+const INTERACTIVE_STAFF = new Set(['vigile', 'caissier', 'hotesse', 'barman', 'hote', 'croupier', 'croupier2', 'maitre', 'preteur']);
 export function buildActors(scene, state, L) {
   const actors = [];
   const hitGeo = new THREE.BoxGeometry(0.9, 2.0, 0.9), hitMat = new THREE.MeshBasicMaterial({ visible: false });

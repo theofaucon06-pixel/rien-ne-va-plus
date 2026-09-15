@@ -6,18 +6,22 @@ import { ROOMS } from '../world.js';
 // Rooms whose contents can be seen from a given room (through open doors and aligned openings).
 // Anything outside a room (sky, ground, façade…) is tagged 'none' and always drawn.
 export const VISIBLE_FROM = {
-  street: ['street', 'ruelle', 'hall', 'corridor'],
+  street: ['street', 'ruelle', 'hall', 'corridor', 'gages'],
   ruelle: ['ruelle', 'street', 'labyrinth'],
   hall: ['hall', 'street', 'corridor', 'machines', 'tables', 'bar'],
   corridor: ['corridor', 'hall', 'machines', 'tables', 'street'],
   machines: ['machines', 'corridor', 'hall', 'labyrinth', 'tables'],
   toilettes: ['toilettes', 'bar'],
-  tables: ['tables', 'hall', 'corridor', 'machines', 'vip', 'street'],
+  tables: ['tables', 'hall', 'corridor', 'machines', 'vip', 'street', 'restaurant'],
   bar: ['bar', 'hall', 'toilettes', 'hallway', 'labyrinth', 'street'],
   hallway: ['hallway', 'bar', 'labyrinth', 'hall', 'street'],
   labyrinth: ['labyrinth', 'machines', 'hallway', 'bar', 'ruelle', 'bureau'],
   vip: ['vip', 'tables'],
   bureau: ['bureau', 'labyrinth'],
+  restaurant: ['restaurant', 'tables', 'scene', 'fumoir'],
+  scene: ['scene', 'restaurant'],
+  fumoir: ['fumoir', 'restaurant'],
+  gages: ['gages', 'street'],
 };
 const ALL = ROOMS.map(r => r.id);
 export function visibleRooms(roomId) { return new Set(roomId && VISIBLE_FROM[roomId] ? VISIBLE_FROM[roomId] : ALL); }
