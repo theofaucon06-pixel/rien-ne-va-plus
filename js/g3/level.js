@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { ROOMS, WALLS, SLOTS, OBJECTS, LIGHTS, WORLD, BUILDING, roomAt } from '../world.js';
 import { matchState, outcomeProbs, price, goalSoonP } from '../match.js';
 import { patternTexture, textTexture, wheelTexture, bigSixTexture, feltTexture, slotScreen, clockTexture, screenTexture, gradientSky, blobTexture, artTexture, posterTexture, tickerTexture, tvTexture, historyBoardTexture, neonTexture, upgradeMaterial, loadAsset } from './textures.js';
+import { loadBlenderCasinoProps } from './blender-assets.js';
 
 export const S = 1 / 40;
 const TAU = Math.PI * 2;
@@ -23,6 +24,7 @@ const YAW = { east: Math.PI / 2, west: -Math.PI / 2, north: Math.PI, south: 0 };
 
 export function buildLevel(scene, state) {
   const L = { colliders: [], hits: [], wallMeshes: [], updaters: [], lightSpots: [], dynamic: {}, rouletteBoards: [] };
+  const blenderBlackjack = [], blenderRoulette = [], blenderSlots = [];
   const root = new THREE.Group(); scene.add(root); L.root = root;
   const wallMat = std('wall', { map: patternTexture('wall', 256), roughness: 0.85 }); upgradeMaterial(wallMat, 'wall');
   const brickMat = std('brick', { map: patternTexture('brick', 256), roughness: 0.95 }); upgradeMaterial(brickMat, 'brick');
@@ -210,7 +212,9 @@ export function buildLevel(scene, state) {
     const hue = new THREE.Color().setHSL(s.hue / 360, 0.85, 0.55); slotHues.push(hue);
     rotG.position.set(cx, 0, cz); rotG.rotation.set(0, yaw, 0); rotG.updateMatrixWorld(true);
     for (const [k, d] of Object.entries(partDefs)) {
-      dummy.position.set(d.pos[0], d.pos[1], d.pos[2]); dummy.rotation.set(d.rot ? d.rot[0] : 0, d.rot ? d.rot[1] : 0, d.rot ? d.rot[2] : 0); dummy.scale.set(...(d.scale || [1, 1, 1])); dummy.updateMatrix();
+      dummy.position.set(d.pos[0], d.pos[1], d.pos[2]); dummy.rotation.set(d.rot ? d.rot[0] : 0, d.rot ? d.rot[1] : 0, d.rot ? d.rot[2] : 0); dummy.scale.set(...(d.scale || [1, 1, 1]));
+      if (s.special) dummy.scale.set(0, 0, 0);
+      dummy.updateMatrix();
       parts[k].setMatrixAt(i, new THREE.Matrix4().multiplyMatrices(rotG.matrixWorld, dummy.matrix)); if (d.tint) parts[k].setColorAt(i, hue);
     }
     const cs = Math.cos(yaw), sn = Math.sin(yaw);
@@ -220,6 +224,7 @@ export function buildLevel(scene, state) {
     L.colliders.push({ x0: cx - half[0], z0: cz - half[1], x1: cx + half[0], z1: cz + half[1] });
     L.colliders.push({ x0: bx2 - 0.25, z0: bz2 - 0.25, x1: bx2 + 0.25, z1: bz2 + 0.25 });
     const hit = box(1.05, 2.3, 0.8, basic('hit', { visible: false }), cx, 1.15, cz); hit.rotation.y = yaw; hit.visible = false; hit.userData = { target: { kind: 'slot', s } }; root.add(hit); L.hits.push(hit);
+    if (s.special) blenderSlots.push({ x: cx, z: cz, yaw });
   });
   for (const im of Object.values(parts)) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
   const tmpC = new THREE.Color();
@@ -229,13 +234,23 @@ export function buildLevel(scene, state) {
   for (const [kind, idx] of Object.entries(byKind)) {
     screens[kind] = slotScreen(kind); L.updaters.push(Object.assign((t) => screens[kind].update(t), { room: 'machines' }));
     const im = new THREE.InstancedMesh(screenGeo, new THREE.MeshBasicMaterial({ map: screens[kind].texture, toneMapped: false }), idx.length); im.frustumCulled = false;
-    idx.forEach((i, j) => { const s = SLOTS[i]; placeInstance(im, j, s, 0, 1.4, 0.29); im.setColorAt(j, new THREE.Color().setHSL(s.hue / 360, 0.85, 0.55).lerp(new THREE.Color(0xffffff), 0.6)); });
+    idx.forEach((i, j) => {
+      const s = SLOTS[i];
+      if (s.special) { dummy.position.set(0, 0, 0); dummy.rotation.set(0, 0, 0); dummy.scale.set(0, 0, 0); dummy.updateMatrix(); im.setMatrixAt(j, dummy.matrix); }
+      else placeInstance(im, j, s, 0, 1.4, 0.29);
+      im.setColorAt(j, new THREE.Color().setHSL(s.hue / 360, 0.85, 0.55).lerp(new THREE.Color(0xffffff), 0.6));
+    });
     im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; root.add(im);
   }
   const marqueeGeo = new THREE.PlaneGeometry(0.9, 0.28);
   for (const [label, idx] of Object.entries(byLabel)) {
     const im = new THREE.InstancedMesh(marqueeGeo, new THREE.MeshBasicMaterial({ map: textTexture(label, { w: 512, h: 150, font: 'bold 78px "Bodoni 72", Georgia, serif', color: '#fff', bg: '#1a1a26', glow: 'rgba(255,255,255,0.8)' }), toneMapped: false }), idx.length); im.frustumCulled = false;
-    idx.forEach((i, j) => { const s = SLOTS[i]; placeInstance(im, j, s, 0, 2.05, 0.135); im.setColorAt(j, new THREE.Color().setHSL(s.hue / 360, 0.9, 0.7)); });
+    idx.forEach((i, j) => {
+      const s = SLOTS[i];
+      if (s.special) { dummy.position.set(0, 0, 0); dummy.rotation.set(0, 0, 0); dummy.scale.set(0, 0, 0); dummy.updateMatrix(); im.setMatrixAt(j, dummy.matrix); }
+      else placeInstance(im, j, s, 0, 2.05, 0.135);
+      im.setColorAt(j, new THREE.Color().setHSL(s.hue / 360, 0.9, 0.7));
+    });
     im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; root.add(im);
   }
 
@@ -308,7 +323,7 @@ export function buildLevel(scene, state) {
         L.colliders.push({ x0: cx - w / 2, z0: cz - d / 2, x1: cx + w / 2, z1: cz + d / 2 }); hitSize = [w + 0.2, 1.9, d + 0.4];
         break;
       }
-      case 'roulette': { const t = roulette(o); hitSize = [t.w + 0.4, 1.6, t.d + 0.4]; break; }
+      case 'roulette': { const t = roulette(o); blenderRoulette.push(t); hitSize = [t.w + 0.4, 1.6, t.d + 0.4]; break; }
       case 'baccarat': case 'blackjack': case 'viptable': case 'poker': {
         const kind = o.type === 'viptable' ? 'vip' : o.type === 'poker' ? 'blackjack' : o.type;
         const t = tableBase(o, kind, { stools: o.type === 'viptable' ? 0 : 5, rack: o.type !== 'viptable' });
@@ -317,7 +332,7 @@ export function buildLevel(scene, state) {
         [[-0.3, -0.2], [-0.15, -0.22], [0.5, 0.1], [0.9, -0.1]].forEach(([x, z], k) => { const c = box(0.12, 0.004, 0.17, cardMat, x, 0.935, z); c.rotation.y = (k * 0.7) % 0.5; t.g.add(c); });
         if (o.type !== 'viptable') t.g.add(box(0.28, 0.1, 0.18, black, t.w / 2 - 0.35, 0.98, -t.d / 2 + 0.25));
         if (o.type === 'poker') { t.g.add(plane(1.2, 0.3, new THREE.MeshBasicMaterial({ map: textTexture('TOURNOI · MINUIT', { w: 512, h: 128, font: 'bold 60px Inter, sans-serif', color: '#ffd98a', bg: '#101018' }), toneMapped: false, side: THREE.DoubleSide }), 0, 1.5, 0)); t.g.add(cyl(0.02, 0.02, 0.6, chrome, 0, 1.2, 0, 8)); }
-        root.add(t.g); hitSize = o.label ? [t.w + 0.4, 1.6, t.d + 0.4] : null;
+        root.add(t.g); if (o.type === 'blackjack') blenderBlackjack.push(t); hitSize = o.label ? [t.w + 0.4, 1.6, t.d + 0.4] : null;
         break;
       }
       case 'craps': {
@@ -592,6 +607,7 @@ export function buildLevel(scene, state) {
   }
   L.lightSpots.forEach(l => { if (Math.abs(l.x - 1600 * S) < 0.5 && Math.abs(l.z - 540 * S) < 0.5) l.y = 3.2; });
 
+  loadBlenderCasinoProps(root, { blackjack: blenderBlackjack, roulette: blenderRoulette, slots: blenderSlots });
   L.root = root;
   return L;
 }

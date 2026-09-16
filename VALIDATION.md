@@ -27,7 +27,8 @@ Le fichier doit être passé comme fonction Playwright, pas lancé avec Node.
 Le mobile est testé en émulation Chrome, pas sur des téléphones physiques.
 Le test 3D inter-appareils utilise la qualité minimale pour le rendu logiciel ;
 il vérifie le rendu et la synchronisation, pas les performances de chaque GPU.
-Le long parcours 3D exhaustif de `smoke.mjs` n’est pas intégralement validé ici.
+Le parcours 3D exhaustif a été rejoué après l’ajout des modèles Blender ; il
+contrôle les interactions et les transitions, pas les performances sur chaque GPU.
 
 ## Supabase et publication
 
@@ -73,3 +74,21 @@ Le Dockerfile n’a pas été construit sur ce poste, où Docker est absent.
 Les sabots fixes des tests servent uniquement à atteindre les cas de règles.
 La production utilise le générateur cryptographique du navigateur. Ces tests
 valident les transitions et paiements, pas une certification de jeu d’argent.
+
+## Modèles Blender — mise à jour
+
+- `tools/generate_blender_models.py` a été exécuté avec Blender 5.2.2 LTS. La
+  scène source est conservée dans `assets/models/casino_props.blend` ; elle
+  exporte une table de blackjack (1,08 Mo), une roulette européenne (717 ko) et
+  une machine à sous haut de gamme (220 ko), soit 2,02 Mo de GLB transmis au
+  navigateur.
+- `tools/browser-blender-assets.cjs` : chargement WebGL réel des trois fichiers
+  à HTTP 200, sans erreur JavaScript. Il vérifie les 3 tables de blackjack, les
+  2 roulettes et les 3 machines spéciales installées dans le niveau, puis prend
+  des captures dans la salle des tables.
+- `npm test` : **24 tests réussis**. `tools/browser-blackjack-3d.cjs` a aussi
+  été relancé sans erreur avec les modèles chargés.
+- `node tools/smoke.mjs --only 3d` : **16/16 étapes propres**, sans erreur
+  console. Le parcours couvre les pièces, 29 objets, les jeux, les machines
+  spéciales, les personnages, les événements, les deux soirées, le quiz et
+  l’épilogue.
