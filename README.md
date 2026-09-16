@@ -141,6 +141,22 @@ jeu toujours pris sur le réseau quand il est joignable). Si un fichier de
 `vendor/` ou `assets/` change de contenu sans changer de nom, incrémenter
 `VERSION` dans `sw.js`.
 
+### Modèles Blender
+
+Les éléments les plus visibles de la salle des tables sont aussi modélisés dans
+Blender : les tables de blackjack, les roulettes européennes et les trois
+machines spéciales. Le fichier source est conservé dans
+`assets/models/casino_props.blend` et les versions optimisées pour le navigateur
+sont les trois fichiers `.glb` voisins. Pour les régénérer avec Blender 5.2 LTS :
+
+```
+/Applications/Blender.app/Contents/MacOS/Blender --background --python tools/generate_blender_models.py
+```
+
+`js/g3/blender-assets.js` les charge après le décor de base. En cas d’échec de
+téléchargement, les éléments procéduraux déjà présents restent affichés et le
+casino demeure jouable.
+
 ## Vérifier avant de déployer
 
 ```
@@ -161,6 +177,7 @@ dans `js/content.js` (`SOURCES`) et affichées dans l'onglet « Sources » du ca
 js/story.js      logique partagée (état, dialogues, révélations, sauvegarde)
 js/games.js      mini-jeux (machines, roulette, blackjack, baccara, roue, téléphone)
 js/g3/           moteur 3D (niveau, textures, personnages, joueur)
+assets/models/    sources Blender et modèles GLB diffusés dans le navigateur
 js/render.js     moteur 2D (classic.html)
 js/world.js      plan du casino, partagé par les deux moteurs
 ```

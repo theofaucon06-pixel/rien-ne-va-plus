@@ -2,7 +2,7 @@
 // first, so the second launch is instant; the game code itself is fetched from the network first and only
 // falls back to the cache when offline, so a deploy is never mixed with stale scripts.
 // Bump VERSION when a cache-first file changes under the same name (regenerated textures, new Three.js).
-const VERSION = 'rnvp-v2-2026-09-15';
+const VERSION = 'rnvp-v3-2026-09-16';
 const CACHE_FIRST = /\/(vendor|assets)\//;
 const isLocal = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 
