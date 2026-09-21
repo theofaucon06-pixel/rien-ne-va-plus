@@ -1,5 +1,5 @@
 async (page) => {
-  const base=page.url().startsWith('http')?new URL(page.url()).origin:'http://localhost:8787';
+  const base=page.url().startsWith('http')?page.url().split('/').slice(0,3).join('/'):'http://localhost:8787';
   const results=[];
   for(const fail of [false,true]) {
     const context=await page.context().browser().newContext({viewport:{width:1440,height:960},serviceWorkers:'block'});
