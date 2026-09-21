@@ -9,6 +9,7 @@ async (page) => {
   try {
     await game.goto('http://localhost:8787/?smoke=1');
     await game.waitForFunction(() => !!window.__game?.renderer);
+    await game.evaluate(() => window.__game.L.blenderReady);
     await game.waitForFunction(() => {
       const root = window.__game?.L?.root;
       return root && ['BlackjackTable', 'EuropeanRouletteTable', 'LuxurySlotMachine'].every(name => root.getObjectByName(name));
@@ -19,7 +20,7 @@ async (page) => {
       return Object.fromEntries(['BlackjackTable', 'EuropeanRouletteTable', 'LuxurySlotMachine'].map(name => [name, names.filter(value => value === name).length]));
     });
     if (models.BlackjackTable !== 3 || models.EuropeanRouletteTable !== 2 || models.LuxurySlotMachine !== 3) throw Error('Unexpected Blender model count: ' + JSON.stringify(models));
-    if (glbResponses.length !== 3 || glbResponses.some(response => response.status !== 200)) throw Error('GLB delivery failed: ' + JSON.stringify(glbResponses));
+    if (glbResponses.length !== 4 || glbResponses.some(response => response.status !== 200)) throw Error('GLB delivery failed: ' + JSON.stringify(glbResponses));
     await game.getByRole('button', { name: 'Explorer en solo ↗' }).click();
     await game.locator('.story-line').waitFor();
     for (let index = 0; index < 12 && !await game.evaluate(() => window.__game.state.started); index += 1) {

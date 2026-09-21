@@ -173,6 +173,12 @@ avec Blender comme ci-dessus, reconstruit directement l’export du jeu. Les sep
 cadres de mise, le bac et le sabot font partie du modèle ; les sièges sont conservés
 dans le niveau. Les proportions sont préservées par une échelle uniforme.
 
+La façade utilise `assets/models/casino-facade-v1.glb`, avec sa source et deux
+rendus dans `art/facade-v1/`. `tools/facade_reference.py -- --render` la reconstruit
+dans Blender. Les portes s’ouvrent à l’approche ; les marches et la pente vers le
+hall ajustent la hauteur de marche. La pierre claire et le socle sombre se
+prolongent sur la façade existante sans modifier le plan des salles.
+
 `js/g3/blender-assets.js` les charge après le décor de base. En cas d’échec de
 téléchargement, les éléments procéduraux déjà présents restent affichés et le
 casino demeure jouable.

@@ -200,7 +200,9 @@ export function createStory(ctx = {}) {
   async function interactObject(o) {
     switch (o.type) {
       case 'clock': await narr([`Il est ${ui.fmtTime(state.timeMin)}. Ton ami a dit « vers 21 h 30 ».`, 'C\'est la dernière horloge que tu verras ce soir.']); break;
-      case 'entrance': await narr(state.flags.entered ? ['Le tourniquet grince. Dehors, la nuit continue sans toi.'] : ['Un tourniquet. Il grince un peu, mais il tourne.']); break;
+      case 'entrance': await narr(o.glassDoors
+        ? [state.flags.entered ? 'Les portes vitrées s’ouvrent. Dehors, la nuit continue sans toi.' : 'Les portes dorées s’ouvrent à ton approche. Une lumière chaude t’invite à entrer.']
+        : state.flags.entered ? ['Le tourniquet grince. Dehors, la nuit continue sans toi.'] : ['Un tourniquet. Il grince un peu, mais il tourne.']); break;
       case 'busstop': {
         if (!state.flags.exited) { await narr(['Le prochain bus passe à 6 h 10. Ton ami finira bien par arriver.']); break; }
         await ui.dialog.run([{ text: 'Le bus arrive. Tu rentres ?', choices: [
