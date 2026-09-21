@@ -165,11 +165,11 @@ function updateLights(t, force = false) {
     spotOrder = L.lightSpots.map((l, i) => i).sort((a, b) => score(L.lightSpots[b]) - score(L.lightSpots[a])).slice(0, POOL);
     for (let i = 0; i < POOL; i++) {
       const pl = pool[i], e = L.lightSpots[spotOrder[i]];
-      if (!e) { pl.intensity = 0; continue; }
+      if (!e) { pl.intensity = 0; pl.userData.base = 0; continue; }
       pl.position.set(e.x, e.y, e.z); pl.color.copy(e.color); pl.distance = e.distance; pl.userData.base = e.intensity; pl.userData.neon = !!e.neon;
     }
   }
-  for (let i = 0; i < POOL; i++) { const pl = pool[i]; if (pl.userData.base) pl.intensity = pl.userData.base * (pl.userData.neon ? 0.85 + 0.15 * Math.sin(t * 6) : 1); }
+  for (let i = 0; i < POOL; i++) { const pl = pool[i]; pl.intensity = (pl.userData.base || 0) * (pl.userData.neon ? 0.85 + 0.15 * Math.sin(t * 6) : 1); }
 }
 let lightTick = 0;
 

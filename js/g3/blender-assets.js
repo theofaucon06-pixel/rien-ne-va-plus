@@ -85,6 +85,13 @@ function installFacade(root, template, { fallback, walls, level: L, state }, mod
     if (node.material.transparent) node.material.depthWrite = false;
   } });
   const stone = materials['Facade limestone'], marble = materials['Facade dark marble'], cap = materials['Facade canopy charcoal'];
+  // RoomEnvironment is an indoor studio: its default reflection strength blows
+  // out pale exterior stone and polished brass, especially with HDR bloom.
+  for (const material of Object.values(materials)) {
+    material.envMapIntensity = material.metalness > .5 ? .35 : .15;
+    if (material.name === 'Facade brushed brass') material.roughness = .42;
+    if (material.name === 'Facade warm light') material.emissiveIntensity = .8;
+  }
   const dressing = new THREE.Group(); dressing.name = 'FacadeWings';
   dressing.userData.dynamic = true; dressing.userData.room = 'street';
   const block = (w,h,d,mat,x,y,z) => {
@@ -128,9 +135,9 @@ function installFacade(root, template, { fallback, walls, level: L, state }, mod
     if (z>=6.26 && z<7.98 && dx<2.50) return .08;
     return 0;
   };
-  for (const light of L.lightSpots) if (light.neon && Math.hypot(light.x-38,light.z-8)<7) {
-    light.color.set(0xffd5a0); light.intensity *= .35; light.neon = false;
-  }
-  for (const x of [36.45,38,39.55]) L.lightSpots.push({ x,y:2.91,z:7.10,color:new THREE.Color(0xffd5a0),intensity:9,distance:6,room:'street' });
-  for (const x of [35.7,40.3]) L.lightSpots.push({ x,y:.65,z:6.9,color:new THREE.Color(0xffdfb4),intensity:12,distance:7,room:'street' });
+  // The old sign and lanterns disappear with the fallback geometry; their light
+  // sources must disappear too. Keep them untouched if the new asset fails.
+  for (const light of L.lightSpots) if (light.facadeFallback) light.intensity = 0;
+  for (const x of [36.45,38,39.55]) L.lightSpots.push({ x,y:2.91,z:7.10,color:new THREE.Color(0xffd5a0),intensity:2.25,distance:4,room:'street' });
+  L.lightSpots.push({ x:38,y:4.65,z:6.6,color:new THREE.Color(0xffdfb4),intensity:3,distance:5,room:'street' });
 }
