@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Roulette — étude d’après références</title>
+<link rel="icon" href="data:,">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#dedbd5;color:#242920;font:14px system-ui,sans-serif}canvas{display:block;width:100vw;height:100vh;touch-action:none}header{position:absolute;top:32px;left:38px;pointer-events:none}small{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#616858}h1{font:38px Georgia,serif;margin:8px 0}p{line-height:1.6;color:#596052;margin:8px 0}nav{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center;width:95%}button,a{border:1px solid #b2b5a8;background:#f4f3eccf;border-radius:30px;padding:12px 17px;color:#293022;font:inherit;cursor:pointer;text-decoration:none}button:hover,a:hover{background:#fff}#status{position:absolute;right:30px;top:30px;max-width:35%;font-size:12px;color:#53624d}footer{position:absolute;left:38px;bottom:95px;font-size:12px;color:#616858;pointer-events:none}@media(max-width:600px){header{left:20px;top:18px}h1{font-size:27px}header p{max-width:220px;font-size:12px}#status{top:145px;left:20px;max-width:none}footer{left:20px;bottom:145px;max-width:260px}}
+</style>
+<script type="importmap">{"imports":{"three":"../../vendor/three/three.module.min.js","three/addons/":"../../vendor/three/addons/"}}</script>
+<canvas id="view" aria-label="Modèle 3D interactif de la nouvelle table de roulette"></canvas>
+<header><small>Étude 02 · d’après tes références</small><h1>Roulette en noyer.</h1><p>Cuir noir · drap vert · laiton poli<br>Deux piédestaux moulurés, 37 cases.</p></header>
+<div id="status" role="status">Chargement du modèle…</div>
+<footer>Glisse pour tourner · molette ou pincement pour zoomer</footer>
+<nav aria-label="Vues du modèle"><button data-view="hero">Ensemble</button><button data-view="top">Dessus</button><button data-view="wheel">La roue</button><button data-view="feet">Les pieds</button><a href="roulette-reference.blend" download>Fichier Blender ↓</a></nav>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+const canvas=document.querySelector('canvas'),status=document.querySelector('#status');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.25;
+const scene=new THREE.Scene();scene.background=new THREE.Color('#dedbd5');
+const pmrem=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();scene.environment=pmrem.fromScene(room,.04).texture;room.dispose();pmrem.dispose();
+const camera=new THREE.PerspectiveCamera(38,1,.01,100);
+scene.add(new THREE.HemisphereLight(0xf3f5ff,0x57483b,1.7));
+for(const [x,y,z,power] of [[-3,5,4,3],[3,4,-2,2]]){const light=new THREE.DirectionalLight(0xffffff,power);light.position.set(x,y,z);scene.add(light)}
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0xdedbd5,roughness:1}));ground.rotation.x=-Math.PI/2;ground.position.y=-.012;scene.add(ground);
+// Soft contact shadow: a canvas-generated radial alpha, not part of the asset.
+const shadowCanvas=document.createElement('canvas');shadowCanvas.width=shadowCanvas.height=128;const ctx=shadowCanvas.getContext('2d'),gradient=ctx.createRadialGradient(64,64,5,64,64,64);gradient.addColorStop(0,'rgba(25,20,15,.32)');gradient.addColorStop(1,'rgba(25,20,15,0)');ctx.fillStyle=gradient;ctx.fillRect(0,0,128,128);
+for(const x of [-1.24,1.24]){const m=new THREE.Mesh(new THREE.PlaneGeometry(1.65,1.65),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(shadowCanvas),transparent:true,depthWrite:false}));m.rotation.x=-Math.PI/2;m.position.set(x,0,0);scene.add(m)}
+let yaw=.38,pitch=.48,distance=6.4;const target=new THREE.Vector3(0,.65,0);
+function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();draw()}
+function draw(){camera.position.set(target.x+distance*Math.sin(yaw)*Math.cos(pitch),target.y+distance*Math.sin(pitch),target.z+distance*Math.cos(yaw)*Math.cos(pitch));camera.lookAt(target);renderer.render(scene,camera)}
+const presets={hero:[.38,.48,6.4,[0,.65,0]],top:[0,1.55,6.8,[0,.8,0]],wheel:[-.6,.78,2.75,[-1.24,1.04,0]],feet:[.6,.17,4.2,[0,.42,0]]};
+document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{const p=presets[button.dataset.view];[yaw,pitch,distance]=p;target.fromArray(p[3]);draw()});
+const pointers=new Map();let lastPinch=0;
+canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);pointers.set(e.pointerId,[e.clientX,e.clientY]);lastPinch=0};
+canvas.onpointermove=e=>{const previous=pointers.get(e.pointerId);if(!previous)return;const dx=e.clientX-previous[0],dy=e.clientY-previous[1];pointers.set(e.pointerId,[e.clientX,e.clientY]);if(pointers.size===2){const [a,b]=[...pointers.values()],span=Math.hypot(a[0]-b[0],a[1]-b[1]);if(lastPinch)distance=Math.max(1.3,Math.min(12,distance*lastPinch/span));lastPinch=span}else{yaw-=dx*.006;pitch=Math.max(.04,Math.min(1.56,pitch+dy*.006))}draw()};
+canvas.onpointerup=canvas.onpointercancel=e=>{pointers.delete(e.pointerId);lastPinch=0};
+canvas.addEventListener('wheel',e=>{e.preventDefault();distance=Math.max(1.3,Math.min(12,distance*Math.exp(e.deltaY*.001)));draw()},{passive:false});
+new GLTFLoader().load('roulette-reference.glb',gltf=>{scene.add(gltf.scene);status.textContent='Modèle 3D chargé · proposition à valider';window.review={scene,camera,renderer,model:gltf.scene};draw()},undefined,error=>{status.textContent='Le modèle n’a pas pu être chargé.';console.error(error)});
+addEventListener('resize',resize);resize();
+</script>
+</html>
