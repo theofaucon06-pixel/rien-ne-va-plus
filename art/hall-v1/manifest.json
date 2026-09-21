@@ -1,0 +1,25 @@
+{
+  "triangles": 127501,
+  "material_batches": 18,
+  "glb_bytes": 6040876,
+  "dimensions_m": [
+    12,
+    10,
+    4.2
+  ],
+  "origin_world_m": [
+    40,
+    0,
+    13.5
+  ],
+  "animated_nodes": [
+    "FountainWater",
+    "FortuneRotor"
+  ],
+  "preserved_openings": [
+    "entrance",
+    "machines",
+    "tables",
+    "bar"
+  ]
+}

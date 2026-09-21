@@ -146,3 +146,18 @@ valident les transitions et paiements, pas une certification de jeu d’argent.
 - `tools/browser-facade.cjs` réussit dans les deux scénarios de chargement,
   avec vérification des anciennes lumières, portes, collisions et traversée
   dans les deux sens. Aucune erreur JavaScript ; **24/24 tests Node réussis**.
+
+## Hall Blender de référence — 21 septembre 2026
+
+- Pièce native de 12 × 10 × 4,2 m, deux rendus Cycles inspectés, GLB de
+  6 040 876 octets : 127 501 triangles, 18 lots de matériaux. Marbres, noyer,
+  laiton, vitrages, fontaine, lustre, roue et plantes ; textures incorporées.
+- `tools/browser-hall.cjs` : téléchargement différé puis réussi, et bloqué.
+  Le décor initial reste présent tant que le nouveau modèle manque ; son
+  éclairage s’éteint seulement après réussite. Aucune erreur JavaScript.
+- Traversée réelle des quatre accès et retour par la façade ; contrôle des
+  collisions du mobilier et des passages par lancer de rayons sur le modèle.
+- Échange de 100 € à la caisse, partie de roue terminée, dialogue fidélité et
+  découverte de la fontaine réussis avec les deux décors. Rotor animé vérifié.
+- Captures du jeu en qualité haute avec HDR et halos, puis basse, inspectées.
+  **24/24 tests Node réussis** ; syntaxe JavaScript et `git diff --check` valides.

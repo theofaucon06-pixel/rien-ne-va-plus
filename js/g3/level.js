@@ -29,6 +29,13 @@ export function buildLevel(scene, state) {
   const facadeFallback = new THREE.Group(); facadeFallback.name = 'facade-fallback';
   facadeFallback.userData.dynamic = true; root.add(facadeFallback);
   const facadeWalls = [];
+  const hallFallback = new THREE.Group(); hallFallback.name = 'hall-fallback';
+  hallFallback.userData.dynamic = true; root.add(hallFallback);
+  // Keep the original room intact until the complete Blender hall is available.
+  const collectHall = before => {
+    for (const child of [...root.children]) if (!before.has(child) && !L.hits.includes(child)) hallFallback.add(child);
+  };
+  const inHallFallback = build => { const before = new Set(root.children); build(); collectHall(before); };
   const wallMat = std('wall', { map: patternTexture('wall', 256), roughness: 0.85 }); upgradeMaterial(wallMat, 'wall');
   const brickMat = std('brick', { map: patternTexture('brick', 256), roughness: 0.95 }); upgradeMaterial(brickMat, 'brick');
   const wallpaperMat = std('wallpaper', { map: patternTexture('wallpaper', 256), roughness: 0.9 }); upgradeMaterial(wallpaperMat, 'wallpaper');
@@ -58,6 +65,7 @@ export function buildLevel(scene, state) {
   // ------------------------------------------------------------ floors, ceilings, cove lights, moldings
   const COVE = { hall: 0xffd9a0, machines: 0xff8fc0, tables: 0xffd0a0, bar: 0xff9a5a, vip: 0xffb070, labyrinth: 0xff9a60, bureau: 0xcfe4ff, toilettes: 0xdde9ff, corridor: 0xffd9a0, hallway: 0xffb070, restaurant: 0xffd9a0, scene: 0xff6b9d, gages: 0xdde9ff };
   for (const r of ROOMS) {
+    const hallBefore = r.id === 'hall' ? new Set(root.children) : null;
     const w = r.w * S, h = r.h * S, cx = (r.x + r.w / 2) * S, cz = (r.y + r.h / 2) * S;
     if (r.id === 'street') {
       const road = plane(w, 110 * S, floorMat('asphalt'), cx, 0.001, 55 * S, 0, -Math.PI / 2); scaledUV(road.geometry, w, 110 * S, 2); root.add(road);
@@ -80,6 +88,7 @@ export function buildLevel(scene, state) {
       if (r.id !== 'toilettes' && r.id !== 'corridor' && r.id !== 'hallway') root.add(box(horiz ? len - 0.6 : 0.05, 0.03, horiz ? 0.05 : len - 0.6, coveMat, mx + (horiz ? 0 : (ax === x0 ? 0.32 : -0.32)), H - 0.2, mz + (horiz ? (az === z0 ? 0.32 : -0.32) : 0)));
       root.add(box(horiz ? len : 0.05, 0.14, horiz ? 0.05 : len, std('baseboard', { color: 0x2a1a10, roughness: 0.6 }), mx + (horiz ? 0 : (ax === x0 ? 0.025 : -0.025)), 0.07, mz + (horiz ? (az === z0 ? 0.025 : -0.025) : 0)));
     }
+    if (hallBefore) collectHall(hallBefore);
   }
 
   // ------------------------------------------------------------ walls
@@ -145,10 +154,10 @@ export function buildLevel(scene, state) {
     doorFrame(1480, 320, 1560, 344);
     for (const child of [...root.children]) if (!before.has(child)) facadeFallback.add(child);
   }
-  doorFrame(1336, 496, 1360, 584, 'MACHINES'); // hall → corridor
+  inHallFallback(() => doorFrame(1336, 496, 1360, 584, 'MACHINES')); // hall → corridor
   doorFrame(1160, 496, 1184, 584);            // corridor → machines
-  doorFrame(1840, 496, 1864, 584, 'TABLES');   // hall → tables
-  doorFrame(1560, 744, 1640, 768, 'BAR');      // hall → bar
+  inHallFallback(() => doorFrame(1840, 496, 1864, 584, 'TABLES'));   // hall → tables
+  inHallFallback(() => doorFrame(1560, 744, 1640, 768, 'BAR'));      // hall → bar
   doorFrame(1336, 940, 1360, 1020, 'WC');      // bar → toilets
   doorFrame(1560, 1168, 1640, 1192);          // bar → hallway
   doorFrame(1560, 1344, 1640, 1368);          // hallway → labyrinth
@@ -161,7 +170,7 @@ export function buildLevel(scene, state) {
 
   // ------------------------------------------------------------ pillars
   const pillar = (px, py, h, mat = marbleWhite, r = 0.32) => { const x = px * S, z = py * S; root.add(cyl(r, r, h, mat, x, h / 2, z, 20)); root.add(cyl(r + 0.08, r + 0.08, 0.16, gold, x, 0.08, z, 20)); root.add(cyl(r + 0.1, r + 0.02, 0.22, gold, x, h - 0.11, z, 20)); L.colliders.push({ x0: x - r, z0: z - r, x1: x + r, z1: z + r }); blob(x, z, 1.4); };
-  [[1395, 385], [1805, 385], [1395, 705], [1805, 705]].forEach(([x, y]) => pillar(x, y, CEIL.hall));
+  inHallFallback(() => [[1395, 385], [1805, 385], [1395, 705], [1805, 705]].forEach(([x, y]) => pillar(x, y, CEIL.hall)));
   [[1905, 385], [2960, 385], [1905, 1300], [2700, 1300]].forEach(([x, y]) => pillar(x, y, CEIL.tables));
 
   // ------------------------------------------------------------ chandeliers & ceiling fixtures
@@ -174,7 +183,7 @@ export function buildLevel(scene, state) {
   for (let i = 0; i < 16; i++) { const a = i / 16 * TAU; const b = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), basic('bulbc', { color: 0xf0d8a0, toneMapped: false })); b.position.set(Math.cos(a) * 0.95, (i % 2) * 0.28, Math.sin(a) * 0.95); chand.add(b); chand.add(cyl(0.02, 0.02, 0.28, chrome, Math.cos(a) * 0.95, (i % 2) * 0.28 - 0.16, Math.sin(a) * 0.95, 6)); }
   chand.add(cyl(0.05, 0.05, 1.0, gold, 0, 0.7, 0)); const ring = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.045, 8, 40), gold); ring.rotation.x = Math.PI / 2; chand.add(ring); const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 8, 32), gold); ring2.rotation.x = Math.PI / 2; ring2.position.y = 0.3; chand.add(ring2);
   const putChand = (x, y, h, sc = 1) => { const g = chand.clone(); g.position.set(x * S, h - 1.0, y * S); g.scale.setScalar(sc); root.add(g); };
-  putChand(1600, 540, CEIL.hall, 1.2);
+  inHallFallback(() => putChand(1600, 540, CEIL.hall, 1.2));
   [[2135, 520], [2480, 520], [2820, 520], [2560, 900], [2170, 940], [2620, 1200]].forEach(([x, y]) => putChand(x, y, CEIL.tables, 0.8));
   [[2200, 1420], [2600, 1400], [2880, 1420]].forEach(([x, y]) => putChand(x, y, CEIL.vip, 0.6));
   for (const y of [540, 760, 980, 1210]) for (let x = 300; x < 1120; x += 200) fixture(x * S, y * S, CEIL.machines, 0xffd8f0, 2.5, 0.25);
@@ -313,6 +322,7 @@ export function buildLevel(scene, state) {
     root.add(t.g); return t;
   };
   for (const o of OBJECTS) {
+    const hallBefore = ['caisse', 'fidelite', 'fountain', 'wheel'].includes(o.type) ? new Set(root.children) : null;
     const cx = (o.x + o.w / 2) * S, cz = (o.y + o.h / 2) * S, w = o.w * S, d = o.h * S;
     let hitSize = null, hx = cx, hz = cz, hy = null;
     switch (o.type) {
@@ -561,6 +571,7 @@ export function buildLevel(scene, state) {
         break;
       }
     }
+    if (hallBefore) collectHall(hallBefore);
     if (hitSize && o.label) {
       const hit = box(hitSize[0], hitSize[1], hitSize[2], basic('hit', { visible: false }), hx, hy ?? hitSize[1] / 2, hz); hit.visible = false; hit.userData = { target: { kind: 'object', o } }; root.add(hit); L.hits.push(hit);
       if (o.type === 'vipdoor') L.dynamic.vipHit = hit;
@@ -603,7 +614,10 @@ export function buildLevel(scene, state) {
 
   // ------------------------------------------------------------ interior dressing
   const plant = (x, z, big = false) => { const g = new THREE.Group(); g.position.set(x, 0, z); const sc = big ? 1.5 : 1; g.add(cyl(0.22 * sc, 0.18 * sc, 0.4 * sc, std('pot', { color: 0x5d4037 }), 0, 0.2 * sc, 0, 12)); for (let i = 0; i < 7; i++) { const a = i / 7 * TAU; const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.16 * sc, 0.95 * sc, 6), std('leaf', { color: 0x2e7d32, roughness: 1 })); leaf.position.set(Math.cos(a) * 0.2 * sc, 0.78 * sc, Math.sin(a) * 0.2 * sc); leaf.rotation.set(Math.sin(a) * 0.55, 0, -Math.cos(a) * 0.55); g.add(leaf); } root.add(g); blob(x, z, 0.9 * sc); L.colliders.push({ x0: x - 0.3, z0: z - 0.3, x1: x + 0.3, z1: z + 0.3 }); };
-  [[1560, 720], [1640, 720], [1960, 1300], [2980, 1300], [2060, 1560], [2960, 1560], [222, 360], [1134, 360], [2200, 1900], [300, 1900], [3050, 860], [3560, 860], [3630, 760], [3780, 760], [3560, 370]].forEach(([x, y], i) => plant(x * S, y * S, i < 6));
+  [[1560, 720], [1640, 720], [1960, 1300], [2980, 1300], [2060, 1560], [2960, 1560], [222, 360], [1134, 360], [2200, 1900], [300, 1900], [3050, 860], [3560, 860], [3630, 760], [3780, 760], [3560, 370]].forEach(([x, y], i) => {
+    if (i < 2) inHallFallback(() => plant(x * S, y * S, true));
+    else plant(x * S, y * S, i < 6);
+  });
   const frame = (x, y, z, ry, i, w = 1.0, h = 1.3) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; g.add(box(w + 0.12, h + 0.12, 0.05, gold, 0, 0, -0.02)); const m = new THREE.MeshStandardMaterial({ map: artTexture(i), roughness: 0.8 }); loadAsset('art' + (1 + (i % 3)), (t) => { m.map = t; m.needsUpdate = true; }, { repeat: false }); g.add(plane(w, h, m, 0, 0, 0.01)); root.add(g); };
   frame(2300 * S, 1.9, 1368 * S + 0.03, 0, 0); frame(2700 * S, 1.9, 1368 * S + 0.03, 0, 1); frame(2500 * S, 1.9, 1600 * S - 0.03, Math.PI, 2, 1.6, 1.0);
   frame(1400 * S, 1.9, 768 * S + 0.03, 0, 3, 0.9, 1.2); frame(2350 * S, 1.8, 1624 * S + 0.03, 0, 1, 0.8, 1.0);
@@ -636,12 +650,13 @@ export function buildLevel(scene, state) {
   for (const li of LIGHTS) {
     if (li.slot) continue;
     const barPendant = li.y === 1075; const hallChand = li.x === 1600 && li.y === 540;
-    L.lightSpots.push({ x: li.x * S, y: li.aisle ? CEIL.machines - 0.3 : barPendant ? 2.2 : (li.y < 320 ? 4.3 : 2.4), z: li.y * S, color: new THREE.Color(li.color), intensity: li.a * 42 * (li.color === '#ff4d6d' ? 1.4 : 1) * (li.y > 1368 && li.x < 2000 ? 1.8 : 1) * (barPendant ? 0.35 : 1) * (hallChand ? 0.7 : 1), distance: li.r * S * 2.6, neon: li.color === '#ff4d6d', facadeFallback: li.x === 1520 && li.y === 300 });
+    L.lightSpots.push({ x: li.x * S, y: li.aisle ? CEIL.machines - 0.3 : barPendant ? 2.2 : (li.y < 320 ? 4.3 : 2.4), z: li.y * S, color: new THREE.Color(li.color), intensity: li.a * 42 * (li.color === '#ff4d6d' ? 1.4 : 1) * (li.y > 1368 && li.x < 2000 ? 1.8 : 1) * (barPendant ? 0.35 : 1) * (hallChand ? 0.7 : 1), distance: li.r * S * 2.6, neon: li.color === '#ff4d6d', facadeFallback: li.x === 1520 && li.y === 300, hallFallback: hallChand });
   }
   L.lightSpots.forEach(l => { if (Math.abs(l.x - 1600 * S) < 0.5 && Math.abs(l.z - 540 * S) < 0.5) l.y = 3.2; });
 
   L.blenderReady = loadBlenderCasinoProps(root, { blackjack: blenderBlackjack, roulette: blenderRoulette, slots: blenderSlots, models: L.blenderModels,
-    facade: { fallback: facadeFallback, walls: facadeWalls, level: L, state } });
+    facade: { fallback: facadeFallback, walls: facadeWalls, level: L, state },
+    hall: { fallback: hallFallback, level: L } });
   L.root = root;
   return L;
 }
