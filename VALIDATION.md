@@ -118,3 +118,19 @@ valident les transitions et paiements, pas une certification de jeu d’argent.
   terminées sans erreur JavaScript. Capture dans le casino inspectée.
 - `npm test` : **24/24 réussis**. Syntaxe des modules modifiés et
   `git diff --check` vérifiés. Les règles et paiements restent inchangés.
+
+## Façade de référence — 21 septembre 2026
+
+- Source Blender, deux rendus et GLB autonome : 46 598 triangles, dix groupes
+  de matériaux, 3,55 Mo. Textures minérales incorporées et deux pivots de porte.
+- `tools/browser-facade.cjs` : ouverture à l’approche, fermeture à distance,
+  collision des murs, passage libre entre les portes ouvertes, hauteur sur les
+  marches et déplacement réel vers le hall puis retour sur le parvis. Le récit
+  d’entrée correspond aux portes vitrées. Aucun message d’erreur JavaScript.
+- Téléchargement du GLB volontairement bloqué : ancien décor conservé et
+  déplacement possible dans les deux sens, sans erreur JavaScript.
+- Captures en jeu des portes fermées et ouvertes inspectées ; enseigne remontée
+  pour rester visible depuis le parvis, raccords de corniche dégagés et éclairage
+  chaud ajusté. Les quatre modèles GLB chargent à HTTP 200 ; les trois blackjacks,
+  deux roulettes et trois machines spéciales restent présents.
+- **24/24 tests Node réussis**, syntaxe des modules et `git diff --check` vérifiés.

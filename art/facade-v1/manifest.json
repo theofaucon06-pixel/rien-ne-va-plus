@@ -1,0 +1,15 @@
+{
+  "triangles": 46598,
+  "material_batches": 10,
+  "glb_bytes": 3550516,
+  "door_pivots": [
+    "DoorLeft",
+    "DoorRight"
+  ],
+  "opening_m": 1.84,
+  "steps_m": [
+    0.08,
+    0.16,
+    0.24
+  ]
+}

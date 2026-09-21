@@ -65,10 +65,72 @@ function installSlots(root, template, targets, models) {
 }
 
 /** Stream detailed Blender assets after the low-cost procedural casino is ready. */
-export function loadBlenderCasinoProps(root, { blackjack = [], roulette = [], slots = [], models = [] } = {}) {
+export function loadBlenderCasinoProps(root, { blackjack = [], roulette = [], slots = [], models = [], facade } = {}) {
   const requests = [];
   if (blackjack.length) requests.push(getAsset('assets/models/blackjack-reference-v2.glb').then(model => installTables(root, model, blackjack, 'tables', models, { proportional: true, name: 'BlackjackTable' })));
   if (roulette.length) requests.push(getAsset('assets/models/roulette-reference-v2.glb').then(model => installTables(root, model, roulette, 'tables', models, { proportional: true, name: 'EuropeanRouletteTable' })));
   if (slots.length) requests.push(getAsset('assets/models/luxury_slot_machine.glb').then(model => installSlots(root, model, slots, models)));
+  if (facade) requests.push(getAsset('assets/models/casino-facade-v1.glb').then(model => installFacade(root, model, facade, models)));
   return Promise.allSettled(requests);
+}
+
+function installFacade(root, template, { fallback, walls, level: L, state }, models) {
+  const model = clone(template, 'street'); model.name = 'CasinoFacade';
+  model.position.set(38, 0, 8); model.rotation.y = Math.PI;
+  const left = model.getObjectByName('DoorLeft'), right = model.getObjectByName('DoorRight');
+  if (!left || !right) throw new Error('Facade export is missing its door hinges');
+  const materials = {};
+  model.traverse(node => { if (node.isMesh) {
+    materials[node.material.name] = node.material;
+    if (node.material.transparent) node.material.depthWrite = false;
+  } });
+  const stone = materials['Facade limestone'], marble = materials['Facade dark marble'], cap = materials['Facade canopy charcoal'];
+  const dressing = new THREE.Group(); dressing.name = 'FacadeWings';
+  dressing.userData.dynamic = true; dressing.userData.room = 'street';
+  const block = (w,h,d,mat,x,y,z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat); m.position.set(x,y,z); dressing.add(m);
+  };
+  // Carry the reference's stone, plinth and coping along the original building.
+  for (const wall of walls) {
+    const width = wall.geometry.parameters.width, cx = wall.position.x;
+    const finish = stone.clone(); finish.map = stone.map.clone(); finish.map.wrapS = finish.map.wrapT = THREE.RepeatWrapping;
+    finish.map.repeat.set(width / 2, 3); finish.map.needsUpdate = true;
+    wall.material = [...wall.material]; wall.material[5] = finish;
+    const start = cx < 38 ? cx-width/2 : 42.22;
+    const end = cx < 38 ? 33.78 : cx+width/2;
+    const span = end-start, center = (start+end)/2;
+    block(span,.48,.05,marble,center,.24,7.968);
+    block(span,.10,.22,cap,center,4.40,7.96);
+    block(span,.07,.18,stone,center,4.29,7.95);
+    const joint = new THREE.MeshStandardMaterial({ color: 0xa69d89, roughness: 1 });
+    for (let y=.65;y<4.2;y+=.63) block(span,.008,.008,joint,center,y,7.989);
+  }
+  root.add(model, dressing); models.push(model, dressing); fallback.visible = false;
+  L.dynamic.facade = model;
+  const hit = L.hits.find(h => h.userData.target?.o?.type === 'entrance');
+  if (hit) hit.userData.target.o = { ...hit.userData.target.o, label: 'Les portes du casino', glassDoors: true };
+  L.colliders.push({ x0:33.78,x1:37.08,z0:7.45,z1:8.01 }, { x0:38.92,x1:42.22,z0:7.45,z1:8.01 });
+  const doorCollider = { x0:37.08,x1:38.92,z0:7.68,z1:7.84,disabled:false }; L.colliders.push(doorCollider);
+  let angle = 0;
+  L.updaters.push((_t,dt) => {
+    const near = Math.abs(state.player.x / 40 - 38) < 2.3 && Math.abs(state.player.y / 40 - 7.78) < 3;
+    const target = near ? Math.PI / 2 : 0;
+    angle += (target-angle)*(1-Math.exp(-8*dt));
+    left.rotation.y = -angle; right.rotation.y = angle;
+    doorCollider.disabled = angle > 1.2;
+    model.userData.doorOpen = doorCollider.disabled;
+  });
+  L.groundHeight = (x,z) => {
+    const dx = Math.abs(x-38);
+    if (z>=8 && z<=8.67 && dx<.98) return .24*(1-(z-8)/.67);
+    if (z>=7.36 && z<8 && dx<2.09) return .24;
+    if (z>=6.81 && z<7.97 && dx<2.30) return .16;
+    if (z>=6.26 && z<7.98 && dx<2.50) return .08;
+    return 0;
+  };
+  for (const light of L.lightSpots) if (light.neon && Math.hypot(light.x-38,light.z-8)<7) {
+    light.color.set(0xffd5a0); light.intensity *= .35; light.neon = false;
+  }
+  for (const x of [36.45,38,39.55]) L.lightSpots.push({ x,y:2.91,z:7.10,color:new THREE.Color(0xffd5a0),intensity:9,distance:6,room:'street' });
+  for (const x of [35.7,40.3]) L.lightSpots.push({ x,y:.65,z:6.9,color:new THREE.Color(0xffdfb4),intensity:12,distance:7,room:'street' });
 }

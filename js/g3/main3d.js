@@ -254,6 +254,7 @@ function frame() {
   const drunk = state.drunkUntil > state.timeMin && !state.flags.exited;
   const calm = document.body.classList.contains('calm-mode');
   player.update(dt, { enabled: !open && (player.locked || player.touch) && state.started, drunk: drunk && !calm, t, calm });
+  camera.position.y += L.groundHeight?.(camera.position.x, camera.position.z) || 0;
   state.player.x = camera.position.x / S; state.player.y = camera.position.z / S;
   state.player.moving = player.moving; state.player.yaw = camera.rotation.y;
   tick(dt, open);

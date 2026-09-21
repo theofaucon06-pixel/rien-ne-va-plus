@@ -26,6 +26,9 @@ export function buildLevel(scene, state) {
   const L = { colliders: [], hits: [], wallMeshes: [], updaters: [], lightSpots: [], dynamic: {}, rouletteBoards: [], blenderModels: [] };
   const blenderBlackjack = [], blenderRoulette = [], blenderSlots = [];
   const root = new THREE.Group(); scene.add(root); L.root = root;
+  const facadeFallback = new THREE.Group(); facadeFallback.name = 'facade-fallback';
+  facadeFallback.userData.dynamic = true; root.add(facadeFallback);
+  const facadeWalls = [];
   const wallMat = std('wall', { map: patternTexture('wall', 256), roughness: 0.85 }); upgradeMaterial(wallMat, 'wall');
   const brickMat = std('brick', { map: patternTexture('brick', 256), roughness: 0.95 }); upgradeMaterial(brickMat, 'brick');
   const wallpaperMat = std('wallpaper', { map: patternTexture('wallpaper', 256), roughness: 0.9 }); upgradeMaterial(wallpaperMat, 'wallpaper');
@@ -95,6 +98,7 @@ export function buildLevel(scene, state) {
     else if (isVip) m = wallpaperMat;
     const mesh = box(w, WALL_H, d, m, cx, WALL_H / 2, cz);
     root.add(mesh); L.wallMeshes.push(mesh);
+    if (isFacade) facadeWalls.push(mesh);
     L.colliders.push({ x0: wl.x * S, z0: wl.y * S, x1: (wl.x + wl.w) * S, z1: (wl.y + wl.h) * S });
     return mesh;
   }
@@ -120,9 +124,9 @@ export function buildLevel(scene, state) {
   for (const x of [200, 1300, 2400, 3200]) { const lx = x * S, lz = -6.9; root.add(cyl(0.05, 0.08, 4.5, darkMetal, lx, 2.25, lz, 10)); root.add(box(0.5, 0.08, 0.3, darkMetal, lx, 4.5, lz)); root.add(box(0.4, 0.05, 0.22, basic('lampbulb', { color: 0xffe0a8, toneMapped: false }), lx, 4.44, lz)); L.lightSpots.push({ x: lx, y: 4.3, z: lz, color: new THREE.Color(0xffe0a8), intensity: 30, distance: 12 }); }
   // façade cornice and parapet
   const fw = (BUILDING.x1 - BUILDING.x0) * S, fcx = (BUILDING.x0 + BUILDING.x1) / 2 * S;
-  root.add(box(fw, 0.25, 0.3, std('cornice', { color: 0xd8cfbf, roughness: 0.8 }), fcx, WALL_H - 0.12, 320 * S - 0.15));
-  root.add(box(fw, 0.5, 0.2, std('parapet', { color: 0x3a3a46, roughness: 0.9 }), fcx, WALL_H + 0.45, 320 * S - 0.1));
-  for (let x = BUILDING.x0 + 20; x < BUILDING.x1; x += 160) root.add(box(0.5, 0.6, 0.3, std('cornice', {}), x * S, WALL_H - 0.55, 320 * S - 0.15));
+  facadeFallback.add(box(fw, 0.25, 0.3, std('cornice', { color: 0xd8cfbf, roughness: 0.8 }), fcx, WALL_H - 0.12, 320 * S - 0.15));
+  facadeFallback.add(box(fw, 0.5, 0.2, std('parapet', { color: 0x3a3a46, roughness: 0.9 }), fcx, WALL_H + 0.45, 320 * S - 0.1));
+  for (let x = BUILDING.x0 + 20; x < BUILDING.x1; x += 160) facadeFallback.add(box(0.5, 0.6, 0.3, std('cornice', {}), x * S, WALL_H - 0.55, 320 * S - 0.15));
 
   // ------------------------------------------------------------ door frames (gold jambs + lintel on every opening)
   // a text sign readable from both sides (two front-facing planes back to back)
@@ -137,7 +141,10 @@ export function buildLevel(scene, state) {
     if (alongX) { const zc = (az + bz) / 2, t = bz - az; root.add(box(0.14, H, t + 0.1, gold, ax - 0.07, H / 2, zc)); root.add(box(0.14, H, t + 0.1, gold, bx + 0.07, H / 2, zc)); root.add(box(bx - ax + 0.28, 0.16, t + 0.1, gold, (ax + bx) / 2, H + 0.08, zc)); if (label) root.add(sign2(bx - ax, 0.3, textTexture(label, { w: Math.round(96 * (bx - ax) / 0.3), h: 96, font: 'bold 52px Inter, sans-serif', color: '#ffd08a', bg: '#101018' }), (ax + bx) / 2, H + 0.35, zc)); }
     else { const xc = (ax + bx) / 2, t = bx - ax; root.add(box(t + 0.1, H, 0.14, gold, xc, H / 2, az - 0.07)); root.add(box(t + 0.1, H, 0.14, gold, xc, H / 2, bz + 0.07)); root.add(box(t + 0.1, 0.16, bz - az + 0.28, gold, xc, H + 0.08, (az + bz) / 2)); if (label) root.add(sign2(bz - az, 0.3, textTexture(label, { w: Math.round(96 * (bz - az) / 0.3), h: 96, font: 'bold 52px Inter, sans-serif', color: '#ffd08a', bg: '#101018' }), xc, H + 0.35, (az + bz) / 2, Math.PI / 2)); }
   };
-  doorFrame(1480, 320, 1560, 344);            // entrance
+  { const before = new Set(root.children);
+    doorFrame(1480, 320, 1560, 344);
+    for (const child of [...root.children]) if (!before.has(child)) facadeFallback.add(child);
+  }
   doorFrame(1336, 496, 1360, 584, 'MACHINES'); // hall → corridor
   doorFrame(1160, 496, 1184, 584);            // corridor → machines
   doorFrame(1840, 496, 1864, 584, 'TABLES');   // hall → tables
@@ -494,8 +501,8 @@ export function buildLevel(scene, state) {
       }
       case 'entrance': {
         const x0 = 1480 * S, x1 = 1560 * S, z = 332 * S;
-        root.add(cyl(0.05, 0.05, 1.1, gold, x0 + 0.08, 0.55, z, 10)); root.add(cyl(0.05, 0.05, 1.1, gold, x1 - 0.08, 0.55, z, 10));
-        root.add(plane(2.0, 0.34, new THREE.MeshBasicMaterial({ map: textTexture('BIENVENUE', { w: 512, h: 96, font: 'bold 60px "Bodoni 72", Georgia, serif', color: '#ffd98a', bg: '#101018', glow: '#ffb46a' }), toneMapped: false }), (x0 + x1) / 2, 2.4, 344 * S + 0.02));
+        facadeFallback.add(cyl(0.05, 0.05, 1.1, gold, x0 + 0.08, 0.55, z, 10)); facadeFallback.add(cyl(0.05, 0.05, 1.1, gold, x1 - 0.08, 0.55, z, 10));
+        facadeFallback.add(plane(2.0, 0.34, new THREE.MeshBasicMaterial({ map: textTexture('BIENVENUE', { w: 512, h: 96, font: 'bold 60px "Bodoni 72", Georgia, serif', color: '#ffd98a', bg: '#101018', glow: '#ffb46a' }), toneMapped: false }), (x0 + x1) / 2, 2.4, 344 * S + 0.02));
         hitSize = [2, 1.6, 1.2];
         break;
       }
@@ -561,6 +568,7 @@ export function buildLevel(scene, state) {
   }
 
   // ------------------------------------------------------------ street & building dressing
+  const facadeBefore = new Set(root.children);
   const neonTex = textTexture('CASINO', { w: 1024, h: 256, font: 'bold 190px "Bodoni 72", Didot, Georgia, serif', color: '#ff6b85', bg: 'rgba(0,0,0,0)', glow: '#ff4d6d' });
   const neonMat = new THREE.MeshBasicMaterial({ map: neonTex, transparent: true, toneMapped: false });
   root.add(plane(6.4, 1.6, neonMat, 1520 * S, 3.45, 320 * S - 0.12, Math.PI));
@@ -575,6 +583,7 @@ export function buildLevel(scene, state) {
   for (let k = 0; k < 4; k++) root.add(cyl(0.02, 0.02, 0.5, gold, 1520 * S - 1.5 + k, 2.6, 320 * S - 1.45, 6));
   root.add(box(1.6, 0.02, 4.6, velvet, 1520 * S, 0.01, 350 * S));
   [1380, 1660, 900, 2200, 2700].forEach(x => { root.add(box(0.2, 0.35, 0.2, darkMetal, x * S, 2.6, 320 * S - 0.15)); root.add(box(0.14, 0.2, 0.14, basic('lantern', { color: 0xffd9a0, toneMapped: false }), x * S, 2.6, 320 * S - 0.16)); L.lightSpots.push({ x: x * S, y: 2.6, z: 320 * S - 0.6, color: new THREE.Color(0xffd9a0), intensity: 22, distance: 8 }); });
+  for (const child of [...root.children]) if (!facadeBefore.has(child)) facadeFallback.add(child);
   for (const x of [520, 900, 1900, 2400, 2800]) { const lx = x * S, lz = 150 * S; root.add(cyl(0.05, 0.08, 4.5, darkMetal, lx, 2.25, lz, 10)); root.add(box(0.5, 0.08, 0.3, darkMetal, lx, 4.5, lz)); root.add(box(0.4, 0.05, 0.22, basic('lampbulb', { color: 0xffe0a8, toneMapped: false }), lx, 4.44, lz)); L.colliders.push({ x0: lx - 0.1, z0: lz - 0.1, x1: lx + 0.1, z1: lz + 0.1 }); blob(lx, lz, 0.8); }
   [[700, 0x8d2f2f, false], [1150, 0x2f4f8d, false], [1700, 0xf5c518, true], [2100, 0x3a3a3a, false], [2650, 0x6f6f6f, false]].forEach(([x, c, taxi]) => {
     const cx = (x + 60) * S, cz = 88 * S; const g = new THREE.Group(); g.position.set(cx, 0, cz);
@@ -631,7 +640,8 @@ export function buildLevel(scene, state) {
   }
   L.lightSpots.forEach(l => { if (Math.abs(l.x - 1600 * S) < 0.5 && Math.abs(l.z - 540 * S) < 0.5) l.y = 3.2; });
 
-  L.blenderReady = loadBlenderCasinoProps(root, { blackjack: blenderBlackjack, roulette: blenderRoulette, slots: blenderSlots, models: L.blenderModels });
+  L.blenderReady = loadBlenderCasinoProps(root, { blackjack: blenderBlackjack, roulette: blenderRoulette, slots: blenderSlots, models: L.blenderModels,
+    facade: { fallback: facadeFallback, walls: facadeWalls, level: L, state } });
   L.root = root;
   return L;
 }
