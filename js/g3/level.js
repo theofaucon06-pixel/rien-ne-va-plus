@@ -23,7 +23,7 @@ function scaledUV(geo, w, h, size) { const uv = geo.attributes.uv; for (let i = 
 const YAW = { east: Math.PI / 2, west: -Math.PI / 2, north: Math.PI, south: 0 }; // direction the front (+z local) faces
 
 export function buildLevel(scene, state) {
-  const L = { colliders: [], hits: [], wallMeshes: [], updaters: [], lightSpots: [], dynamic: {}, rouletteBoards: [] };
+  const L = { colliders: [], hits: [], wallMeshes: [], updaters: [], lightSpots: [], dynamic: {}, rouletteBoards: [], blenderModels: [] };
   const blenderBlackjack = [], blenderRoulette = [], blenderSlots = [];
   const root = new THREE.Group(); scene.add(root); L.root = root;
   const wallMat = std('wall', { map: patternTexture('wall', 256), roughness: 0.85 }); upgradeMaterial(wallMat, 'wall');
@@ -263,19 +263,35 @@ export function buildLevel(scene, state) {
   const tableBase = (o, kind, opts = {}) => {
     const w = o.w * S * TABLE_SCALE, d = o.h * S * TABLE_SCALE, cx = (o.x + o.w / 2) * S, cz = (o.y + o.h / 2) * S;
     const g = new THREE.Group(); g.position.set(cx, 0, cz);
+    if (o.type === 'roulette' || o.type === 'blackjack') {
+      // Keep replaceable geometry out of the static room batches: hiding this
+      // group after a GLB arrives must also hide every part of the old table.
+      g.userData.dynamic = true;
+      g.name = 'table-fallback:' + o.id;
+    }
     g.add(box(w + 0.32, 0.12, d + 0.32, wood, 0, 0.86, 0));
     g.add(box(w * 0.8, 0.8, d * 0.8, std('tblbase', { color: 0x2b1a0e, roughness: 0.9 }), 0, 0.4, 0));
     g.add(box(w + 0.32, 0.05, 0.14, leather, 0, 0.94, d / 2 + 0.09));
     const felt = new THREE.Mesh(new THREE.PlaneGeometry(w, d), std('felt-' + kind, { map: feltTexture(kind), roughness: 1 })); felt.rotation.x = -Math.PI / 2; felt.position.y = 0.925; g.add(felt);
-    if (opts.stools) for (let k = 0; k < opts.stools; k++) tableStool(g, -w / 2 + 0.5 + k * (w - 1) / (opts.stools - 1), d / 2 + 0.55, Math.PI);
+    const seats = new THREE.Group(); g.add(seats);
+    if (opts.stools) for (let k = 0; k < opts.stools; k++) tableStool(seats, -w / 2 + 0.5 + k * (w - 1) / (opts.stools - 1), d / 2 + 0.55, Math.PI);
     if (opts.rack) chipRack(g, 0, -d / 2 + 0.25);
     blob(cx, cz, w + 1.2, d + 1.6);
-    L.colliders.push({ x0: cx - w / 2 - 0.18, z0: cz - d / 2 - 0.18, x1: cx + w / 2 + 0.18, z1: cz + d / 2 + 0.18 });
+    const bodyCollider = { x0: cx - w / 2 - 0.18, z0: cz - d / 2 - 0.18, x1: cx + w / 2 + 0.18, z1: cz + d / 2 + 0.18 };
+    L.colliders.push(bodyCollider);
     if (opts.stools) for (let k = 0; k < opts.stools; k++) { const sx = cx - w / 2 + 0.5 + k * (w - 1) / (opts.stools - 1), sz = cz + d / 2 + 0.55; L.colliders.push({ x0: sx - 0.24, z0: sz - 0.24, x1: sx + 0.24, z1: sz + 0.24 }); }
-    return { g, w, d, cx, cz };
+    return { g, seats, bodyCollider, w, d, cx, cz };
   };
   const roulette = (o) => {
     const t = tableBase(o, 'roulette', { stools: 3 });
+    // The approved Blender model is the table itself. Keep the existing seats
+    // and the live result display as independent furnishings.
+    const furnishings = new THREE.Group(); furnishings.position.copy(t.g.position);
+    furnishings.name = 'roulette-furnishings:' + o.id;
+    furnishings.userData.dynamic = true;
+    furnishings.userData.room = 'tables';
+    furnishings.add(t.seats); root.add(furnishings);
+    L.blenderModels.push(furnishings);
     const wx = -t.w / 2 + 0.85;
     t.g.add(cyl(0.68, 0.72, 0.1, std('wheelSide', { color: 0x3b2412 }), wx, 0.97, 0, 48));
     const wheel = cyl(0.6, 0.62, 0.16, [std('wheelSide', { color: 0x3b2412 }), new THREE.MeshStandardMaterial({ map: wheelTex, roughness: 0.6 }), std('wheelSide', { color: 0x3b2412 })], wx, 1.02, 0, 48);
@@ -286,7 +302,7 @@ export function buildLevel(scene, state) {
     t.g.add(cyl(0.02, 0.03, 0.12, chrome, 0.95, 1.0, 0.1, 8));
     const hb = historyBoardTexture(); L.rouletteBoards.push(hb);
     const px = t.w / 2 + 0.6, pz = -t.d / 2 - 0.4;
-    t.g.add(cyl(0.03, 0.04, 2.2, chrome, px, 1.1, pz, 8)); t.g.add(box(1.3, 0.72, 0.06, black, px, 2.45, pz)); t.g.add(plane(1.24, 0.66, new THREE.MeshBasicMaterial({ map: hb.texture, toneMapped: false }), px, 2.45, pz + 0.035));
+    furnishings.add(cyl(0.03, 0.04, 2.2, chrome, px, 1.1, pz, 8)); furnishings.add(box(1.3, 0.72, 0.06, black, px, 2.45, pz)); furnishings.add(plane(1.24, 0.66, new THREE.MeshBasicMaterial({ map: hb.texture, toneMapped: false }), px, 2.45, pz + 0.035));
     root.add(t.g); return t;
   };
   for (const o of OBJECTS) {
@@ -607,7 +623,7 @@ export function buildLevel(scene, state) {
   }
   L.lightSpots.forEach(l => { if (Math.abs(l.x - 1600 * S) < 0.5 && Math.abs(l.z - 540 * S) < 0.5) l.y = 3.2; });
 
-  loadBlenderCasinoProps(root, { blackjack: blenderBlackjack, roulette: blenderRoulette, slots: blenderSlots });
+  L.blenderReady = loadBlenderCasinoProps(root, { blackjack: blenderBlackjack, roulette: blenderRoulette, slots: blenderSlots, models: L.blenderModels });
   L.root = root;
   return L;
 }

@@ -145,13 +145,26 @@ jeu toujours pris sur le réseau quand il est joignable). Si un fichier de
 
 Les éléments les plus visibles de la salle des tables sont aussi modélisés dans
 Blender : les tables de blackjack, les roulettes européennes et les trois
-machines spéciales. Le fichier source est conservé dans
-`assets/models/casino_props.blend` et les versions optimisées pour le navigateur
-sont les trois fichiers `.glb` voisins. Pour les régénérer avec Blender 5.2 LTS :
+machines spéciales. Les sources du blackjack et des machines sont conservées dans
+`assets/models/casino_props.blend`. Pour les régénérer avec Blender 5.2 LTS :
 
 ```
 /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/generate_blender_models.py
 ```
+
+Les deux roulettes utilisent le modèle validé d’après les quatre références,
+conservé dans `art/roulette-v2/roulette-reference.blend`. Son export est copié
+à l’identique dans `assets/models/roulette-reference-v2.glb` (4,45 Mo), avec une
+échelle uniforme pour conserver la roue circulaire. Les sièges et les écrans
+des derniers résultats restent des éléments du niveau. Pour le reconstruire :
+
+```sh
+/Applications/Blender.app/Contents/MacOS/Blender --background --python tools/roulette_reference.py -- --render
+cp art/roulette-v2/roulette-reference.glb assets/models/roulette-reference-v2.glb
+```
+
+Le premier générateur conserve son ancien export de roulette comme archive ;
+le jeu charge uniquement la version `roulette-reference-v2.glb`.
 
 `js/g3/blender-assets.js` les charge après le décor de base. En cas d’échec de
 téléchargement, les éléments procéduraux déjà présents restent affichés et le

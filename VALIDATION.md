@@ -92,3 +92,18 @@ valident les transitions et paiements, pas une certification de jeu d’argent.
   console. Le parcours couvre les pièces, 29 objets, les jeux, les machines
   spéciales, les personnages, les événements, les deux soirées, le quiz et
   l’épilogue.
+
+## Roulette validée — intégration du 21 septembre 2026
+
+- Les deux tables chargent `assets/models/roulette-reference-v2.glb`, identique
+  octet pour octet au modèle approuvé dans `art/roulette-v2/` (SHA-256 vérifié).
+  Chaque instance conserve une échelle uniforme et ses 10 groupes de matériaux.
+- `tools/browser-roulette-model.cjs` : téléchargement retardé puis réussi, et
+  téléchargement en échec. Dans les deux scénarios, une partie complète est
+  jouée depuis chacune des deux tables, sans erreur JavaScript. Les sièges et
+  les écrans restent présents. Le décor de secours reste intact pendant le
+  chargement, puis disparaît seulement si le modèle est disponible.
+- Inspection des captures du modèle intégré et du décor de secours dans la
+  salle ; aucune ancienne table superposée au modèle validé.
+- `npm test` : **24/24 tests réussis** ; vérification syntaxique des trois
+  modules 3D modifiés et `git diff --check` réussis.
