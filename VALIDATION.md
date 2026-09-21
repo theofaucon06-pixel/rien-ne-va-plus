@@ -134,3 +134,15 @@ valident les transitions et paiements, pas une certification de jeu d’argent.
   chaud ajusté. Les quatre modèles GLB chargent à HTTP 200 ; les trois blackjacks,
   deux roulettes et trois machines spéciales restent présents.
 - **24/24 tests Node réussis**, syntaxe des modules et `git diff --check` vérifiés.
+
+## Correction de l’éclairage de façade — 21 septembre 2026
+
+- Les six anciennes sources lumineuses s’éteignent après le chargement du
+  modèle ; elles restent actives si le téléchargement échoue. Le recyclage
+  des lumières applique désormais aussi une intensité nulle.
+- Reflets des matériaux et spots de façade réduits ; les projecteurs au pied
+  de l’entrée ont été retirés. Captures inspectées en qualité haute avec HDR
+  et halos, puis en qualité basse : pierre et enseigne lisibles sans voile blanc.
+- `tools/browser-facade.cjs` réussit dans les deux scénarios de chargement,
+  avec vérification des anciennes lumières, portes, collisions et traversée
+  dans les deux sens. Aucune erreur JavaScript ; **24/24 tests Node réussis**.

@@ -10,19 +10,23 @@ async (page) => {
       await game.waitForFunction(()=>!!window.__game?.renderer);
       const loaded=await game.evaluate(async()=>{
         const {L}=window.__game, status=(await L.blenderReady).map(r=>r.status);
-        return {status,facade:!!L.dynamic.facade,fallback:L.root.getObjectByName('facade-fallback').visible};
+        return {status,facade:!!L.dynamic.facade,fallback:L.root.getObjectByName('facade-fallback').visible,oldLightsActive:L.lightSpots.filter(l=>l.facadeFallback&&l.intensity>0).length};
       });
       if (loaded.facade===fail || loaded.fallback!==fail || loaded.status.filter(s=>s==='rejected').length!==(fail?1:0)) throw Error('Invalid facade load: '+JSON.stringify(loaded));
+      if (fail ? loaded.oldLightsActive!==6 : loaded.oldLightsActive!==0) throw Error('Fallback lights outlive their visible fixtures');
       await game.getByRole('button',{name:'Explorer en solo ↗'}).click();
       await game.locator('.story-line').waitFor();
       for(let i=0;i<12&&!await game.evaluate(()=>window.__game.state.started);i++) {await game.keyboard.press('Enter');await game.waitForTimeout(120);}
       await game.evaluate(()=>{
-        const {player,camera,quality}=window.__game;player.setPosition(38,1.9,Math.PI);camera.lookAt(38,2.25,8);quality.set(3,false);
+        const {player,camera,quality}=window.__game;player.setPosition(38,1.9,Math.PI);camera.lookAt(38,2.25,8);quality.set(1,false);
       });
       await game.waitForTimeout(4200);
       if (!fail) {
         if (await game.evaluate(()=>window.__game.L.dynamic.facade.userData.doorOpen)) throw Error('Doors open from too far away');
         await game.screenshot({path:'output/playwright/facade-closed.png'});
+        await game.evaluate(()=>window.__game.quality.set(3,false));
+        await game.waitForTimeout(300);
+        await game.screenshot({path:'output/playwright/facade-ldr.png'});
         await game.evaluate(()=>window.__game.player.setPosition(38,6.9,Math.PI));
         await game.waitForFunction(()=>window.__game.L.dynamic.facade.userData.doorOpen===true);
         const geometry=await game.evaluate(()=>{

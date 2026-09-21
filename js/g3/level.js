@@ -582,7 +582,7 @@ export function buildLevel(scene, state) {
   root.add(box(3.2, 0.08, 1.4, velvet, 1520 * S, 2.35, 320 * S - 0.8)); root.add(box(3.2, 0.12, 0.08, gold, 1520 * S, 2.3, 320 * S - 1.5));
   for (let k = 0; k < 4; k++) root.add(cyl(0.02, 0.02, 0.5, gold, 1520 * S - 1.5 + k, 2.6, 320 * S - 1.45, 6));
   root.add(box(1.6, 0.02, 4.6, velvet, 1520 * S, 0.01, 350 * S));
-  [1380, 1660, 900, 2200, 2700].forEach(x => { root.add(box(0.2, 0.35, 0.2, darkMetal, x * S, 2.6, 320 * S - 0.15)); root.add(box(0.14, 0.2, 0.14, basic('lantern', { color: 0xffd9a0, toneMapped: false }), x * S, 2.6, 320 * S - 0.16)); L.lightSpots.push({ x: x * S, y: 2.6, z: 320 * S - 0.6, color: new THREE.Color(0xffd9a0), intensity: 22, distance: 8 }); });
+  [1380, 1660, 900, 2200, 2700].forEach(x => { root.add(box(0.2, 0.35, 0.2, darkMetal, x * S, 2.6, 320 * S - 0.15)); root.add(box(0.14, 0.2, 0.14, basic('lantern', { color: 0xffd9a0, toneMapped: false }), x * S, 2.6, 320 * S - 0.16)); L.lightSpots.push({ x: x * S, y: 2.6, z: 320 * S - 0.6, color: new THREE.Color(0xffd9a0), intensity: 22, distance: 8, facadeFallback: true }); });
   for (const child of [...root.children]) if (!facadeBefore.has(child)) facadeFallback.add(child);
   for (const x of [520, 900, 1900, 2400, 2800]) { const lx = x * S, lz = 150 * S; root.add(cyl(0.05, 0.08, 4.5, darkMetal, lx, 2.25, lz, 10)); root.add(box(0.5, 0.08, 0.3, darkMetal, lx, 4.5, lz)); root.add(box(0.4, 0.05, 0.22, basic('lampbulb', { color: 0xffe0a8, toneMapped: false }), lx, 4.44, lz)); L.colliders.push({ x0: lx - 0.1, z0: lz - 0.1, x1: lx + 0.1, z1: lz + 0.1 }); blob(lx, lz, 0.8); }
   [[700, 0x8d2f2f, false], [1150, 0x2f4f8d, false], [1700, 0xf5c518, true], [2100, 0x3a3a3a, false], [2650, 0x6f6f6f, false]].forEach(([x, c, taxi]) => {
@@ -636,7 +636,7 @@ export function buildLevel(scene, state) {
   for (const li of LIGHTS) {
     if (li.slot) continue;
     const barPendant = li.y === 1075; const hallChand = li.x === 1600 && li.y === 540;
-    L.lightSpots.push({ x: li.x * S, y: li.aisle ? CEIL.machines - 0.3 : barPendant ? 2.2 : (li.y < 320 ? 4.3 : 2.4), z: li.y * S, color: new THREE.Color(li.color), intensity: li.a * 42 * (li.color === '#ff4d6d' ? 1.4 : 1) * (li.y > 1368 && li.x < 2000 ? 1.8 : 1) * (barPendant ? 0.35 : 1) * (hallChand ? 0.7 : 1), distance: li.r * S * 2.6, neon: li.color === '#ff4d6d' });
+    L.lightSpots.push({ x: li.x * S, y: li.aisle ? CEIL.machines - 0.3 : barPendant ? 2.2 : (li.y < 320 ? 4.3 : 2.4), z: li.y * S, color: new THREE.Color(li.color), intensity: li.a * 42 * (li.color === '#ff4d6d' ? 1.4 : 1) * (li.y > 1368 && li.x < 2000 ? 1.8 : 1) * (barPendant ? 0.35 : 1) * (hallChand ? 0.7 : 1), distance: li.r * S * 2.6, neon: li.color === '#ff4d6d', facadeFallback: li.x === 1520 && li.y === 300 });
   }
   L.lightSpots.forEach(l => { if (Math.abs(l.x - 1600 * S) < 0.5 && Math.abs(l.z - 540 * S) < 0.5) l.y = 3.2; });
 
