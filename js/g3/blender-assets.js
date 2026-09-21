@@ -67,7 +67,7 @@ function installSlots(root, template, targets, models) {
 /** Stream detailed Blender assets after the low-cost procedural casino is ready. */
 export function loadBlenderCasinoProps(root, { blackjack = [], roulette = [], slots = [], models = [] } = {}) {
   const requests = [];
-  if (blackjack.length) requests.push(getAsset('assets/models/blackjack_table.glb').then(model => installTables(root, model, blackjack, 'tables', models)));
+  if (blackjack.length) requests.push(getAsset('assets/models/blackjack-reference-v2.glb').then(model => installTables(root, model, blackjack, 'tables', models, { proportional: true, name: 'BlackjackTable' })));
   if (roulette.length) requests.push(getAsset('assets/models/roulette-reference-v2.glb').then(model => installTables(root, model, roulette, 'tables', models, { proportional: true, name: 'EuropeanRouletteTable' })));
   if (slots.length) requests.push(getAsset('assets/models/luxury_slot_machine.glb').then(model => installSlots(root, model, slots, models)));
   return Promise.allSettled(requests);
