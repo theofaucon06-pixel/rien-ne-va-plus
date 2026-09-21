@@ -1,0 +1,9 @@
+{
+  "betting_positions": 7,
+  "chip_channels": 12,
+  "pedestals": 2,
+  "triangles": 39152,
+  "materials": 9,
+  "glb_bytes": 2691888,
+  "asset": "assets/models/blackjack-reference-v2.glb"
+}

@@ -107,3 +107,14 @@ valident les transitions et paiements, pas une certification de jeu d’argent.
   salle ; aucune ancienne table superposée au modèle validé.
 - `npm test` : **24/24 tests réussis** ; vérification syntaxique des trois
   modules 3D modifiés et `git diff --check` réussis.
+
+## Blackjack de référence — 21 septembre 2026
+
+- Modèle généré dans Blender 5.2.2 : source native, deux rendus inspectés et
+  export GLB de 2,69 Mo, 39 152 triangles et neuf groupes de matériaux.
+- `tools/browser-blackjack-model.cjs` : trois modèles, proportions uniformes,
+  quinze sièges conservés ; une main complète sur chacune des trois tables,
+  puis les mêmes vérifications avec un téléchargement en échec. Six mains
+  terminées sans erreur JavaScript. Capture dans le casino inspectée.
+- `npm test` : **24/24 réussis**. Syntaxe des modules modifiés et
+  `git diff --check` vérifiés. Les règles et paiements restent inchangés.

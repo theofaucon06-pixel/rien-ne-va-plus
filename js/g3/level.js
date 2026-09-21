@@ -348,7 +348,15 @@ export function buildLevel(scene, state) {
         [[-0.3, -0.2], [-0.15, -0.22], [0.5, 0.1], [0.9, -0.1]].forEach(([x, z], k) => { const c = box(0.12, 0.004, 0.17, cardMat, x, 0.935, z); c.rotation.y = (k * 0.7) % 0.5; t.g.add(c); });
         if (o.type !== 'viptable') t.g.add(box(0.28, 0.1, 0.18, black, t.w / 2 - 0.35, 0.98, -t.d / 2 + 0.25));
         if (o.type === 'poker') { t.g.add(plane(1.2, 0.3, new THREE.MeshBasicMaterial({ map: textTexture('TOURNOI · MINUIT', { w: 512, h: 128, font: 'bold 60px Inter, sans-serif', color: '#ffd98a', bg: '#101018' }), toneMapped: false, side: THREE.DoubleSide }), 0, 1.5, 0)); t.g.add(cyl(0.02, 0.02, 0.6, chrome, 0, 1.2, 0, 8)); }
-        root.add(t.g); if (o.type === 'blackjack') blenderBlackjack.push(t); hitSize = o.label ? [t.w + 0.4, 1.6, t.d + 0.4] : null;
+        root.add(t.g);
+        if (o.type === 'blackjack') {
+          // The reference table contains no seats; retain the level's seating.
+          const seats = new THREE.Group(); seats.name = 'blackjack-seats:' + o.id;
+          seats.position.copy(t.g.position); seats.userData.dynamic = true; seats.userData.room = 'tables';
+          seats.add(t.seats); root.add(seats); L.blenderModels.push(seats);
+          blenderBlackjack.push(t);
+        }
+        hitSize = o.label ? [t.w + 0.4, 1.6, t.d + 0.4] : null;
         break;
       }
       case 'craps': {
