@@ -65,13 +65,42 @@ function installSlots(root, template, targets, models) {
 }
 
 /** Stream detailed Blender assets after the low-cost procedural casino is ready. */
-export function loadBlenderCasinoProps(root, { blackjack = [], roulette = [], slots = [], models = [], facade } = {}) {
+export function loadBlenderCasinoProps(root, { blackjack = [], roulette = [], slots = [], models = [], facade, hall } = {}) {
   const requests = [];
   if (blackjack.length) requests.push(getAsset('assets/models/blackjack-reference-v2.glb').then(model => installTables(root, model, blackjack, 'tables', models, { proportional: true, name: 'BlackjackTable' })));
   if (roulette.length) requests.push(getAsset('assets/models/roulette-reference-v2.glb').then(model => installTables(root, model, roulette, 'tables', models, { proportional: true, name: 'EuropeanRouletteTable' })));
   if (slots.length) requests.push(getAsset('assets/models/luxury_slot_machine.glb').then(model => installSlots(root, model, slots, models)));
   if (facade) requests.push(getAsset('assets/models/casino-facade-v1.glb').then(model => installFacade(root, model, facade, models)));
+  if (hall) requests.push(getAsset('assets/models/casino-hall-v1.glb').then(model => installHall(root, model, hall, models)));
   return Promise.allSettled(requests);
+}
+
+function installHall(root, template, { fallback, level: L }, models) {
+  const model = clone(template, 'hall'); model.name = 'CasinoHall';
+  model.position.set(40, 0, 13.5);
+  const water = model.getObjectByName('FountainWater'), rotor = model.getObjectByName('FortuneRotor');
+  if (!water || !rotor) throw new Error('Hall export is missing its animated fountain or wheel');
+  model.traverse(node => {
+    if (!node.isMesh) return;
+    const mat = node.material;
+    mat.envMapIntensity = mat.metalness > .5 ? .42 : .22;
+    if (mat.name === 'Hall noir marble' || mat.name === 'Hall walnut') mat.envMapIntensity = .65;
+    // Preserve the dark wood grain under the game's much softer night lighting.
+    if (mat.name === 'Hall walnut') mat.color.setScalar(2);
+    if (mat.name === 'Hall warm lamps') mat.emissiveIntensity = 1.15;
+    if (mat.transparent) mat.depthWrite = false;
+  });
+  // The room shares the existing furniture footprints and all four doorways.
+  // Gameplay hit targets and colliders stay outside the replaceable decoration.
+  root.add(model); models.push(model); L.dynamic.hall = model; fallback.visible = false;
+  for (const light of L.lightSpots) if (light.hallFallback) light.intensity = 0;
+  for (const [x,z,intensity] of [[40,13.5,12],[36.1,10.8,8],[43.9,10.8,8],[36.1,16.6,8],[43.9,16.6,8]]) {
+    L.lightSpots.push({ x, y:3.35, z, color:new THREE.Color(0xffdfb1), intensity, distance:8, room:'hall' });
+  }
+  L.updaters.push(Object.assign((t) => {
+    rotor.rotation.z = t * .12;
+    water.rotation.y = t * .035;
+  }, { room:'hall' }));
 }
 
 function installFacade(root, template, { fallback, walls, level: L, state }, models) {
