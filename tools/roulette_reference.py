@@ -382,7 +382,7 @@ triangles=0
 for obj in asset.objects:
     if obj.type=='MESH':
         data=obj.evaluated_get(deps).to_mesh();data.calc_loop_triangles();triangles+=len(data.loop_triangles);obj.evaluated_get(deps).to_mesh_clear()
-manifest={'dimensions_m':[4.55,2.046,1.292],'wheel_order':ORDER,'numbered_pockets':37,'pedestals':2,'triangles':triangles,'glb_bytes':(OUT/'roulette-reference.glb').stat().st_size,'render_samples':args.samples,'source':'Four user supplied reference views; original modeled geometry and generated walnut texture.','status':'Review model; not integrated into the production casino.'}
+manifest={'dimensions_m':[4.55,2.046,1.292],'wheel_order':ORDER,'numbered_pockets':37,'pedestals':2,'triangles':triangles,'glb_bytes':(OUT/'roulette-reference.glb').stat().st_size,'render_samples':args.samples,'source':'Four user supplied reference views; original modeled geometry and generated walnut texture.','status':'Approved model; integrated at both casino roulette tables via assets/models/roulette-reference-v2.glb.'}
 (OUT/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 if args.render:
     for name,cam in views:

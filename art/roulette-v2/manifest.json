@@ -49,5 +49,5 @@
   "glb_bytes": 4445428,
   "render_samples": 32,
   "source": "Four user supplied reference views; original modeled geometry and generated walnut texture.",
-  "status": "Review model; not integrated into the production casino."
+  "status": "Approved model; integrated at both casino roulette tables via assets/models/roulette-reference-v2.glb."
 }

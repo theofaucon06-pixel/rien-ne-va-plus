@@ -261,6 +261,7 @@ function frame() {
   const r = roomAt(state.player.x, state.player.y);
   const rid = r ? r.id : null;
   if (rid !== curRoomId) { curRoomId = rid; visibleSet = applyRoomVisibility(chunks.byRoom, rid); updateLights(t, true); }
+  for (const model of L.blenderModels) model.visible = visibleSet.has(model.userData.room);
   fogTarget = !r || r.outdoor ? (state.flags.exited ? 0.008 : 0.016) : r.id === 'machines' ? 0.045 : r.id === 'labyrinth' ? 0.055 : 0.03;
   scene.fog.density += (fogTarget - scene.fog.density) * 0.05;
   scene.fog.color.setHex(!r || r.outdoor ? (state.flags.exited ? 0x6b5570 : 0x07080f) : 0x07080f);

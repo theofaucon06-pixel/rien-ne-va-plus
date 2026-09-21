@@ -1,6 +1,6 @@
 # Roulette — étude à partir des quatre références
 
-Proposition isolée, destinée à être examinée avant une intégration au casino.
+Modèle validé par l’utilisateur et intégré aux deux roulettes du casino.
 Elle reprend le plateau arrondi, les panneaux de cuir noir, la ceinture en
 noyer, les deux pieds tournés et la cuvette creusée des références fournies.
 Les proportions sont estimées à partir des images, sans plans cotés.
@@ -10,8 +10,8 @@ police installée.
 
 - `roulette-reference.blend` : scène native, textes et courbes modifiables,
   texture de noyer incorporée, matériaux et quatre caméras de studio.
-- `roulette-reference.glb` : export pour examiner le modèle dans un navigateur,
-  regroupé par matériau. Aucun changement aux modèles du jeu en production.
+- `roulette-reference.glb` : export regroupé par matériau, copié à l’identique
+  dans `assets/models/roulette-reference-v2.glb` pour le jeu.
 - `01-perspective.png` à `04-cuir-bois.png` : rendus du vrai modèle dans Blender.
 - `preview.html` : modèle interactif, rotation, zoom et quatre points de vue.
 - `manifest.json` : ordre des cases, géométrie et taille de l’export.
@@ -35,8 +35,8 @@ le dossier de travail `art/`.
 Les éclairages du studio et du navigateur diffèrent. Le microrelief procédural
 du cuir et des fibres est présent dans Blender ; il n’est pas encore cuit en
 cartes de normales pour le GLB. La texture de noyer et les couleurs sont
-incorporées à l’export. Cette étape permet de valider forme et matières avant
-leur adaptation définitive au moteur du casino.
+incorporées à l’export. Le casino conserve les proportions du modèle avec une
+échelle uniforme, adapte les collisions et garde ses sièges et écrans de résultats.
 
 Vérifications : les quatre vues de la page interactive fonctionnent dans Chrome,
 sans erreur JavaScript. L’export est un GLB 2.0 autonome (texture incorporée),
