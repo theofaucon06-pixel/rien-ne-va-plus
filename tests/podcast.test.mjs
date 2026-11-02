@@ -276,7 +276,7 @@ test("publishing a recording switches the page to a real player and adds the epi
   } finally {
     ep.audio = before;
   }
-  assert.ok(renderEpisode(ep).includes('data-player="speech"'));
+  assert.equal(renderEpisode(ep).includes('data-player="speech"'), !hasAudio(ep));
 });
 
 test("an episode that is still `soon` never reaches the feed, even with audio", () => {
@@ -284,7 +284,7 @@ test("an episode that is still `soon` never reaches the feed, even with audio", 
   const before = ep.audio;
   try {
     ep.audio = { file: "assets/podcast/essai.mp3", bytes: 1, seconds: 1 };
-    assert.equal((renderFeed().match(/<item>/g) || []).length, 0);
+    assert.equal((renderFeed().match(/<item>/g) || []).length, live.filter(hasAudio).length);
     assert.ok(!buildAll().has(`podcast/${ep.slug}.html`));
     assert.ok(!renderIndex().includes(`/podcast/${ep.slug}`));
   } finally {

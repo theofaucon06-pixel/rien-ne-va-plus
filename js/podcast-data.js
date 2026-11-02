@@ -104,7 +104,7 @@ export const EPISODES = [
     themes: ['maths', 'psycho', 'histoires'],
     mechanics: ['avantage', 'memoire'],
     witnesses: ['wells'],
-    audio: null,
+    audio: { file: 'assets/podcast/01-la-bille-n-a-pas-de-memoire.mp3', bytes: 8107279, seconds: 494 },
     sections: [
       {
         h: 'Rien ne va plus',

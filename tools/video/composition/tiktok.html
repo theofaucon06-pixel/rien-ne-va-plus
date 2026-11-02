@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><title>Zéro Vert : composition verticale TikTok 1080×1920</title>
+<link rel="stylesheet" href="/css/podcast-fonts.css">
+<style>
+  html,body{margin:0;background:#0A0A0A;overflow:hidden;width:1080px;height:1920px}
+  #root{position:relative;width:1080px;height:1920px;overflow:hidden;background:#0A0A0A}
+  #root>svg{position:absolute;left:0;top:0;display:block}
+  /* la scène 16:9 (1920×1080) est mise à l'échelle par transform dans un cadre à coins doux : positions et échelle posées par tiktok.js */
+  #frame{position:absolute;overflow:hidden;background:#0A0A0A}
+  #scene{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+  #scene svg{display:block}
+</style>
+<script>
+  // le noyau lit ?nocaps=1 : les sous-titres intégrés de la scène 16:9 sont toujours coupés dans cette page
+  (function () { var u = new URL(location.href); if (!u.searchParams.get('nocaps')) { u.searchParams.set('nocaps', '1'); history.replaceState(null, '', u); } })();
+</script>
+</head>
+<body><div id="root">
+  <svg id="back" width="1080" height="1920" viewBox="0 0 1080 1920"></svg>
+  <div id="frame"><div id="scene"><div id="stage"></div></div></div>
+  <svg id="front" width="1080" height="1920" viewBox="0 0 1080 1920"></svg>
+</div>
+<script src="/tools/video/composition/lib.js"></script>
+<script src="/tools/video/composition/tiktok.js"></script>
+<script src="/tools/video/composition/core.js"></script>
+</body></html>
