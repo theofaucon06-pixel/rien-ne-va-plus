@@ -89,6 +89,50 @@ sert uniquement le jeu solo.
 - Sauvegarde uniquement après le démarrage, à la sortie et toutes les 15 secondes.
   La reprise en 3D restaure aussi la position et la direction de la caméra.
 
+## Le podcast — La Maison Gagne
+
+Un podcast de prévention par le récit, dans l'univers du jeu : dix épisodes (une
+bande-annonce et neuf épisodes) qui prennent chacun un mécanisme réel et une
+personne réelle, avec leurs sources. Il vit à l'adresse `/podcast`, sur le même
+site, sans dépendance ni étape de build au chargement.
+
+- `podcast/` : pages **générées** (accueil, un fichier par épisode, `feed.xml`). Ne pas les éditer à la main.
+- `js/podcast-data.js` : **la seule source** : fiche du podcast, textes, thèmes, ids des mécanismes et des témoins.
+  Les références viennent de `js/content.js` (`SOURCES`) : un épisode ne liste que les ids qu'il utilise.
+- `tools/podcast-render.mjs` et `tools/build-podcast.mjs` : le générateur.
+- `css/podcast.css`, `js/podcast.js` : le style et le lecteur.
+- `assets/podcast/cover.svg` (dessinée par `tools/podcast-cover.mjs`) et `cover.png`.
+
+Après toute modification de `js/podcast-data.js` :
+
+```
+npm run podcast      # régénère podcast/, feed.xml et la pochette SVG
+npm test             # vérifie que les pages sont à jour, les liens, le flux RSS, les calculs cités
+```
+
+**Écoute.** Tant qu'un épisode n'a pas d'enregistrement, sa page propose le texte
+complet et une *lecture vocale* par la voix du navigateur (Web Speech API), paragraphe
+par paragraphe, avec reprise là où tu t'étais arrêté. C'est un substitut, pas un enregistrement.
+
+**Publier un enregistrement.** Dépose le fichier mp3 dans `assets/podcast/` (par exemple `01-la-bille.mp3`)
+puis renseigne l'épisode dans `js/podcast-data.js` :
+
+```js
+audio: { file: 'assets/podcast/01-la-bille.mp3', bytes: 3456789, seconds: 215 },
+```
+
+Relance `npm run podcast`. La page affiche alors un vrai lecteur audio (vitesse, ±, position retenue)
+et le flux `feed.xml` ajoute l'épisode avec son fichier et un lien vers la transcription.
+Il n'existe pas d'épisode dans le flux sans audio : les plateformes n'acceptent que des fichiers.
+
+**S'inscrire dans les annuaires.** Une fois le premier mp3 publié, soumets `https://rien-ne-va-plus.vercel.app/podcast/feed.xml`
+à Apple Podcasts Connect, Spotify for Creators, etc. Certains demandent une adresse e-mail de contact
+du propriétaire : elle n'est volontairement pas écrite dans le flux, elle se saisit dans leur formulaire.
+Ajoute ensuite leurs liens dans la section « S'abonner » (`tools/podcast-render.mjs`).
+
+Les personnages sont toujours annoncés comme *réels*, *composites* ou *fictifs*, d'après `SOURCES` ;
+un test vérifie que le texte de l'épisode le dit aussi.
+
 ## Commandes
 
 | Touche | Action |

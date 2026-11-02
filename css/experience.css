@@ -75,6 +75,16 @@ button:disabled {
   padding: 8px 0;
   font-size: 12px;
 }
+.welcome-nav .nav-podcast {
+  color: inherit;
+  text-decoration: none;
+  font-size: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid transparent;
+}
+.welcome-nav .nav-podcast:hover {
+  border-bottom-color: #d1b078;
+}
 .edition {
   font-size: 9px;
   letter-spacing: 0.18em;

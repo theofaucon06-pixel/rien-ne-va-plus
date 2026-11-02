@@ -14,6 +14,7 @@ const MIME = {
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".webmanifest": "application/manifest+json",
+  ".xml": "application/rss+xml; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -478,8 +479,12 @@ export function createApp({
       }
       if (pathname === "/") pathname = "/index.html";
       if (pathname === "/classic") pathname = "/classic.html";
+      // The podcast pages are generated into /podcast: /podcast and /podcast/ are its home, /podcast/<slug> an episode.
+      if (pathname === "/podcast" || pathname === "/podcast/")
+        pathname = "/podcast/index.html";
+      else if (/^\/podcast\/[\w-]+$/.test(pathname)) pathname += ".html";
       if (
-        !/^\/(index\.html|classic\.html|manifest\.webmanifest|sw\.js|(?:js|css|assets|vendor)\/[\w./-]+)$/.test(
+        !/^\/(index\.html|classic\.html|manifest\.webmanifest|sw\.js|podcast\/[\w-]+\.(?:html|xml)|(?:js|css|assets|vendor)\/[\w./-]+)$/.test(
           pathname,
         ) ||
         pathname.split("/").some((p) => p.startsWith(".")) ||
