@@ -9,9 +9,9 @@
 // (serveur statique à la racine du dépôt, par ex. `python3 -m http.server 88NN` ; lit /output/video/data/timeline.json)
 (async () => {
   const q = new URLSearchParams(location.search);
-  const ids = ['wheel','felt','pocket-grid','division','chip-stacks','big-number','kinetic','chapter-card','newspaper','saga','pictos','coin-flips','paths','streak-board','last-numbers','doc-card','logo-reveal','end-card'];
+  const ids = ['wheel','felt','pocket-grid','division','chip-stacks','big-number','kinetic','chapter-card','newspaper','saga','pictos','coin-flips','paths','streak-board','last-numbers','doc-card','logo-reveal','end-card','slot-machine','ldw-meter','tick-grid','zone-tunnel','jackpot-screen','bit-overflow','rtp-bars'];
   await Promise.all(ids.map((id) => new Promise((res) => { const s = document.createElement('script'); s.src = `/tools/video/composition/components/${id}.js`; s.onload = s.onerror = res; document.head.appendChild(s); })));
-  const tl = await (await fetch('/output/video/data/timeline.json')).json();
+  const tl = await (await fetch(q.get('tl') || '/output/video/data/timeline.json')).json();
   const shot = tl.shots.find((s) => s.id === q.get('shot')) || tl.shots[0];
   const impl = ZV.REG[shot.component];
   const svg = ZV.sv('svg', { viewBox: '0 0 1920 1080' }, document.getElementById('stage'));

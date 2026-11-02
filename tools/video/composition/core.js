@@ -452,7 +452,7 @@
   /* ------------------------------------------------------------------ démarrage */
   const loadScript = (src) => new Promise((res) => { const s = document.createElement('script'); s.src = src; s.onload = () => res(true); s.onerror = () => res(false); document.head.appendChild(s); });
   async function boot() {
-    TL = await (await fetch((CFG && CFG.timelineUrl) || '/output/video/data/timeline.json', CFG && CFG.timelineUrl ? {} : { cache: 'no-store' })).json();
+    TL = await (await fetch((CFG && CFG.timelineUrl) || new URLSearchParams(location.search).get('tl') || '/output/video/data/timeline.json', CFG && CFG.timelineUrl ? {} : { cache: 'no-store' })).json();
     FPS = (TL.video && TL.video.fps) || 30;
     TOTAL = TL.total;
     const ids = [...new Set(TL.shots.map((s) => s.component))];

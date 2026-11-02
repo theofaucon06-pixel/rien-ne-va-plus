@@ -202,7 +202,7 @@ export const EPISODES = [
 
   {
     slug: 'la-zone',
-    status: 'soon',
+    status: 'published',
     number: 2,
     title: 'La zone',
     hook: 'Une joueuse qui déteste gagner, une machine qui fête tes pertes, et un jackpot de 42 millions à 2,25 $.',
@@ -211,7 +211,9 @@ export const EPISODES = [
     themes: ['psycho', 'histoires', 'lieux', 'maths'],
     mechanics: ['zone', 'ldw'],
     witnesses: ['mollie', 'bookman'],
-    audio: null,
+    audio: { file: 'assets/podcast/02-la-zone.mp3', bytes: 7819299, seconds: 489 },
+    experience: 'motion',
+    poster: 11.5,
     sections: [
       {
         h: 'Deux femmes, deux écrans',
@@ -230,7 +232,7 @@ export const EPISODES = [
         cap: 'Las Vegas, années 2000',
         big: 'LA ZONE',
         p: [
-          'Commençons par Las Vegas. Elle s’appelle Mollie. Enfin, c’est le nom qu’on lui donne. Mollie est une personne réelle, mais Mollie est un pseudonyme. C’est l’une des joueuses que l’anthropologue Natasha Dow Schüll a suivies pendant quinze ans, à Las Vegas. Le livre qui en est sorti, en 2012, s’appelle Addiction by Design. En gros : l’addiction, conçue exprès.',
+          'Commençons par Las Vegas. Elle s’appelle Mollie. Enfin, c’est le nom qu’on lui donne. Mollie est une personne réelle, mais Mollie est un pseudonyme. C’est l’une des joueuses que l’anthropologue Natasha Dow Schüll a suivies pendant quinze ans, à Las Vegas. Le livre qui en est sorti, en deux mille douze, s’appelle Addiction by Design. En gros : l’addiction, conçue exprès.',
           'Mollie travaille à l’accueil d’un hôtel, à deux rues du casino. Ses pauses, ses soirées, ses jours de repos, elle les passe au même endroit. Toujours la même machine : la troisième de la rangée. Si quelqu’un est assis dessus, elle attend qu’il parte. Pas une autre machine. Celle-là.',
           'Ce qu’elle raconte à Schüll retourne tout ce qu’on croit savoir sur le jeu. Mollie ne joue pas pour gagner. Elle joue pour entrer dans ce qu’elle appelle la zone. Un état où plus rien n’existe : ni l’heure, ni l’argent, ni son propre corps. Juste le tour suivant. Puis le suivant.',
           'Alors un gros gain, pour elle, c’est une panne. Il faut attendre qu’un employé arrive, signer un papier, sourire. Ensuite, elle rejoue tout, pour retrouver la zone. Le jackpot n’est pas la récompense. C’est l’interruption.',
@@ -245,7 +247,7 @@ export const EPISODES = [
           'Maintenant, regarde la machine depuis l’autre côté. Du côté de ceux qui la conçoivent. Le chiffre qui compte pour eux, ce n’est pas combien tu perds par tour. C’est combien de temps tu restes. L’industrie a un nom pour ça : le temps sur machine.',
           'Un tour toutes les trois secondes. Ça fait vingt tours par minute. Mille deux cents par heure. Pas de croupier à attendre, pas de bille qui roule, pas de pause entre deux parties. Un siège confortable. Et une main qui ne quitte jamais le bouton.',
           'Pour que la main reste sur le bouton, il y a le presque. Deux symboles gagnants alignés. Le troisième s’arrête juste au-dessus de la ligne. Tu l’avais presque. Sauf que les machines affichent ces presque plus souvent que le hasard ne le ferait. Ils ne tombent pas par accident. Ils font partie du réglage.',
-          'Les chercheurs s’y intéressent depuis longtemps. En 1986, un chercheur nommé Reid publie un article sur la psychologie du presque-gagné. En 2009, l’équipe de Luke Clark regarde ce qui se passe dans le cerveau des joueurs, et publie ses résultats dans la revue Neuron. Verdict : un presque-gagné active des circuits du cerveau liés au gain. Et il donne envie de rejouer.',
+          'Les chercheurs s’y intéressent depuis longtemps. En mille neuf cent quatre-vingt-six, un chercheur nommé Reid publie un article sur la psychologie du presque-gagné. En deux mille neuf, l’équipe de Luke Clark regarde ce qui se passe dans le cerveau des joueurs, et publie ses résultats dans la revue Neuron. Verdict : un presque-gagné active des circuits du cerveau liés au gain. Et il donne envie de rejouer.',
           'Relis bien. Un presque-gagné, c’est une perte. Ton crédit baisse. Mais ton cerveau le range dans la case encouragement. C’est comme un prof qui te rend une copie à zéro sur vingt, avec écrit en rouge : presque ! Et toi, tu repars motivé.'
         ]
       },
@@ -257,7 +259,7 @@ export const EPISODES = [
           'Deuxième tour de magie. Celui-là a été mesuré à l’université de Waterloo. Pas la bataille. L’université.',
           'Une machine moderne joue plusieurs lignes à la fois. Disons vingt. Tu mises deux euros par tour, dix centimes par ligne. Les rouleaux tournent. Une ligne gagne : quatre-vingts centimes. Et là, tout s’allume. Ça sonne, ça clignote, l’écran affiche gain en lettres d’or.',
           'Fais le compte. Tu as misé deux euros. Tu en récupères quatre-vingts centimes. Tu viens de perdre un euro vingt. Avec une fanfare. À la roulette, quand tu perds, le croupier ratisse tes jetons et personne ne joue de la trompette. Ici, on t’applaudit pendant qu’on te fait les poches.',
-          'Ce tour a un nom : les pertes déguisées en gains. Mike Dixon et ses collègues le décrivent en 2010, dans la revue Addiction. Ils mesurent les réactions du corps des joueurs pendant ces faux gains. Résultat : le corps s’emballe presque comme pour un vrai gain. Et après la séance, les joueurs surestiment le nombre de fois où ils ont gagné.',
+          'Ce tour a un nom : les pertes déguisées en gains. Mike Dixon et ses collègues le décrivent en deux mille dix, dans la revue Addiction. Ils mesurent les réactions du corps des joueurs pendant ces faux gains. Résultat : le corps s’emballe presque comme pour un vrai gain. Et après la séance, les joueurs surestiment le nombre de fois où ils ont gagné.',
           'Logique. Ta mémoire ne retient pas le compteur. Elle retient la musique. Une soirée pleine de fanfares ressemble à une soirée de gagnant, même quand le solde dit le contraire.',
           'Le seul témoin honnête dans tout ce vacarme, c’est le compteur de crédits, en bas de l’écran. Lui ne danse pas. Lui ne chante pas. Il descend.'
         ]
@@ -267,10 +269,10 @@ export const EPISODES = [
         cap: 'Queens, 23 août 2016',
         big: '42 949 672',
         p: [
-          'Retour dans le Queens. Le 23 août 2016, au Resorts World Casino. Katrina Bookman joue sur une machine à un cent. Et l’écran s’arrête sur ce nombre : 42 949 672 dollars et 76 cents. Elle se prend en photo devant. Elle pense à ses quatre enfants. À la maison qu’elle va pouvoir acheter. Le personnel la raccompagne et lui dit de revenir le lendemain.',
+          'Retour dans le Queens. Le vingt-trois août deux mille seize, au Resorts World Casino. Katrina Bookman joue sur une machine à un cent. Et l’écran s’arrête sur ce nombre : quarante-deux millions neuf cent quarante-neuf mille six cent soixante-douze dollars et soixante-seize cents. Elle se prend en photo devant. Elle pense à ses quatre enfants. À la maison qu’elle va pouvoir acheter. Le personnel la raccompagne et lui dit de revenir le lendemain.',
           'Le lendemain, changement d’ambiance. Le casino parle de dysfonctionnement. D’après lui, cette machine ne pouvait pas payer plus de six mille cinq cents dollars. Et le règlement, imprimé en petit sur la machine, dit qu’une panne annule tous les paiements et toutes les parties.',
           'Ce qu’on lui propose à la place : ce que son tour avait vraiment rapporté. Deux dollars vingt-cinq. Plus un repas. Un steak. Elle porte plainte contre le casino, et l’histoire fait le tour de la presse, jusqu’au journal britannique The Guardian.',
-          'Et ce nombre bizarre ? Il ne tombe pas du ciel. Prends deux puissance trente-deux, compte-le en centimes : ça fait 42 949 672 dollars et 96 cents. À vingt centimes près, le jackpot de Katrina. Or deux puissance trente-deux, c’est pile la limite d’un compteur informatique très courant. Bref, ça ressemble furieusement à un compteur qui déborde. Pas à un jackpot.',
+          'Et ce nombre bizarre ? Il ne tombe pas du ciel. Prends deux puissance trente-deux, compte-le en centimes : ça fait quarante-deux millions neuf cent quarante-neuf mille six cent soixante-douze dollars et quatre-vingt-seize cents. À vingt centimes près, le jackpot de Katrina. Or deux puissance trente-deux, c’est pile la limite d’un compteur informatique très courant. Bref, ça ressemble furieusement à un compteur qui déborde. Pas à un jackpot.',
           'Retiens la morale. L’écran affichait quarante-deux millions. Le règlement disait six mille cinq cents dollars maximum. Devine lequel le casino a écouté. Et note l’ironie : pour une fois, l’écran exagérait dans ton sens. D’habitude, c’est l’inverse. Il fait la fête pendant que tu perds.'
         ]
       },
@@ -279,7 +281,7 @@ export const EPISODES = [
         cap: 'Le zéro est dans le programme',
         big: '85 %',
         p: [
-          'Alors, où est la case verte, sur une machine ? Elle est dans le programme. Elle s’appelle le taux de redistribution : la part des mises rendue en moyenne. En France, d’après l’arrêté du 14 mai 2007, il doit être d’au moins quatre-vingt-cinq pour cent. Traduction : la machine peut légalement garder jusqu’à quinze centimes par euro misé. À la roulette, le zéro en gardait 2,7. Ici, la case verte peut être plus de cinq fois plus grosse.',
+          'Alors, où est la case verte, sur une machine ? Elle est dans le programme. Elle s’appelle le taux de redistribution : la part des mises rendue en moyenne. En France, d’après l’arrêté du quatorze mai deux mille sept, il doit être d’au moins quatre-vingt-cinq pour cent. Traduction : la machine peut légalement garder jusqu’à quinze centimes par euro misé. À la roulette, le zéro en gardait deux virgule sept. Ici, la case verte peut être plus de cinq fois plus grosse.',
           'Maintenant, le temps. Un euro par tour, mille deux cents tours par heure : mille deux cents euros misés. Au minimum légal, il en reste en moyenne cent quatre-vingts à la maison. Par heure. Et pas besoin d’avoir cette somme sur toi : tes petits gains repartent dans la machine, qui en garde un morceau à chaque passage.',
           'Mollie savait quand elle sortait de la zone : quand il n’y avait plus de crédits. La machine ne cherche pas à te battre vite. Elle cherche à te garder.',
           'Prochain épisode : le système infaillible. Dostoïevski, persuadé d’avoir trouvé le secret de la roulette, et Anna, qui l’attendait dans la chambre.',

@@ -20,7 +20,7 @@ import { loadTiming, resolve as anchor } from '../lib/anchors.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = presolve(HERE, '../../..');
-const OUT = join(ROOT, 'output/video');
+const OUT = join(ROOT, 'output/video', process.env.ZV_EP || '');
 const DATA = join(OUT, 'data');
 const WORK = join(OUT, 'work/mix');
 const SFX_DIR = join(OUT, 'assets/sfx');
@@ -580,7 +580,13 @@ function duckingDepth(st, n, musicFile, ambFile) {
 // spectrogrammes et vues multi-pistes de 3 extraits
 function spectrograms(wav) {
   const R = [];
-  const spans = [
+  const EP = process.env.ZV_EP;
+  const total = timing.total;
+  const spans = EP ? [
+    { id: 'debut', title: 'Ouverture', a: 4, b: 44 },
+    { id: 'milieu', title: 'Milieu de l’épisode', a: Math.round(total * 0.5), b: Math.round(total * 0.5) + 40 },
+    { id: 'fin', title: 'Fin de l’épisode', a: total - 60, b: total - 14 }
+  ] : [
     { id: 'bienvenue', title: 'Bienvenue dans Zéro Vert', a: res({ s: 0, phrase: 'Ce podcast porte son nom', dt: -1 }) - 3, b: res({ s: 0, phrase: 'Zéro Vert', edge: 'end', dt: 1 }) + 7 },
     { id: 'division', title: 'Trente-six divisé par trente-sept', a: res({ s: 2, phrase: 'Bravo', dt: -3 }), b: res({ s: 2, phrase: 'centimes qui manquent', edge: 'end', dt: 3 }) },
     { id: 'revelation', title: 'La révélation des 26 noirs', a: res({ s: 4, phrase: 'L’histoire est racontée', dt: -4 }), b: res({ s: 4, phrase: 'pas de mémoire', edge: 'end', dt: 6 }) },
@@ -606,7 +612,7 @@ function writeReport({ masterRes, an, depth, evs, specs, timingInfo, aacInfo }) 
   const { out } = an;
   const L = [];
   const f1 = (x) => (Number.isFinite(x) ? x.toFixed(1) : '—');
-  L.push('# Rapport de mixage — Zéro Vert, épisode 1', '');
+  L.push(`# Rapport de mixage — Zéro Vert, épisode ${(process.env.ZV_EP || '').replace(/\D/g, '') || 1}`, '');
   L.push(`Généré par \`tools/video/sound/mix.mjs\` (${new Date().toISOString().slice(0, 16).replace('T', ' ')}), réglages dans \`tools/video/sound/mix-config.json\`.`, '');
   L.push('## Mesures finales (ffmpeg ebur128, vrai crête sur-échantillonnée)', '');
   const fn = masterRes ? masterRes.final : { I: NaN, peak: NaN, LRA: NaN };

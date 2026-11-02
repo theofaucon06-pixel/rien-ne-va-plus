@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SHOW, THEMES, EPISODES } from "../js/podcast-data.js";
 import { REVELATIONS, WITNESSES, SOURCES } from "../js/content.js";
-import { buildAll, renderFeed, renderEpisode, renderIndex, renderMotionBundle, minutes, hasAudio, publishedEpisodes, upcomingEpisodes } from "../tools/podcast-render.mjs";
+import { buildAll, renderFeed, renderEpisode, renderIndex, renderMotionBundle, motionComponents, minutes, hasAudio, publishedEpisodes, upcomingEpisodes } from "../tools/podcast-render.mjs";
 import { createApp } from "../server.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -263,11 +263,11 @@ test("the motion bundle and the timeline are committed and up to date", () => {
     const bundleFile = path.join(root, "js/episode-motion.js");
     const bundle = readFileSync(bundleFile, "utf8");
     assert.equal(bundle, renderMotionBundle(), "js/episode-motion.js is stale: run `npm run podcast`");
-    // lib + every component + prelude + core + player, in a fixed order, with the embed API
+    // lib + the components used by the timelines of ALL the motion episodes + prelude + core + player, in a fixed order, with the embed API
     const dir = path.join(root, "tools/video/composition");
-    const comps = readdirSync(path.join(dir, "components")).filter((f) => f.endsWith(".js"));
+    const comps = motionComponents();
     assert.ok(comps.length >= 15);
-    for (const f of ["lib.js", ...comps.map((c) => "components/" + c), "embed-prelude.js", "core.js", "embed-player.js"])
+    for (const f of ["lib.js", ...comps.map((c) => `components/${c}.js`), "embed-prelude.js", "core.js", "embed-player.js"])
       assert.ok(bundle.includes(readFileSync(path.join(dir, f), "utf8").trimEnd()), "bundle lacks " + f);
     assert.ok(bundle.indexOf("tools/video/composition/lib.js") < bundle.indexOf("tools/video/composition/core.js"));
     assert.ok(bundle.indexOf("embed-prelude.js") < bundle.indexOf("tools/video/composition/core.js"));
@@ -284,13 +284,36 @@ test("the motion bundle and the timeline are committed and up to date", () => {
     assert.ok(Math.abs(end - tl.total) < 0.01);
     assert.ok(readFileSync(path.join(root, pageOf(ep) ? `podcast/${ep.slug}.html` : ""), "utf8").includes(`data-timeline="/assets/podcast/${ep.slug}.timeline.json?v=`));
     // when the video pipeline's own output is here (it is git-ignored), the committed copy must be its compact twin
-    const src = path.join(root, "output/video/data/timeline.json");
+    // (episode 1: output/video/data/, episode N: output/video/epN/data/, the ZV_EP convention of tools/video)
+    const src = path.join(root, "output/video", ep.number > 1 ? `ep${ep.number}` : "", "data/timeline.json");
     if (existsSync(src)) {
       const full = JSON.parse(readFileSync(src, "utf8"));
       full.shots = full.shots.map(({ notes, ...s }) => s);
       assert.deepEqual(tl, full, "assets/podcast/*.timeline.json is stale: run `node tools/video/build-timeline.mjs`");
     }
   }
+});
+
+test("every motion episode is complete and its timeline matches it (any episode, not only the first)", () => {
+  for (const ep of motionEps) {
+    assert.ok(ep.audio && ep.audio.file && ep.audio.bytes > 0 && ep.audio.seconds > 0, `${ep.slug}: audio {file, bytes, seconds}`);
+    assert.equal(statSync(path.join(root, ep.audio.file)).size, ep.audio.bytes, `${ep.slug}: audio.bytes is the real file size`);
+    assert.equal(typeof ep.poster, "number", `${ep.slug}: poster is a time in seconds`);
+    const tl = JSON.parse(readFileSync(path.join(root, `assets/podcast/${ep.slug}.timeline.json`), "utf8"));
+    assert.ok(ep.poster >= 0 && ep.poster <= tl.total, `${ep.slug}: poster inside the timeline`);
+    assert.ok(Math.abs(tl.total - ep.audio.seconds) < 2, `${ep.slug}: timeline and audio have the same duration`);
+    assert.equal(tl.sections.length, ep.sections.length, `${ep.slug}: one timeline section per script section`);
+    // every component the timeline uses exists, so the bundle can draw it
+    const have = new Set(readdirSync(path.join(root, "tools/video/composition/components")).map((f) => f.replace(/\.js$/, "")));
+    for (const id of new Set(tl.shots.map((s) => s.component))) assert.ok(have.has(id), `${ep.slug}: component ${id} is missing`);
+    for (const id of motionComponents([ep])) assert.ok(renderMotionBundle([ep]).includes(`components/${id}.js ====`), `${ep.slug}: bundle lacks ${id}`);
+    assert.ok(pageOf(ep).includes(`data-slug="${ep.slug}"`));
+  }
+  // the bundle is the union of the components of every motion timeline; a component that does not exist yet is skipped, never an error
+  const fake = (ids) => () => ({ shots: ids.map((component) => ({ component })) });
+  assert.deepEqual(motionComponents([{ slug: "a" }, { slug: "b" }], (ep) => fake(ep.slug === "a" ? ["wheel", "no-such-component-yet"] : ["felt", "wheel"])(ep)), ["felt", "wheel"]);
+  assert.deepEqual(motionComponents([{ slug: "x" }], () => null), [], "a missing timeline adds nothing");
+  assert.ok(renderMotionBundle([]).includes("core.js ===="), "the bundle without any episode still has the runtime");
 });
 
 test("core.js stays backwards compatible: embed config is optional and the video render does not depend on it", () => {
@@ -372,7 +395,7 @@ test("publishing a recording switches the page to a real player and adds the epi
     assert.match(html, /"associatedMedia"/);
     assert.match(html, /"timeRequired":"PT3M35S"/);
     const xml = renderFeed();
-    assert.equal((xml.match(/<item>/g) || []).length, 1);
+    assert.equal((xml.match(/<item>/g) || []).length, live.filter((e) => e !== ep && hasAudio(e)).length + 1);
     assert.match(xml, /<enclosure url="https:\/\/rien-ne-va-plus\.vercel\.app\/assets\/podcast\/essai\.mp3" length="3456789" type="audio\/mpeg"\/>/);
     assert.match(xml, /<itunes:duration>215<\/itunes:duration>/);
     assert.ok(xml.includes(`<podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/${ep.slug}"`));

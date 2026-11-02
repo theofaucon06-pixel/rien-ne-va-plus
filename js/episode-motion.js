@@ -505,6 +505,175 @@
   function W_(st, s) { return st.W(s, st.S, { sp: SPN }); }
 })();
 ;
+/* ==== tools/video/composition/components/bit-overflow.js ==== */
+// Composant « bit-overflow » (épisode 2) : le compteur 32 bits qui déborde, 2³² centimes = 42 949 672,96 $ contre 42 949 672,76 $ affichés. Voir EP2-COMPONENTS.md.
+// Fonction pure du temps du plan ; aplats seulement.
+(() => {
+  const { C, E, clamp, prog, lerp, f2, put, g, rect, text, sv } = ZV;
+  const str = (v, d) => (v != null && v !== '' ? String(v) : d);
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const MAXV = 4294967295;
+  const CELL = 88, GAP = 12, BX = 140, BY = 60, BW = 1640, BH = 250;
+  const SA = 118, SB = 108;                        // tailles Mono des lignes A (compteur / gros nombre) et B, C (dollars)
+  const YA = 470, YB = 640, YC = 800;              // lignes de base
+
+  function monoRow(parent, size, fill) {           // texte Mono centré dont la largeur suit le nombre de caractères
+    const n = text(parent, '', 960, 0, size, fill, { mono: true, anchor: 'middle' });
+    n.setAttribute('textLength', 1); n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    return n;
+  }
+  function setRow(n, s, size, y) {
+    n.textContent = s; n.setAttribute('y', f2(y)); n.setAttribute('textLength', f2(Math.max(1, s.length * size * 0.6)));
+  }
+
+  ZV.define('bit-overflow', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const st = { dur: Math.max(0.1, shot.dur || 1) };
+      st.big = str(P.big, '4 294 967 296'); st.dollars = str(P.dollars, '42 949 672,96 $'); st.shown = str(P.shown, '42 949 672,76 $'); st.gap = str(P.gap, '20 ¢');
+      const cu = (n) => ZV.cue(shot, n);
+      st.cFill = cu('fill'); st.cFull = cu('full'); st.cWrap = cu('wrap'); st.cConv = cu('convert'); st.cComp = cu('compare');
+      if ([st.cFill, st.cFull, st.cWrap, st.cConv, st.cComp].every((x) => x === null)) { st.cFill = 0.3; st.cFull = 3.8; }
+      if (st.cFill === null) st.cFill = Math.max(0, (st.cFull !== null ? st.cFull : 3.5) - 3.5);
+      st.fillEnd = st.cFull !== null ? Math.max(st.cFill + 0.4, st.cFull) : st.cFill + 3.5;
+      const bits = Math.max(1, Math.min(32, P.bits | 0 || 32));
+      st.bits = bits;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.pocket);
+      st.board = g(root);
+      rect(st.board, BX + 12, BY + 12, BW, BH, 22, C.ink);
+      st.frame = rect(st.board, BX, BY, BW, BH, 22, C.ink, C.paper, 8);
+      st.cells = [];
+      const x0 = BX + (BW - (16 * CELL + 15 * GAP)) / 2;
+      for (let i = 0; i < 32; i++) {
+        const row = Math.floor(i / 16), col = i % 16, x = x0 + col * (CELL + GAP), y = BY + 26 + row * (84 + 14);
+        const r = rect(st.board, x, y, CELL, 84, 10, C.pocket, '#3A3A3A', 4);
+        const tx = text(st.board, '0', x + CELL / 2, y + 60, 54, '#5A5A5A', { mono: true, anchor: 'middle' });
+        st.cells.push({ r, tx, bit: 31 - i });     // bit de poids fort à gauche
+      }
+      st.rowA = monoRow(root, SA, C.paper);
+      st.sticker = g(root);
+      {
+        const lab = '2³² − 1', size = 150, w = bw(lab, size) + 100, h = size * 1.5;
+        rect(st.sticker, -w / 2 + 14, -h / 2 + 14, w, h, 18, C.ink);
+        rect(st.sticker, -w / 2, -h / 2, w, h, 18, C.lime, C.ink, 8);
+        text(st.sticker, lab, 0, size * 0.35, size, C.ink, { anchor: 'middle', len: f2(bw(lab, size)) });
+      }
+      st.stamp = g(root);
+      {
+        const lab = 'DÉBORDEMENT', size = 120, w = bw(lab, size) + 90, h = 190;
+        rect(st.stamp, -w / 2, -h / 2, w, h, 12, C.ink, C.red, 14);
+        rect(st.stamp, -w / 2 + 14, -h / 2 + 14, w - 28, h - 28, 6, 'none', C.red, 4);
+        text(st.stamp, lab, 0, size * 0.35, size, C.red, { anchor: 'middle', len: f2(bw(lab, size)) });
+      }
+      st.divS = g(root);
+      {
+        const w = 330, h = 78;
+        rect(st.divS, -w / 2 + 10, -h / 2 + 10, w, h, 16, C.ink);
+        rect(st.divS, -w / 2, -h / 2, w, h, 16, C.red, C.ink, 6);
+        text(st.divS, '÷ 100', 0, 26, 74, C.ink, { anchor: 'middle', len: f2(bw('÷ 100', 74)) });
+      }
+      // lignes B (dollars) et C (affiché), avec cellule surlignée sur les chiffres qui diffèrent
+      const nB = st.dollars.length, nC = st.shown.length;
+      st.cwB = SB * 0.6;
+      st.xB = 960 - (nB * st.cwB) / 2; st.xC = 960 - (nC * st.cwB) / 2;
+      st.hiB = []; st.hiC = [];
+      for (let k = 1; k <= Math.min(nB, nC); k++) {
+        const a = st.dollars[nB - k], b = st.shown[nC - k];
+        if (a !== b && /\d/.test(a) && /\d/.test(b)) { st.hiB.push(nB - k); st.hiC.push(nC - k); }
+      }
+      st.hlB = st.hiB.map((i) => rect(root, st.xB + i * st.cwB, YB - SB * 0.82, st.cwB, SB * 1.0, 6, C.lime));
+      st.hlC = st.hiC.map((i) => rect(root, st.xC + i * st.cwB, YC - SB * 0.82, st.cwB, SB * 1.0, 6, C.lime));
+      st.chB = []; st.chC = [];
+      for (let i = 0; i < nB; i++) st.chB.push(st.dollars[i] === ' ' ? null : text(root, st.dollars[i], f2(st.xB + i * st.cwB + st.cwB / 2), YB, SB, C.paper, { mono: true, anchor: 'middle', len: f2(st.cwB) }));
+      for (let i = 0; i < nC; i++) st.chC.push(st.shown[i] === ' ' ? null : text(root, st.shown[i], f2(st.xC + i * st.cwB + st.cwB / 2), YC, SB, C.paper, { mono: true, anchor: 'middle', len: f2(st.cwB) }));
+      st.lblC = text(root, 'SUR LA MACHINE', st.xC, YC - SB * 0.82 - 16, 28, '#B9B5A8', { mono: true, anchor: 'start', len: f2(14 * 28 * 0.6) });
+      st.lblB = text(root, 'EN DOLLARS', st.xB, YB - SB * 0.82 - 16, 28, '#B9B5A8', { mono: true, anchor: 'start', len: f2(10 * 28 * 0.6) });
+      st.gapS = g(root);
+      {
+        const size = 84, w = bw(st.gap, size) + 90, h = size * 1.45;
+        rect(st.gapS, -w / 2 + 12, -h / 2 + 12, w, h, 18, C.ink);
+        rect(st.gapS, -w / 2, -h / 2, w, h, 18, C.lime, C.ink, 7);
+        text(st.gapS, st.gap, 0, size * 0.35, size, C.ink, { anchor: 'middle', len: f2(bw(st.gap, size)) });
+      }
+      st.flashR = rect(root, 0, 0, 1920, 1080, 0, C.red);
+      return st;
+    },
+
+    update(st, t, shot) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const wrapped = st.cWrap !== null && t >= st.cWrap;
+        // ---- valeur du registre ----
+        let v = 0;
+        if (!wrapped && t >= st.cFill) { const tq = t >= st.fillEnd ? st.fillEnd : st.cFill + Math.floor((t - st.cFill) * 3) / 3; v = Math.floor(MAXV * Math.pow(clamp((tq - st.cFill) / (st.fillEnd - st.cFill)), 2.2)); }   // 3 pas/s : jamais plus de 3 changements/s
+        const full = v >= MAXV;
+        const sh = st.cFull !== null ? ZV.shakeAt(t, st.cFull, 9, 0.4) : [0, 0];
+        st.board.setAttribute('transform', `translate(${f2(sh[0])} ${f2(sh[1])})`);
+        const redBoard = wrapped && !(st.cConv !== null && t >= st.cConv);
+        st.frame.setAttribute('stroke', redBoard ? C.red : C.paper);
+        const flashW = wrapped && t < st.cWrap + 0.1;
+        for (const c of st.cells) {
+          const on = !wrapped && c.bit < st.bits && Math.floor(v / Math.pow(2, c.bit)) % 2 === 1;
+          const fl = flashW && c.bit < st.bits;
+          c.r.setAttribute('fill', fl ? C.red : on ? C.lime : C.pocket);
+          c.r.setAttribute('stroke', fl ? C.ink : on ? C.ink : '#3A3A3A');
+          c.tx.textContent = on || fl ? '1' : '0';
+          c.tx.setAttribute('fill', fl ? C.ink : on ? C.ink : '#5A5A5A');
+        }
+        // ---- ligne A : compteur, puis 0, puis le gros nombre en centimes ----
+        let a = ''; let ac = C.paper;
+        const conv = st.cConv !== null && t >= st.cConv;
+        if (conv) { a = st.big + ' ¢'; ac = C.paper; }
+        else if (wrapped) { a = '0'; ac = C.red; }
+        else { a = ZV.fr(v); ac = full ? C.lime : C.paper; }
+        setRow(st.rowA, a, SA, YA);
+        st.rowA.setAttribute('fill', ac);
+        // ---- sticker 2³² − 1 / tampon DÉBORDEMENT ----
+        {
+          const tf = st.cFull;
+          const on = tf !== null && t >= tf && !wrapped && !(st.cConv !== null && t >= st.cConv);
+          const p = tf !== null ? E.back(prog(t, tf, tf + 0.22)) : 0, k = lerp(1.9, 1, E.out3(prog(t, tf !== null ? tf : 0, (tf !== null ? tf : 0) + 0.15)));
+          put(st.sticker, 960, 610, -3, on ? Math.max(0.01, p * k) : 0, on ? Math.max(0.01, p * k) : 0, on ? 1 : 0);
+          const tw = st.cWrap, off = conv;
+          const on2 = tw !== null && t >= tw + 0.12 && !off;
+          const p2 = tw !== null ? E.back(prog(t, tw + 0.12, tw + 0.34)) : 0;
+          const s2 = tw !== null ? ZV.shakeAt(t, tw + 0.3, 10, 0.4) : [0, 0];
+          put(st.stamp, 960 + s2[0], 610 + s2[1], -6, on2 ? Math.max(0.01, p2) : 0, on2 ? Math.max(0.01, p2) : 0, on2 ? 1 : 0);
+          st.flashR.setAttribute('visibility', tw !== null && t >= tw && t < tw + 0.1 ? 'visible' : 'hidden');
+        }
+        // ---- conversion : ÷ 100 puis dollars ----
+        {
+          const tc = st.cConv;
+          const on = tc !== null && t >= tc;
+          const p = tc !== null ? E.back(prog(t, tc, tc + 0.25)) : 0;
+          put(st.divS, 280, 590, -3, on ? Math.max(0.01, p) : 0, on ? Math.max(0.01, p) : 0, on ? 1 : 0);
+          const t0 = tc !== null ? tc + 0.45 : 1e9;
+          for (let i = 0; i < st.chB.length; i++) { const n = st.chB[i]; if (n) n.setAttribute('visibility', t >= t0 + i * 0.06 ? 'visible' : 'hidden'); }
+          const doneB = t0 + st.chB.length * 0.06;
+          const cmp = st.cComp !== null && t >= st.cComp;
+          for (let i = 0; i < st.chB.length; i++) { const n = st.chB[i]; if (n) n.setAttribute('fill', cmp && st.hiB.indexOf(i) >= 0 ? C.ink : C.lime); }
+          st.lblB.setAttribute('visibility', on ? 'visible' : 'hidden');
+          st.hlB.forEach((r) => r.setAttribute('visibility', cmp ? 'visible' : 'hidden'));
+          const sh2 = tc !== null ? ZV.shakeAt(t, doneB, 6, 0.3) : [0, 0];
+          for (let i = 0; i < st.chB.length; i++) { const n = st.chB[i]; if (n) n.setAttribute('transform', t >= doneB ? `translate(${f2(sh2[0])} ${f2(sh2[1])})` : ''); }
+        }
+        // ---- comparaison : le montant de la machine, l'écart ----
+        {
+          const tp = st.cComp;
+          const on = tp !== null && t >= tp;
+          for (let i = 0; i < st.chC.length; i++) { const n = st.chC[i]; if (!n) continue; n.setAttribute('visibility', on && t >= tp + i * 0.05 ? 'visible' : 'hidden'); n.setAttribute('fill', st.hiC.indexOf(i) >= 0 ? C.ink : C.paper); }
+          st.lblC.setAttribute('visibility', on ? 'visible' : 'hidden');
+          const tg = tp !== null ? tp + st.chC.length * 0.05 + 0.1 : 1e9;
+          st.hlC.forEach((r) => r.setAttribute('visibility', t >= tg ? 'visible' : 'hidden'));
+          const pg = E.back(prog(t, tg, tg + 0.25)), sg = ZV.shakeAt(t, tg + 0.2, 8, 0.4);
+          put(st.gapS, 1620 + sg[0], 745 + sg[1], 4, t >= tg ? Math.max(0.01, pg) : 0, t >= tg ? Math.max(0.01, pg) : 0, t >= tg ? 1 : 0);
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/chapter-card.js ==== */
 // Composant « chapter-card » : voir tools/video/composition/INTERFACE.md. Fonction pure du temps du plan, aplats seulement.
 (() => {
@@ -625,7 +794,7 @@
   }
 
   const FR = 1 / 30;
-  const MARQ = 'ZÉRO VERT · LA MAISON GAGNE TOUJOURS · ';
+  const MARQ_DEFAULT = 'ZÉRO VERT · LA MAISON GAGNE TOUJOURS · ';
   // symboles des rouleaux de la machine à sous (dessinés à plat)
   function slotSymbol(parent, kind, cell) {
     const gr = g(parent);
@@ -664,7 +833,7 @@
       }
       // ---- bandeau marquee en haut ----
       {
-        const gm = g(root), sz = 38, sp = 0.06;
+        const gm = g(root), sz = 38, sp = 0.06, MARQ = String(P.marquee || MARQ_DEFAULT);
         rect(gm, 0, 0, 1920, 88, 0, dark ? C.lime : C.ink);
         const unit = W(MARQ, sz, { mono: false, sp });
         const n = Math.ceil(1920 / unit) + 2;
@@ -683,7 +852,7 @@
       st.num = P.num ? mkSticker(String(P.num), accent, onAccent, 54, true, -3) : null;
       if (st.num) { st.num.x = 160 + st.num.w / 2; st.num.y = 196; }
       if (next) {
-        st.kick = mkSticker('PROCHAIN ÉPISODE', C.paper, C.ink, 46, true, 2);
+        st.kick = mkSticker(String(P.kick || 'PROCHAIN ÉPISODE').toUpperCase(), C.paper, C.ink, 46, true, 2);
         st.kick.x = 160 + st.kick.w / 2; st.kick.y = 236;
         if (st.num) { st.num.x = 160 + st.num.w / 2; st.num.y = 720; }
       }
@@ -748,7 +917,7 @@
         rect(body, -270 + 16, -250 + 16, 540, 500, 36, C.ink);
         rect(body, -270, -250, 540, 500, 36, C.red, C.ink, 8);
         rect(body, -230, -226, 460, 70, 18, C.ink);
-        text(body, 'ZÉRO VERT', 0, -176, 44, C.lime, { mono: true, anchor: 'middle', spacing: 4 });
+        text(body, String(P.brand || 'ZÉRO VERT'), 0, -176, 44, C.lime, { mono: true, anchor: 'middle', spacing: 4 });
         const wx = -216, wy = -128, ww = 432, wh = 230;
         rect(body, wx - 10, wy - 10, ww + 20, wh + 20, 22, C.ink);
         rect(body, wx, wy, ww, wh, 14, C.paper);
@@ -2180,7 +2349,7 @@
   }
 
   const FR = 1 / 30;
-  const MARQ = 'ZÉRO VERT · LA MAISON GAGNE TOUJOURS · ';
+  const MARQ_DEFAULT = 'ZÉRO VERT · LA MAISON GAGNE TOUJOURS · ';
 
   defineTypo('end-card', {
     build(root, shot) {
@@ -2197,7 +2366,7 @@
       for (let y = 96 + 108; y < 1080; y += 108) rect(grid, 0, y - 2, 1920, 4, 0, TINT.lime);
       // marquee en haut
       {
-        const gm = g(root), sz = 38, sp = 0.06;
+        const gm = g(root), sz = 38, sp = 0.06, MARQ = String(P.marquee || MARQ_DEFAULT);
         rect(gm, 0, 0, 1920, 88, 0, C.ink);
         const unit = W(MARQ, sz, { sp });
         const n = Math.ceil(1920 / unit) + 2;
@@ -2214,7 +2383,7 @@
 
       if (!final) {
         // ---- À RETENIR : trois cartes numérotées qui restent ----
-        st.title = mkSticker('À RETENIR', C.ink, C.lime, 62, false, -2);
+        st.title = mkSticker(String(P.heading || 'À RETENIR').toUpperCase(), C.ink, C.lime, 62, false, -2);
         st.title.x = 160 + st.title.w / 2; st.title.y = 176; st.tTitle = cue('title', 0.2);
         const items = (P.items || []).slice(0, 3).map((s) => String(s).replace(/ (?=[?:!;])/g, NB));
         const tilts = [-2, 1, -1], times = [cue('i1', 0.8), cue('i2', 2.6), cue('i3', 4.4)];
@@ -2592,6 +2761,273 @@
         const v = lerp(from, to, E.out2(prog(t, ct.t0 + 0.08, ct.t0 + Math.min(1.0, Math.max(0.5, st.dur - ct.t0 - 0.2)))));
         ct.val.textContent = ZV.fr(v) + (cn.suffix || '');
       }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/jackpot-screen.js ==== */
+// Composant « jackpot-screen » (épisode 2) : l'écran de Katrina Bookman, Queens, 23 août 2016. Voir EP2-COMPONENTS.md.
+// Fonction pure du temps du plan ; aplats seulement. Le téléphone ne montre aucun portrait (viseur + barres de texte).
+(() => {
+  const { C, F, E, clamp, prog, lerp, f2, put, g, rect, text, path, circle, sv } = ZV;
+  let UID = 0;
+  const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+  const str = (v, d) => (v != null && v !== '' ? String(v) : d);
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const mono = (parent, s, x, y, size, fill, anchor) => text(parent, s, x, y, size, fill, { mono: true, anchor, len: f2(String(s).length * size * 0.6) });
+  const GX = 235, GY = 195, GW = 1450, GH = 360;            // vitre
+  const BAND = 6;                                            // tranches de l'écran qui saute
+  const SLOT = { x: 1410, w: 280 }, TX = 1550;               // imprimante, axe du ticket
+  const BULBS = [];
+  for (let k = 0; k < 11; k++) { BULBS.push(240 + 52 * k); BULBS.push(1680 - 52 * k); }
+
+  ZV.define('jackpot-screen', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const uid = 'jp' + (++UID);
+      const st = { dur: Math.max(0.1, shot.dur || 1) };
+      st.amount = str(P.amount, '42 949 672,76 $'); st.real = str(P.real, '2,25 $'); st.limit = str(P.limit, '6 500 $'); st.city = str(P.city, 'QUEENS').toUpperCase();
+      const cu = (n) => ZV.cue(shot, n);
+      st.cShow = cu('show'); st.cFlash = cu('flash'); st.cSelfie = cu('selfie'); st.cFail = cu('fail'); st.cSmall = cu('small-print');
+      st.cTicket = cu('ticket'); st.cSteak = cu('steak'); st.cLimit = cu('limit');
+      const none = [st.cShow, st.cFlash, st.cSelfie, st.cFail, st.cSmall, st.cTicket, st.cSteak, st.cLimit].every((x) => x === null);
+      st.hasShow = st.cShow !== null;
+      if (none) st.cShow = null;
+
+      // fond paper + trame de points
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+      const pat = sv('pattern', { id: uid + 'd', width: 64, height: 64, patternUnits: 'userSpaceOnUse' }, defs);
+      circle(pat, 32, 32, 3.4, '#E0DCCE');
+      rect(root, 0, 0, 1920, 1080, 0, `url(#${uid}d)`);
+
+      // ticket (derrière la machine, sort de l'imprimante)
+      st.ticket = g(root);
+      {
+        const w = 240, y0 = 560, y1 = 838, x0 = TX - w / 2;
+        let d = `M${x0} ${y0}H${x0 + w}V${y1}`;
+        const zz = 12; for (let k = zz; k > 0; k--) d += `L${f2(x0 + (w * (k - 0.5)) / zz)} ${y1 - 14}L${f2(x0 + (w * (k - 1)) / zz)} ${y1}`;
+        d += 'Z';
+        path(st.ticket, d, C.ink, C.ink, 6).setAttribute('transform', 'translate(12 12)');
+        path(st.ticket, d, C.white, C.ink, 6);
+        mono(st.ticket, 'BON DE CAISSE', TX, 733, 26, C.ink, 'middle');
+        rect(st.ticket, x0 + 24, 746, w - 48, 4, 0, C.ink);
+        mono(st.ticket, st.real, TX, 800, Math.min(58, (w - 40) / (st.real.length * 0.6)), C.ink, 'middle');
+      }
+
+      // bande « petits caractères »
+      st.band = g(root);
+      {
+        rect(st.band, -20 + 10, 735 + 10, 1960, 76, 0, C.ink);
+        rect(st.band, -20, 735, 1960, 76, 0, C.paper, C.ink, 6);
+        sv('clipPath', { id: uid + 'c' }, defs).appendChild(sv('rect', { x: 0, y: 735, width: 1920, height: 76 }));
+        const cg = g(st.band, { 'clip-path': `url(#${uid}c)` });
+        st.bandStr = 'UNE PANNE ANNULE TOUS LES PAIEMENTS ET TOUTES LES PARTIES';
+        st.bandLen = st.bandStr.length * 40 * 0.6; st.bandPer = st.bandLen + 280;
+        st.bt = [0, 1].map(() => mono(cg, st.bandStr, 0, 786, 40, C.ink, 'start'));
+      }
+
+      // steak (picto plat) : créé après le caisson pour passer devant
+      const mkSteak = (parent) => {
+        const sg = g(parent);
+        path(sg, 'M-80 -10C-90 -60 -40 -85 20 -80C80 -78 110 -40 100 5C92 50 50 78 -10 74C-60 70 -76 40 -80 -10Z', C.red, C.ink, 7);
+        path(sg, 'M-58 -20C-44 -50 -6 -58 24 -52', 'none', C.paper, 6);
+        path(sg, 'M-52 28C-30 52 14 54 46 34', 'none', C.paper, 6);
+        const T = 'M-34 -14H46M6 -14V46';                     // l'os en T
+        path(sg, T, 'none', C.ink, 30);
+        path(sg, T, 'none', C.paper, 16);
+        return sg;
+      };
+
+      // caisson de la machine
+      const cab = g(root); st.cab = cab;
+      rect(cab, 170 + 16, 40 + 16, 1580, 650, 26, C.ink);
+      rect(cab, 170, 40, 1580, 650, 26, C.red, C.ink, 8);
+      rect(cab, 210, 70, 1500, 86, 14, C.ink);
+      st.bulbs = BULBS.map((x) => circle(cab, x, 113, 15, C.pocket, C.paper, 3));
+      text(cab, 'JACKPOT', 960, 133, 62, C.lime, { anchor: 'middle', len: f2(bw('JACKPOT', 62)) });
+      rect(cab, 215, 175, 1490, 400, 22, C.ink);
+      st.glass = rect(cab, GX, GY, GW, GH, 10, C.paper, C.ink, 4);
+      mono(cab, 'GAIN', GX + 34, GY + 50, 34, C.ink, 'start');
+      mono(cab, `${st.city} · 23 AOÛT 2016`, GX + 34, GY + GH - 26, 32, C.ink, 'start').setAttribute('opacity', 0.75);
+      // montant : une cellule Mono par caractère
+      const n = st.amount.length, S = Math.min(150, 1330 / (n * 0.6)), cw = S * 0.6;
+      st.S = S; st.cw = cw; st.n = n; st.x0 = 960 - (n * cw) / 2; st.by = 425;
+      st.idle = mono(cab, 'PRÊT À JOUER', 960, 410, 66, '#5A5A5A', 'middle');
+      st.amtG = g(cab);
+      st.chars = [];
+      for (let i = 0; i < n; i++) {
+        const ch = st.amount[i];
+        st.chars.push(ch === ' ' ? null : text(st.amtG, ch, f2(st.x0 + i * cw + cw / 2), st.by, S, C.ink, { mono: true, anchor: 'middle', len: f2(cw) }));
+      }
+      st.strike = rect(st.amtG, st.x0 - 10, st.by - S * 0.36, n * cw + 20, 14, 3, C.red);
+      // tranches pour « l'écran saute »
+      const rnd = ZV.rng(2016);
+      st.sl = [];
+      for (let k = 0; k < BAND; k++) {
+        const h = GH / BAND, y = GY + k * h;
+        sv('clipPath', { id: `${uid}s${k}` }, defs).appendChild(sv('rect', { x: GX, y: f2(y), width: GW, height: f2(h) }));
+        const cg = g(cab, { 'clip-path': `url(#${uid}s${k})` });
+        const inner = g(cg);
+        rect(inner, GX - 300, y, GW + 600, h, 0, k % 2 ? C.paper : '#E4E0D3');
+        mono(inner, st.amount, 960, st.by, S, k % 2 ? C.ink : C.red, 'middle');
+        const bar = rect(cg, GX, y + h * 0.3, 300 + rnd() * 240, h * 0.4, 0, C.ink);
+        st.sl.push({ cg, inner, bar, base: (70 + rnd() * 110) * (k % 2 ? 1 : -1), bx: GX + rnd() * 900 });
+      }
+      st.panne = g(cab);
+      {
+        const w = bw('PANNE', 130) + 80, h = 170;
+        rect(st.panne, -w / 2, -h / 2, w, h, 12, C.paper, C.red, 14);
+        rect(st.panne, -w / 2 + 14, -h / 2 + 14, w - 28, h - 28, 6, 'none', C.red, 4);
+        text(st.panne, 'PANNE', 0, 45, 130, C.red, { anchor: 'middle', len: f2(bw('PANNE', 130)) });
+      }
+      // sticker « MAX … »
+      st.lim = g(cab);
+      {
+        const lab = 'MAX ' + st.limit, size = Math.min(150, 1250 / (bw(lab, 1) || 1)), w = bw(lab, size) + 100, h = size * 1.5;
+        rect(st.lim, -w / 2 + 14, -h / 2 + 14, w, h, 18, C.ink);
+        rect(st.lim, -w / 2, -h / 2, w, h, 18, C.lime, C.ink, 8);
+        text(st.lim, lab, 0, size * 0.35, size, C.ink, { anchor: 'middle', len: f2(bw(lab, size)) });
+      }
+      // bandeau d'information et imprimante
+      rect(cab, 210, 595, 1500, 72, 12, C.ink);
+      mono(cab, 'RESORTS WORLD CASINO', 240, 643, 36, C.paper, 'start');
+      mono(cab, 'KATRINA BOOKMAN', 1680, 643, 36, C.lime, 'end');
+      rect(cab, SLOT.x, 664, SLOT.w, 26, 6, C.ink, C.paper, 4);
+      cab.appendChild(st.panne); cab.appendChild(st.lim);
+
+      st.steak = mkSteak(root);
+      // téléphone (viseur : aucun portrait)
+      st.phone = g(root);
+      {
+        const ph = st.phone;
+        rect(ph, -125 + 14, -190 + 14, 250, 380, 38, C.ink);
+        rect(ph, -125, -190, 250, 380, 38, C.ink, C.ink, 6);
+        rect(ph, -105, -162, 210, 310, 14, C.paper);
+        const bx = 78, by = 100;
+        path(ph, `M${-bx} ${-by + 26}V${-by}H${-bx + 26}M${bx - 26} ${-by}H${bx}V${-by + 26}M${bx} ${by - 26}V${by}H${bx - 26}M${-bx + 26} ${by}H${-bx}V${by - 26}`, 'none', C.ink, 7);
+        rect(ph, -62, -66, 124, 22, 4, C.ink); rect(ph, -62, -26, 124, 22, 4, C.ink); rect(ph, -62, 14, 78, 22, 4, C.ink);
+        circle(ph, 0, 168, 18, C.paper, C.paper, 4);
+        circle(ph, 0, -176, 5, C.pocket);
+      }
+      st.vig = g(root);
+      {
+        const v = st.vig;
+        rect(v, -105 + 10, -75 + 10, 210, 150, 8, C.ink);
+        rect(v, -105, -75, 210, 150, 8, C.white, C.ink, 6);
+        rect(v, -88, -58, 176, 116, 4, C.paper, C.ink, 3);
+        rect(v, -76, -36, 152, 26, 3, C.ink); rect(v, -76, 4, 100, 18, 3, C.ink);
+        rect(v, -76, 32, 60, 12, 3, C.red);
+      }
+      st.flashR = rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      return st;
+    },
+
+    update(st, t, shot) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const C_ = C;
+        const inWin = (a, d) => a !== null && t >= a && t < a + d;
+        const tFail = st.cFail;
+        const failed = tFail !== null && t >= tFail;
+        // ---- montant : chiffre par chiffre ----
+        const tShow = st.cShow;
+        const pre = tShow !== null && t < tShow;
+        st.idle.setAttribute('visibility', pre ? 'visible' : 'hidden');
+        const fail0 = failed && t < tFail + 0.55;
+        for (let i = 0; i < st.n; i++) {
+          const nd = st.chars[i]; if (!nd) continue;
+          const on = tShow === null || t >= tShow + i * 0.085;
+          nd.setAttribute('visibility', on ? 'visible' : 'hidden');
+          nd.setAttribute('fill', failed ? '#5A5A5A' : C_.ink);
+        }
+        st.amtG.setAttribute('visibility', pre || fail0 ? 'hidden' : 'visible');
+        // clignotement (flash) : vitre lime / paper + ampoules qui courent
+        const fEnd = tFail !== null ? tFail : 1e9;
+        const flashing = st.cFlash !== null && t >= st.cFlash && t < Math.min(st.cFlash + 2.4, fEnd);
+        st.glass.setAttribute('fill', flashing && Math.floor((t - st.cFlash) * 2) % 2 === 0 ? C_.lime : C_.paper);
+        const cyc = [C_.lime, C_.paper, C_.red];
+        for (let k = 0; k < st.bulbs.length; k++) {
+          let fill;
+          if (failed) fill = C_.pocket;
+          else if (flashing) fill = (Math.floor((t - st.cFlash) * 5) + k) % 3 === 0 ? cyc[(k >> 1) % 3] : C_.pocket;
+          else fill = cyc[k % 3];
+          st.bulbs[k].setAttribute('fill', fill);
+        }
+        // ---- l'écran saute ----
+        const pf = tFail !== null ? prog(t, tFail, tFail + 0.55) : 1;
+        const gl = tFail !== null && t >= tFail && pf < 1;
+        for (let k = 0; k < st.sl.length; k++) {
+          const s = st.sl[k], flip = (Math.floor((t - (tFail || 0)) * 3) + k) % 2 ? 1 : -1;
+          const tt = t - (tFail || 0);
+          s.cg.setAttribute('visibility', gl ? 'visible' : 'hidden');
+          s.inner.setAttribute('transform', `translate(${f2(gl ? s.base * (1 - pf) * flip : 0)} 0)`);
+          const bv = gl && (Math.floor(tt * 3) + k) % 3 === 0;
+          s.bar.setAttribute('visibility', bv ? 'visible' : 'hidden');
+          s.bar.setAttribute('x', f2(s.bx + (gl ? 200 * flip * (1 - pf) : 0)));
+        }
+        // montant barré, tampon « PANNE »
+        const tp = tFail !== null ? tFail + 0.55 : 1e9;
+        const sq = st.cLimit !== null && t >= st.cLimit ? E.out3(prog(t, st.cLimit + 0.12, st.cLimit + 0.3)) : 0;
+        const ps = tFail !== null ? E.out3(prog(t, tp, tp + 0.35)) : 0;
+        const sc = lerp(1, 0.6, ps);
+        st.strike.setAttribute('width', f2((st.n * st.cw + 20) * (tFail !== null ? E.out2(prog(t, tp, tp + 0.25)) : 0)));
+        st.strike.setAttribute('visibility', t >= tp ? 'visible' : 'hidden');
+        const sy = sc * lerp(1, 0.16, sq);
+        const piv = lerp(375, 470, sq);
+        st.amtG.setAttribute('transform', `translate(960 ${f2(piv + lerp(0, -100, ps) * (1 - sq))}) scale(${f2(sc)} ${f2(sy)}) translate(-960 ${-f2(piv)})`);
+        {
+          const tt = tp + 0.25, p = E.back(prog(t, tt, tt + 0.2)), sh = ZV.shakeAt(t, tt + 0.12, 10, 0.4);
+          put(st.panne, 1000 + sh[0], 445 + sh[1], -7, p, p, tFail !== null && t >= tt && !(st.cLimit !== null && t >= st.cLimit + 0.15) ? 1 : 0);
+        }
+        // sticker « MAX … » qui écrase
+        {
+          const tl = st.cLimit;
+          if (tl === null || t < tl) put(st.lim, 960, 395, -3, 1, 1, 0);
+          else {
+            const p = prog(t, tl, tl + 0.2), sh = ZV.shakeAt(t, tl + 0.2, 14, 0.45), k = lerp(2.3, 1, E.in3(p));
+            put(st.lim, 960 + sh[0], lerp(100, 395, E.in3(p)) + sh[1], -3, k, k, 1);
+          }
+        }
+        // ---- bande petits caractères ----
+        {
+          const ts = st.cSmall;
+          const gone = st.cTicket !== null && t >= st.cTicket;
+          const on = ts !== null && t >= ts && !gone;
+          const sl = on ? E.out3(prog(t, ts, ts + 0.3)) : gone ? 1 - E.in3(prog(t, st.cTicket, st.cTicket + 0.25)) : 0;
+          st.band.setAttribute('transform', `translate(0 ${f2((1 - sl) * 160)})`);
+          st.band.setAttribute('visibility', sl > 0.001 ? 'visible' : 'hidden');
+          if (ts !== null) {
+            const off = (240 * Math.max(0, t - ts)) % st.bandPer;
+            for (let k = 0; k < 2; k++) st.bt[k].setAttribute('x', f2(1920 - off - st.bandPer * k));
+          }
+        }
+        // ---- ticket, steak ----
+        {
+          const tk = st.cTicket;
+          let dy = -300, vis = false;
+          if (tk !== null && t >= tk) { vis = true; const p = clamp((t - tk) / 1.0); dy = -300 * (1 - (0.5 * Math.floor(p * 16) / 16 + 0.5 * E.out2(p))); if (p >= 1) dy = 0; }
+          st.ticket.setAttribute('transform', `translate(0 ${f2(dy)})`);
+          st.ticket.setAttribute('visibility', vis ? 'visible' : 'hidden');
+          const ss = st.cSteak;
+          if (ss === null || t < ss) put(st.steak, 1130, 765, -6, 0.9, 0.9, 0);
+          else { const p = E.bounce(prog(t, ss, ss + 0.5)); put(st.steak, 1130, 765 + lerp(-120, 0, p), -6, 0.9, 0.9, 1); }
+        }
+        // ---- selfie ----
+        {
+          const ts = st.cSelfie;
+          if (ts === null) { put(st.phone, 380, 1400, -8, 1, 1, 0); put(st.vig, 700, 755, 6, 1, 1, 0); st.flashR.setAttribute('visibility', 'hidden'); }
+          else {
+            const pin = E.back(prog(t, ts, ts + 0.5));
+            const pout = tFail !== null && t >= tFail ? E.in3(prog(t, tFail, tFail + 0.4)) : 0;
+            const sh = ZV.shakeAt(t, ts + 0.5, 6, 0.3);
+            put(st.phone, 380 + sh[0], lerp(1300, 655, pin) + 700 * pout, -8, 1, 1, t >= ts && pout < 1 ? 1 : 0);
+            const tv = ts + 0.75, pv = E.back(prog(t, tv, tv + 0.3));
+            put(st.vig, 700, 755, 6, pv, pv, t >= tv && pout < 1 ? 1 : 0);
+            st.flashR.setAttribute('visibility', t >= ts + 0.5 && t < ts + 0.6 ? 'visible' : 'hidden');
+          }
+        }
+      } catch (e) { /* jamais d'exception */ }
     }
   });
 })();
@@ -3241,6 +3677,262 @@
         pl.head.setAttribute('transform', `translate(0 ${f2(-hgt)})`);
         pl.ag.setAttribute('visibility', q > 0 ? 'visible' : 'hidden');
       }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/ldw-meter.js ==== */
+// Composant `ldw-meter` : « une perte déguisée en gain » (Waterloo / Dixon). Un seul écran, deux lectures.
+// À gauche, l'écran de machine en fanfare (lime / rouge clignotants, ligne gagnante, haut-parleur) ; à droite, le compteur de crédits sobre (paper, ink).
+// Cues : bet, spin, win, count (×2), net, honest. Aucun dégradé, flou, lueur ni filter.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, rng, fr } = ZV;
+  let UID = 0;
+  const SY = ['cherry', 'seven', 'bar', 'lemon'];
+  const FINAL = [['bar', 'lemon', 'seven', 'lemon', 'bar'], ['cherry', 'cherry', 'cherry', 'lemon', 'bar'], ['lemon', 'bar', 'lemon', 'seven', 'lemon']];
+  const INIT = [['lemon', 'bar', 'cherry', 'seven', 'lemon'], ['bar', 'cherry', 'lemon', 'cherry', 'bar'], ['seven', 'lemon', 'bar', 'lemon', 'cherry']];
+  const SX = 50, SY0 = 90, SW = 860, SH = 650;
+  const CW = 150, CH = 140, GAP = 8, GX = SX + (SW - (5 * CW + 4 * GAP)) / 2, GY = 165;
+  const BX = 109, BY = 625, BW = 782, BH = 95;
+  const NB = ' ', MINUS = '−';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const hash = (a, b, c) => (Math.imul(a + 1, 73856093) ^ Math.imul(b + 1, 19349663) ^ Math.imul(c + 1, 83492791)) >>> 0;
+
+  function drawSym(gg, name) {
+    if (name === 'cherry') {
+      path(gg, 'M-22 12 Q-18 -30 8 -48', 'none', C.ink, 7);
+      path(gg, 'M26 20 Q24 -26 8 -48', 'none', C.ink, 7);
+      path(gg, 'M8 -48 Q34 -70 56 -42 Q30 -30 8 -48Z', C.lime, C.ink, 5);
+      circle(gg, -24, 24, 25, C.red, C.ink, 6); circle(gg, 28, 32, 25, C.red, C.ink, 6);
+      circle(gg, -33, 15, 6, C.paper); circle(gg, 19, 23, 6, C.paper);
+    } else if (name === 'seven') {
+      const sh = text(gg, '7', 6, 58, 150, C.ink, { anchor: 'middle' });
+      sh.setAttribute('stroke', C.ink); sh.setAttribute('stroke-width', 9); sh.setAttribute('stroke-linejoin', 'round');
+      const t7 = text(gg, '7', 0, 52, 150, C.red, { anchor: 'middle' });
+      t7.setAttribute('stroke', C.ink); t7.setAttribute('stroke-width', 9); t7.setAttribute('stroke-linejoin', 'round'); t7.setAttribute('paint-order', 'stroke');
+    } else if (name === 'bar') {
+      rect(gg, -68 + 6, -27 + 7, 136, 54, 8, C.red);
+      rect(gg, -68, -27, 136, 54, 8, C.ink, C.ink, 6);
+      rect(gg, -60, -19, 120, 38, 4, 'none', C.paper, 3);
+      text(gg, 'BAR', 0, 12, 34, C.paper, { anchor: 'middle', len: 92 });
+    } else {
+      const lg = g(gg, { transform: 'rotate(-14)' });
+      path(lg, 'M-64 0 Q-44 -44 0 -42 Q44 -44 64 0 Q44 44 0 42 Q-44 44 -64 0Z', C.lime, C.ink, 6);
+      path(lg, 'M-30 -14 Q-10 -28 16 -26', 'none', C.paper, 6);
+      circle(lg, -62, 0, 6, C.ink); circle(lg, 62, 0, 6, C.ink);
+    }
+  }
+
+  ZV.define('ldw-meter', {
+    init(root, shot) {
+      const p = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 8;
+      const cueL = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t);
+      const num = (v, d) => (v != null && isNum(+v) ? +v : d);
+      const credit0 = num(p.credit, 100), stake = num(p.stake, 2), win = num(p.win, 0.8);
+      const lines = Math.max(1, Math.round(num(p.lines, 20)));
+      const cur = typeof p.currency === 'string' ? p.currency : '€';
+      const uid = ++UID;
+      const st = { uid, dur, credit0, stake, win, lines, cur };
+      const money = (v) => { const a = Math.abs(Math.round(v * 100) / 100); const s = a.toFixed(2).split('.'); return (v < 0 ? MINUS : '') + fr(+s[0]) + ',' + s[1] + NB + cur; };
+      st.money = money;
+      st.tb = (cueL('bet')[0] || {}).t; st.ts = (cueL('spin')[0] || {}).t; st.tw = (cueL('win')[0] || {}).t;
+      const cc = cueL('count'); st.tc1 = cc.length ? cc[0].t : null; st.tc2 = cc.length > 1 ? cc[1].t : (cc.length ? cc[0].t + 0.9 : null);
+      st.tn = (cueL('net')[0] || {}).t; st.th = (cueL('honest')[0] || {}).t;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+      const defs = sv('defs', null, root);
+      SY.forEach((n) => drawSym(g(defs, { id: `lw${uid}-${n}` }), n));
+      const clip = sv('clipPath', { id: `lw${uid}-clip` }, defs);
+      rect(clip, GX, GY, 5 * CW + 4 * GAP, 3 * CH + 2 * GAP, 0, '#000');
+
+      /* ---- écran de machine (gauche) ---- */
+      st.shadow = rect(root, SX + 16, SY0 + 16, SW, SH, 28, C.pocket);
+      st.bezel = rect(root, SX, SY0, SW, SH, 28, C.pocket, C.paper, 8);
+      text(root, `${lines} LIGNES`, SX + 40, 140, 30, C.paper, { mono: true, weight: 700, spacing: 2 });
+      st.mise = text(root, `MISE${NB}${money(stake)}`, SX + 820, 140, 30, C.paper, { mono: true, weight: 700, anchor: 'end' });
+      const gridG = g(root, { 'clip-path': `url(#lw${uid}-clip)` });
+      st.cells = [];
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 5; c++) {
+        const x = GX + c * (CW + GAP), y = GY + r * (CH + GAP);
+        const cg = g(gridG);
+        rect(cg, x, y, CW, CH, 12, C.paper, C.ink, 4);
+        const hl = rect(cg, x + 4, y + 4, CW - 8, CH - 8, 9, C.lime); hl.setAttribute('visibility', 'hidden');
+        const sg = g(cg, { transform: `translate(${x + CW / 2} ${y + CH / 2}) scale(0.78)` });
+        const inner = g(sg);
+        const u = [0, 1, 2].map(() => sv('use', { href: `#lw${uid}-cherry` }, inner));
+        const veil = rect(cg, x, y, CW, CH, 12, C.ink, null, 0, { opacity: 0 });
+        st.cells.push({ r, c, inner, u, hl, veil });
+      }
+      // ligne gagnante (rangée du milieu, 3 cases)
+      const ly = GY + CH + GAP + CH / 2, lx0 = GX + 6, lx1 = GX + 3 * CW + 2 * GAP - 6;
+      st.wl0 = sv('path', { d: `M${lx0} ${ly}L${lx1} ${ly}`, fill: 'none', stroke: C.ink, 'stroke-width': 22, 'stroke-linecap': 'round', pathLength: 1, visibility: 'hidden' }, root);
+      st.wl1 = sv('path', { d: `M${lx0} ${ly}L${lx1} ${ly}`, fill: 'none', stroke: C.red, 'stroke-width': 11, 'stroke-linecap': 'round', pathLength: 1, visibility: 'hidden' }, root);
+      // bandeau de gain
+      st.banner = rect(root, BX, BY, BW, BH, 14, C.pocket, C.paper, 4);
+      st.idle = text(root, 'BONNE CHANCE', BX + BW / 2, BY + 62, 40, C.paper, { anchor: 'middle', mono: true, weight: 700, spacing: 6 });
+      st.idle.setAttribute('opacity', 0.55);
+      st.gain = text(root, `GAIN${NB}${money(win)}`, BX + BW / 2, BY + 71, 72, C.ink, { anchor: 'middle', len: 640 });
+      st.gain.setAttribute('visibility', 'hidden');
+      // voile de coupure + barré
+      st.dim = rect(root, SX, SY0, SW, SH, 28, C.ink, null, 0, { opacity: 0 });
+      st.sk0 = sv('line', { x1: BX - 14, y1: BY + BH - 6, x2: BX + BW + 14, y2: BY + 6, stroke: C.ink, 'stroke-width': 30, 'stroke-linecap': 'round', visibility: 'hidden' }, root);
+      st.sk1 = sv('line', { x1: BX - 14, y1: BY + BH - 6, x2: BX + BW + 14, y2: BY + 6, stroke: C.red, 'stroke-width': 16, 'stroke-linecap': 'round', visibility: 'hidden' }, root);
+      // étincelles autour de l'écran
+      const rr = rng(909);
+      st.sparks = [];
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2 + rr() * 0.3;
+        const ex = SX + SW / 2 + Math.cos(a) * (SW / 2 + 22 + rr() * 30), ey = SY0 + SH / 2 + Math.sin(a) * (SH / 2 + 22 + rr() * 26);
+        const n = sv('path', { d: 'M0 -1L0.3 -0.3L1 0L0.3 0.3L0 1L-0.3 0.3L-1 0L-0.3 -0.3Z', fill: [C.lime, C.paper, C.red][i % 3], stroke: C.ink, 'stroke-width': 3, 'stroke-linejoin': 'round', visibility: 'hidden' }, root);
+        n.setAttribute('vector-effect', 'non-scaling-stroke');
+        st.sparks.push({ n, x: Math.min(Math.max(ex, 40), 1040), y: Math.min(Math.max(ey, 50), 800), sz: 18 + rr() * 22, ph: rr(), rot: rr() * 90 });
+      }
+      // haut-parleur plat
+      st.spk = g(root, { transform: 'translate(975 300)' });
+      rect(st.spk, -46, -24, 34, 48, 6, C.paper, C.ink, 5);
+      path(st.spk, 'M-14 -26 L24 -58 L24 58 L-14 26Z', C.paper, C.ink, 5);
+      st.waves = [0, 1, 2].map((k) => {
+        const r = 52 + k * 26, a = 0.7;
+        return path(st.spk, `M${f2(34 + r * Math.sin(-a) * 0.0)} 0`, 'none', C.lime, 9);
+      });
+      st.waves.forEach((w, k) => { const r = 40 + k * 24; w.setAttribute('d', `M${f2(26 + r * Math.cos(-0.7))} ${f2(r * Math.sin(-0.7))}A${r} ${r} 0 0 1 ${f2(26 + r * Math.cos(0.7))} ${f2(r * Math.sin(0.7))}`); });
+
+      /* ---- compteur sobre (droite) + calcul + tampon ---- */
+      const mkLine = (lab, y) => ({
+        l: text(root, lab, 1130, y, 54, C.paper, { mono: true, weight: 800 }),
+        a: text(root, '', 1830, y, 54, C.paper, { mono: true, weight: 800, anchor: 'end' })
+      });
+      st.l1 = mkLine('MISÉ', 478); st.l2 = mkLine('REÇU', 556);
+      st.rule = line(root, 1130, 592, 1830, 592, C.paper, 6, { 'stroke-linecap': 'butt' });
+      st.stamp = g(root);
+      rect(st.stamp, -330, -78, 660, 156, 18, 'none', C.red, 12);
+      st.stampT = text(st.stamp, `${money(win - stake)}`, 0, 42, 118, C.red, { anchor: 'middle', len: 560 });
+      // carte crédit (s'étend en plein cadre au cue `honest`)
+      st.cardS = rect(root, 1126, 106, 740, 300, 14, C.pocket);
+      st.card = rect(root, 1110, 90, 740, 300, 14, C.paper, C.ink, 6);
+      st.frameIn = rect(root, 60, 60, 1800, 960, 0, 'none', C.ink, 6, { opacity: 0 });
+      st.cLab = text(root, 'CRÉDIT', 1480, 150, 30, C.ink, { anchor: 'middle', mono: true, weight: 800, spacing: 8 });
+      st.cNum = text(root, '', 1480, 330, 130, C.ink, { anchor: 'middle', mono: true, weight: 800 });
+      st.title = text(root, 'LE SEUL TÉMOIN HONNÊTE', 960, 250, 92, C.ink, { anchor: 'middle', len: 1380 });
+      st.title.setAttribute('visibility', 'hidden');
+
+      /* ---- crédit : événements séquentiels ---- */
+      const ev = [];
+      if (st.tb != null) ev.push({ t0: st.tb, t1: st.tb + 0.7, d: -stake });
+      if (st.tw != null) ev.push({ t0: st.tw + 0.4, t1: st.tw + 1.0, d: win });
+      if (st.th != null) { const t0 = st.th + 0.5; ev.push({ t0, t1: Math.max(dur, t0 + 1), rate: stake / 8 }); }
+      ev.sort((a, b) => a.t0 - b.t0);
+      let cur2 = credit0;
+      for (const e of ev) { e.from = cur2; e.to = e.rate != null ? Math.max(0, cur2 - e.rate * (e.t1 - e.t0)) : cur2 + e.d; cur2 = e.to; }
+      st.ev = ev;
+      return st;
+    },
+
+    update(st, t) {
+      const { tb, ts, tw, tn, th } = st;
+      /* ---- crédit ---- */
+      let cr = st.credit0;
+      for (const e of st.ev) {
+        if (t >= e.t1) cr = e.to;
+        else { if (t > e.t0) cr = lerp(e.from, e.to, (t - e.t0) / (e.t1 - e.t0)); break; }
+      }
+      const crT = st.money(cr);
+      if (st.cNum.textContent !== crT) st.cNum.textContent = crT;
+
+      /* ---- grille ---- */
+      for (const cell of st.cells) {
+        const { r, c } = cell;
+        let spinning = false, sym = FINAL[r][c], dy = 0;
+        if (ts != null) {
+          const stopAt = ts + 0.6 + 0.17 * c;
+          if (t < ts) sym = INIT[r][c];
+          else if (t < stopAt) { spinning = true; const q = t * 5 + c * 0.37; sym = SY[hash(c, r, Math.floor(q)) % 4]; dy = (q - Math.floor(q) - 0.5) * 56; }
+          else { const w = t - stopAt; dy = w < 0.4 ? 16 * Math.exp(-9 * w) * Math.sin(2 * Math.PI * 3 * w) : 0; }
+        }
+        const href = `#lw${st.uid}-${sym}`;
+        for (let q = 0; q < 3; q++) setA(cell.u[q], 'href', href);
+        setA(cell.inner, 'transform', `translate(0 ${f2(dy)})`);
+        setA(cell.u[0], 'visibility', spinning ? 'visible' : 'hidden'); setA(cell.u[1], 'visibility', spinning ? 'visible' : 'hidden');
+        if (spinning) { setA(cell.u[0], 'transform', 'translate(0 -36)'); setA(cell.u[1], 'transform', 'translate(0 36)'); setA(cell.u[0], 'opacity', 0.5); setA(cell.u[1], 'opacity', 0.5); }
+      }
+
+      /* ---- fanfare ---- */
+      const winShown = tw != null && t >= tw;
+      const net = tn != null && t >= tn;
+      const live = winShown && !net;
+      const blink = live ? Math.floor((t - tw) * 2.5) % 2 === 0 : false;
+      setA(st.shadow, 'fill', live ? (blink ? C.lime : C.red) : C.pocket);
+      setA(st.bezel, 'stroke', live ? (blink ? C.lime : C.paper) : C.paper);
+      for (const cell of st.cells) {
+        const inWin = cell.r === 1 && cell.c < 3 && winShown;
+        setA(cell.hl, 'visibility', inWin ? 'visible' : 'hidden');
+        if (inWin) setA(cell.hl, 'fill', live && !blink ? C.white : C.lime);
+        setA(cell.veil, 'opacity', winShown && !inWin ? 0.6 : 0);
+      }
+      const lp = winShown ? E.out3(prog(t, tw + 0.1, tw + 0.45)) : 0;
+      for (const n of [st.wl0, st.wl1]) { setA(n, 'visibility', lp > 0 ? 'visible' : 'hidden'); setA(n, 'stroke-dasharray', `${f2(lp)} 1.01`); }
+      setA(st.banner, 'fill', live ? (blink ? C.lime : C.red) : C.pocket);
+      setA(st.banner, 'stroke', live ? C.ink : C.paper);
+      setA(st.idle, 'visibility', winShown ? 'hidden' : 'visible');
+      setA(st.gain, 'visibility', winShown ? 'visible' : 'hidden');
+      for (const sp of st.sparks) {
+        const q = live ? ((t - tw) * 2.5 + sp.ph) % 1 : 2;
+        if (q >= 0.6) { setA(sp.n, 'visibility', 'hidden'); continue; }
+        const s = sp.sz * (0.45 + 0.9 * Math.sin(q / 0.6 * Math.PI));
+        setA(sp.n, 'visibility', 'visible');
+        sp.n.setAttribute('transform', `translate(${f2(sp.x)} ${f2(sp.y)}) rotate(${f2(sp.rot + q * 90)}) scale(${f2(s)})`);
+      }
+      // haut-parleur : « chante » pendant la fanfare
+      const sp0 = live ? E.back(prog(t, tw, tw + 0.25)) : 0;
+      put(st.spk, 975, 300, 0, Math.max(sp0, 0), Math.max(sp0, 0), live ? 1 : 0);
+      if (live) st.waves.forEach((w, k) => { const q = ((t - tw) * 2.5 - k * 0.28) % 1; setA(w, 'visibility', q < 0.62 ? 'visible' : 'hidden'); });
+      // coupure + barré
+      const pn = net ? E.out2(prog(t, tn, tn + 0.5)) : 0;
+      setA(st.dim, 'opacity', f2(0.58 * pn));
+      const sk = net ? E.out3(prog(t, tn + 0.15, tn + 0.45)) : 0;
+      for (const n of [st.sk0, st.sk1]) {
+        setA(n, 'visibility', sk > 0 ? 'visible' : 'hidden');
+        const bx = BX - 14, ex = BX + BW + 14;
+        n.setAttribute('x2', f2(lerp(bx, ex, sk))); n.setAttribute('y2', f2(lerp(BY + BH - 6, BY + 6, sk)));
+      }
+
+      /* ---- calcul : MISÉ / REÇU ---- */
+      const L = [[st.l1, st.tc1, st.money(st.stake)], [st.l2, st.tc2, st.money(st.win)]];
+      for (const [ln, tc, val] of L) {
+        const pp = tc == null ? 0 : E.out3(prog(t, tc, tc + 0.3));
+        const txt = tc != null && t >= tc ? val : `—${NB}${st.cur}`;
+        if (ln.a.textContent !== txt) ln.a.textContent = txt;
+        const o = pp > 0 ? 1 : 0.25;
+        setA(ln.l, 'opacity', o); setA(ln.a, 'opacity', o);
+        const dy = (1 - pp) * 14;
+        ln.l.setAttribute('transform', `translate(0 ${f2(pp > 0 ? dy : 0)})`); ln.a.setAttribute('transform', `translate(0 ${f2(pp > 0 ? dy : 0)})`);
+      }
+      setA(st.rule, 'opacity', st.tc2 != null && t >= st.tc2 ? 1 : 0.25);
+      // tampon −1,20 €
+      if (tn == null) put(st.stamp, 1480, 705, -4, 0, 0, 0);
+      else {
+        const q = prog(t, tn, tn + 0.22), sc = lerp(2.6, 1, E.out3(q));
+        const sh = ZV.shakeAt(t, tn + 0.2, 10, 0.3);
+        put(st.stamp, 1480 + sh[0], 705 + sh[1], -4, q > 0 ? sc : 0, q > 0 ? sc : 0, q > 0 ? Math.min(1, q * 4) : 0);
+      }
+
+      /* ---- carte crédit / plein cadre `honest` ---- */
+      const k = th == null ? 0 : E.io3(prog(t, th, th + 0.45));
+      const cx = lerp(1110, 0, k), cy = lerp(90, 0, k), cw = lerp(740, 1920, k), ch = lerp(300, 1080, k);
+      st.card.setAttribute('x', f2(cx)); st.card.setAttribute('y', f2(cy)); st.card.setAttribute('width', f2(cw)); st.card.setAttribute('height', f2(ch));
+      st.card.setAttribute('stroke-width', f2(lerp(6, 0, k)));
+      st.cardS.setAttribute('x', f2(cx + 16 * (1 - k))); st.cardS.setAttribute('y', f2(cy + 16 * (1 - k))); st.cardS.setAttribute('width', f2(cw)); st.cardS.setAttribute('height', f2(ch));
+      st.cLab.setAttribute('x', f2(lerp(1480, 960, k))); st.cLab.setAttribute('y', f2(lerp(150, 430, k))); st.cLab.setAttribute('font-size', f2(lerp(30, 46, k)));
+      st.cNum.setAttribute('x', f2(lerp(1480, 960, k))); st.cNum.setAttribute('y', f2(lerp(330, 700, k))); st.cNum.setAttribute('font-size', f2(lerp(130, 320, k)));
+      const tp = th == null ? 0 : prog(t, th + 0.3, th + 0.6);
+      setA(st.title, 'visibility', tp > 0 ? 'visible' : 'hidden'); setA(st.title, 'opacity', f2(tp));
+      setA(st.frameIn, 'opacity', f2(k));
     }
   });
 })();
@@ -5466,6 +6158,169 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/rtp-bars.js ==== */
+// Composant « rtp-bars » (épisode 2) : « la case verte invisible », le taux de redistribution. Voir EP2-COMPONENTS.md.
+// Deux barres de 100 unités (1500 px) : part rendue en paper, part gardée en lime. Fonction pure du temps du plan ; aplats seulement.
+(() => {
+  const { C, E, clamp, prog, lerp, f2, put, g, rect, text, line, sv } = ZV;
+  let UID = 0;
+  const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const dec = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
+  const X0 = 210, U = 15, BH = 100;
+
+  function mkBar(root, uid, y, name, kept, ip) {
+    const b = { y, kept, rend: 100 - kept };
+    text(root, name, X0, y - 17, 52, C.paper, { len: f2(bw(name, 52)) });
+    b.g = g(root);
+    rect(b.g, X0 + 12, y + 12, 100 * U, BH, 6, C.ink);              // ombre dure du cadre
+    rect(b.g, X0, y, 100 * U, BH, 6, C.pocket, C.paper, 6);          // cadre : l'emplacement des 100 unités
+    b.paper = rect(b.g, X0, y, 1, BH, 4, C.paper, C.ink, 6);
+    b.pct = text(b.g, dec(b.rend) + ' % RENDUS', X0 + (b.rend * U) / 2, y + 66, 46, C.ink, { mono: true, anchor: 'middle', len: f2((dec(b.rend).length + 9) * 46 * 0.6) });
+    // tranche gardée par la maison (lime), qui se détache
+    b.sl = g(root);
+    const w = kept * U;
+    rect(b.sl, 9, 9, w, BH, 4, C.ink);
+    b.slBase = rect(b.sl, 0, 0, w, BH, 4, C.lime, C.ink, 6);
+    b.slHat = rect(b.sl, 0, 0, w, BH, 4, `url(#${uid}h${ip})`, C.lime, 4);
+    b.slHat.setAttribute('stroke-dasharray', '10 8');
+    b.w = w; b.sx = X0 + b.rend * U;
+    b.tick = line(root, 0, y + BH, 0, y + BH + 30, C.lime, 6);
+    const lab = dec(kept) + ' % GARDÉS';
+    b.lab = text(root, lab, X0 + 100 * U, y + BH + 72, 42, C.lime, { anchor: 'end', len: f2(bw(lab, 42)) });
+    return b;
+  }
+
+  ZV.define('rtp-bars', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const uid = 'rb' + (++UID);
+      const st = { dur: Math.max(0.1, shot.dur || 1) };
+      st.rou = clamp(num(P.roulette, 2.7), 0.1, 60); st.mac = clamp(num(P.machine, 15), 0.1, 60);
+      st.stake = num(P.hour_stake, 1200); st.keptH = num(P.hour_kept, 180); st.unit = P.unit != null ? String(P.unit) : '€';
+      const cu = (n) => ZV.cue(shot, n);
+      st.c = { roulette: cu('roulette'), machine: cu('machine'), times: cu('times'), invisible: cu('invisible'), hour: cu('hour'), law: cu('law') };
+      if (Object.values(st.c).every((x) => x === null)) st.c = { roulette: 0.2, machine: 1.5, times: 3.2, invisible: null, hour: 4.4, law: 6.0 };
+      st.ratio = Math.floor((st.mac / st.rou) * 10 + 1e-6) / 10;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const defs = sv('defs', null, root);
+      [0, 1].forEach((i) => {
+        const pt = sv('pattern', { id: `${uid}h${i}`, width: 18, height: 18, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+        sv('rect', { x: 0, y: 0, width: 18, height: 18, fill: C.pocket }, pt);
+        sv('rect', { x: 0, y: 0, width: 8, height: 18, fill: C.lime }, pt);
+      });
+      text(root, 'TAUX DE REDISTRIBUTION', X0, 104, 30, '#B9B5A8', { mono: true, len: f2(22 * 30 * 0.6) });
+      st.rb = mkBar(root, uid, 185, 'ROULETTE', st.rou, 0);
+      st.mb = mkBar(root, uid, 455, 'MACHINE À SOUS', st.mac, 1);
+      // × 5,5
+      st.times = g(root);
+      {
+        const lab = '× ' + dec(st.ratio), size = 78, w = bw(lab, size) + 80, h = 104;
+        rect(st.times, -w / 2 + 11, -h / 2 + 11, w, h, 18, C.ink);
+        rect(st.times, -w / 2, -h / 2, w, h, 18, C.paper, C.ink, 7);
+        text(st.times, lab, 0, size * 0.35, size, C.ink, { anchor: 'middle', len: f2(bw(lab, size)) });
+      }
+      st.inv = text(root, 'LA CASE VERTE INVISIBLE', 960, 705, 76, C.lime, { anchor: 'middle', len: f2(bw('LA CASE VERTE INVISIBLE', 76)) });
+      // heure de jeu
+      const sA = '1 200', lab1 = ' ' + st.unit + ' MISÉS / H', lab2 = ' ' + st.unit + ' GARDÉS';
+      st.fmt = (v) => ZV.fr(v);
+      const mk = (cx, fill, tail, final, wTxt) => {
+        const gr = g(root), size = 52, w = (String(final).length + tail.length) * size * 0.6 + 90, h = 104;
+        rect(gr, -w / 2 + 11, -h / 2 + 11, w, h, 18, C.ink);
+        rect(gr, -w / 2, -h / 2, w, h, 18, fill, C.ink, 7);
+        const tx = text(gr, '', -w / 2 + 45, size * 0.35, size, C.ink, { mono: true, anchor: 'start' });
+        tx.setAttribute('textLength', 1); tx.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+        return { g: gr, tx, cx, tail, size, final, w };
+      };
+      st.hA = mk(620, C.paper, lab1, st.fmt(st.stake));
+      st.hB = mk(1330, C.lime, lab2, st.fmt(st.keptH));
+      st.hArrow = text(root, '→', 0, 32, 90, C.paper, { anchor: 'middle', len: f2(bw('→', 90) + 20) });
+      // carton de loi
+      st.law = g(root);
+      {
+        const lab = 'ARRÊTÉ DU 14 MAI 2007 · MIN. 85 %', w = lab.length * 30 * 0.6 + 60, h = 66;
+        rect(st.law, -w / 2 + 9, -h / 2 + 9, w, h, 10, C.paper);
+        rect(st.law, -w / 2, -h / 2, w, h, 10, C.ink, C.paper, 5);
+        text(st.law, lab, 0, 11, 30, C.paper, { mono: true, anchor: 'middle', len: f2(lab.length * 30 * 0.6) });
+        st.lawW = w;
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const c = st.c;
+        const bar = (b, tc, inv) => {
+          const on = tc !== null && t >= tc;
+          const p = on ? E.out3(prog(t, tc, tc + 0.9)) : 0;
+          const wr = b.rend * U * p;
+          b.paper.setAttribute('width', f2(Math.max(0.01, wr)));
+          b.paper.setAttribute('visibility', on ? 'visible' : 'hidden');
+          b.pct.setAttribute('visibility', on && p > 0.7 ? 'visible' : 'hidden');
+          // la tranche arrive au bout de la part rendue, puis se soulève
+          const ts = (tc !== null ? tc : 0) + 0.9;
+          const dropIn = on ? E.out3(prog(t, tc + 0.55, ts)) : 0;
+          const lift = on ? E.back(prog(t, ts, ts + 0.4)) : 0;
+          let dy = -26 * lift, x = b.sx + lerp(160, 0, dropIn);
+          const pi = inv !== null ? E.out3(prog(t, inv, inv + 0.35)) : 0;
+          dy *= 1 - pi;
+          const hid = !on || t < tc + 0.55;
+          put(b.sl, x, b.y + dy, 0, 1, 1, hid ? 0 : 1);
+          b.slBase.setAttribute('fill', pi > 0.5 ? C.pocket : C.lime);
+          b.slBase.setAttribute('stroke', pi > 0.5 ? C.lime : C.ink);
+          b.slBase.setAttribute('stroke-dasharray', pi > 0.5 ? '10 8' : '');
+          b.slHat.setAttribute('visibility', pi > 0.5 ? 'visible' : 'hidden');
+          const tl = ts + 0.35, lo = on && t >= tl;
+          const lp = E.back(prog(t, tl, tl + 0.25));
+          b.lab.setAttribute('visibility', lo ? 'visible' : 'hidden');
+          b.lab.setAttribute('opacity', 1);
+          b.tick.setAttribute('visibility', lo ? 'visible' : 'hidden');
+          b.tick.setAttribute('x1', f2(b.sx + b.w / 2)); b.tick.setAttribute('x2', f2(b.sx + b.w / 2));
+          b.tick.setAttribute('y2', f2(b.y + BH + 30 * Math.min(1, lp)));
+          b.lab.setAttribute('transform', `translate(0 ${f2((1 - Math.min(1, lp)) * 14)})`);
+        };
+        bar(st.rb, c.roulette, null);
+        bar(st.mb, c.machine, c.invisible);
+        // × 5,5
+        {
+          const tt = c.times, on = tt !== null && t >= tt, p = on ? E.back(prog(t, tt, tt + 0.25)) : 0, sh = tt !== null ? ZV.shakeAt(t, tt + 0.2, 8, 0.4) : [0, 0];
+          put(st.times, 1250 + sh[0], 392 + sh[1], -4, on ? Math.max(0.01, p) : 0, on ? Math.max(0.01, p) : 0, on ? 1 : 0);
+        }
+        // case verte invisible
+        {
+          const ti = c.invisible, on = ti !== null && t >= ti + 0.25, p = on ? E.back(prog(t, ti + 0.25, ti + 0.5)) : 0;
+          st.inv.setAttribute('visibility', on ? 'visible' : 'hidden');
+          st.inv.setAttribute('transform', `translate(960 705) scale(${f2(Math.max(0.01, p))}) translate(-960 -705)`);
+        }
+        // heure de jeu : deux compteurs
+        {
+          const th = c.hour;
+          const part = (h, t0, v1) => {
+            const on = th !== null && t >= t0;
+            const p = on ? E.back(prog(t, t0, t0 + 0.25)) : 0;
+            put(h.g, h.cx, 785, 0, on ? Math.max(0.01, p) : 0, on ? Math.max(0.01, p) : 0, on ? 1 : 0);
+            const v = Math.round(v1 * E.out3(prog(t, t0 + 0.1, t0 + 1.1)));
+            const s = ZV.fr(v) + h.tail;
+            h.tx.textContent = s; h.tx.setAttribute('textLength', f2(s.length * h.size * 0.6));
+          };
+          part(st.hA, th !== null ? th : 0, st.stake);
+          part(st.hB, th !== null ? th + 1.4 : 0, st.keptH);
+          const ta = th !== null ? th + 1.25 : 0, on = th !== null && t >= ta;
+          const p = E.back(prog(t, ta, ta + 0.2));
+          put(st.hArrow, 975, 785, 0, on ? Math.max(0.01, p) : 0, on ? Math.max(0.01, p) : 0, on ? 1 : 0);
+        }
+        // carton de loi
+        {
+          const tl = c.law, on = tl !== null && t >= tl, p = on ? E.out3(prog(t, tl, tl + 0.3)) : 0;
+          put(st.law, 1710 - st.lawW / 2 + (1 - p) * 700, 94, 0, 1, 1, on ? 1 : 0);
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/saga.js ==== */
 // Composant `saga` : la saga de Charles Wells en quatre saisons (cartes), calendrier de deux mois, barre de vie.
 (() => {
@@ -5752,6 +6607,452 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/slot-machine.js ==== */
+// Composant `slot-machine` : machine à sous vue de face, plate, 1920×1080, fonction pure du temps.
+// Caisson ink bordé paper, fronton à ampoules, 3 rouleaux (flou de mouvement par symboles dupliqués, jamais de filtre), ligne de gain,
+// bandeau Mono CRÉDIT / MISE / GAIN, bouton SPIN, levier. Cues : spin, stop1-3, near, fanfare, hand, rapid, dim.
+// Aucun dégradé, flou, lueur ni filter. Le gain est un piège (clignotant, creux) ; le compteur de crédits est le témoin sobre.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt, sticker, rng, fr } = ZV;
+  let UID = 0;
+  const SYMS = ['cherry', 'seven', 'bar', 'lemon', 'bell', 'zero'];
+  const CELL = 140, RW = 192, NB = 28, MY = 440;
+  const COLS = [C.lime, C.paper, C.red];
+  const V0 = 11;                                   // cellules par seconde en croisière
+  const AA = 0.22, QQ = 0.28;                       // accélération (s), fraction de vitesse à l'impact
+
+  // écrit un attribut seulement s'il change (miroir du DOM, aucun état logique)
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const dec2 = (v) => (Math.round(v * 100) / 100).toFixed(2).replace('.', ',');
+  const mod6 = (a) => ((a % 6) + 6) % 6;
+  const fixT = (n, s) => { n.textContent = s; };
+
+  /* ---- symboles plats, centrés sur (0,0), cellule 192×140 ---- */
+  function drawSym(gg, name) {
+    if (name === 'cherry') {
+      path(gg, 'M-22 12 Q-18 -30 8 -48', 'none', C.ink, 7);
+      path(gg, 'M26 20 Q24 -26 8 -48', 'none', C.ink, 7);
+      path(gg, 'M8 -48 Q34 -70 56 -42 Q30 -30 8 -48Z', C.lime, C.ink, 5);
+      circle(gg, -24, 24, 25, C.red, C.ink, 6);
+      circle(gg, 28, 32, 25, C.red, C.ink, 6);
+      circle(gg, -33, 15, 6, C.paper);
+      circle(gg, 19, 23, 6, C.paper);
+    } else if (name === 'seven') {
+      const sh = text(gg, '7', 6, 58, 150, C.ink, { anchor: 'middle' });
+      sh.setAttribute('stroke', C.ink); sh.setAttribute('stroke-width', 9); sh.setAttribute('stroke-linejoin', 'round');
+      const t7 = text(gg, '7', 0, 52, 150, C.red, { anchor: 'middle' });
+      t7.setAttribute('stroke', C.ink); t7.setAttribute('stroke-width', 9); t7.setAttribute('stroke-linejoin', 'round'); t7.setAttribute('paint-order', 'stroke');
+    } else if (name === 'bar') {
+      rect(gg, -68 + 6, -27 + 7, 136, 54, 8, C.red);
+      rect(gg, -68, -27, 136, 54, 8, C.ink, C.ink, 6);
+      rect(gg, -60, -19, 120, 38, 4, 'none', C.paper, 3);
+      text(gg, 'BAR', 0, 12, 34, C.paper, { anchor: 'middle', len: 92 });
+    } else if (name === 'lemon') {
+      const lg = g(gg, { transform: 'rotate(-14)' });
+      path(lg, 'M-64 0 Q-44 -44 0 -42 Q44 -44 64 0 Q44 44 0 42 Q-44 44 -64 0Z', C.lime, C.ink, 6);
+      path(lg, 'M-30 -14 Q-10 -28 16 -26', 'none', C.paper, 6);
+      circle(lg, -62, 0, 6, C.ink); circle(lg, 62, 0, 6, C.ink);
+    } else if (name === 'bell') {
+      path(gg, 'M-48 40 L48 40 C42 22 38 -4 32 -22 C26 -38 12 -44 0 -44 C-12 -44 -26 -38 -32 -22 C-38 -4 -42 22 -48 40Z', C.paper, C.ink, 6);
+      path(gg, 'M14 -42 C26 -37 29 -30 32 -22 C38 -4 42 22 48 40 L24 40 C23 10 21 -20 14 -42Z', C.ink);
+      path(gg, 'M-48 40 L48 40 C42 22 38 -4 32 -22 C26 -38 12 -44 0 -44 C-12 -44 -26 -38 -32 -22 C-38 -4 -42 22 -48 40Z', 'none', C.ink, 6);
+      path(gg, 'M-40 22 L42 22', 'none', C.red, 8);
+      circle(gg, 0, -50, 9, C.paper, C.ink, 5);
+      circle(gg, 0, 50, 11, C.ink);
+    } else {
+      circle(gg, 0, 0, 48, C.lime, C.ink, 7);
+      text(gg, '0', 0, 26, 78, C.ink, { anchor: 'middle' });
+    }
+    return gg;
+  }
+
+  // main plate : doigt tendu (pointe en (0,0), vers le haut), manche rouge
+  function drawHand(parent) {
+    const h = g(parent);
+    rect(h, -52, 150, 124, 190, 46, C.paper, C.ink, 5);
+    for (let k = 0; k < 3; k++) rect(h, 8, 104 + k * 36, 60 - k * 5, 32, 16, C.paper, C.ink, 5);
+    path(h, 'M-19 19 A19 19 0 0 1 19 19 L19 206 L-19 206Z', C.paper);
+    path(h, 'M-19 206 L-19 19 A19 19 0 0 1 19 19 L19 206', 'none', C.ink, 5);
+    const th = g(h, { transform: 'translate(-48 176) rotate(30)' });
+    sv('ellipse', { cx: 0, cy: 0, rx: 17, ry: 44, fill: C.paper, stroke: C.ink, 'stroke-width': 5 }, th);
+    rect(h, -62, 330, 142, 150, 6, C.red, C.ink, 5);
+    rect(h, -62, 352, 142, 16, 0, C.ink);
+    return h;
+  }
+
+  function cleanSyms(a, fallback) {
+    if (!Array.isArray(a) || a.length < 3) return fallback;
+    const r = a.slice(0, 3).map((s) => (SYMS.includes(s) ? s : null));
+    return r.every(Boolean) ? r : fallback;
+  }
+
+  ZV.define('slot-machine', {
+    init(root, shot) {
+      const p = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 6;
+      const cueL = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t);
+      const uid = ++UID;
+      const side = p.side === 'left' || p.side === 'right' ? p.side : 'center';
+      const cx = side === 'left' ? 560 : side === 'right' ? 1360 : 950;
+      const credit0 = isNum(+p.credit) && p.credit != null ? +p.credit : 100;
+      const bet = isNum(+p.bet) && p.bet != null ? +p.bet : 1;
+      const reels0 = cleanSyms(p.reels, ['seven', 'bar', 'cherry']);
+      const label = typeof p.label === 'string' && p.label ? p.label : 'ZÉRO VERT';
+      const st = { uid, cx, dur, lights: p.lights !== false, lever: p.lever !== false, shot, credit0, bet };
+
+      /* ---- fond ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+
+      const defs = sv('defs', null, root);
+      SYMS.forEach((n) => drawSym(g(defs, { id: `sm${uid}-${n}` }), n));
+      const clip = sv('clipPath', { id: `sm${uid}-clip` }, defs);
+      rect(clip, -288, -190, 576, 280, 0, '#000');
+
+      /* ---- machine ---- */
+      const m = st.m = g(root);
+      st.shadow = rect(m, 20 - 350, 20 - 400, 700, 800, 40, C.lime);
+      rect(m, -350, -400, 700, 800, 40, C.ink, C.paper, 8);
+
+      // fronton
+      rect(m, -316, -372, 632, 140, 24, C.pocket, C.paper, 5);
+      st.label = text(m, label, 0, -279, 66, C.paper, { anchor: 'middle', len: clamp(label.length * 50, 160, 470) });
+      st.bulbs = [];
+      const PW = 600, PH = 108, PP = 2 * (PW + PH);
+      for (let i = 0; i < NB; i++) {
+        let s = i * PP / NB, x, y;
+        if (s < PW) { x = -300 + s; y = -356; }
+        else if (s < PW + PH) { x = 300; y = -356 + (s - PW); }
+        else if (s < 2 * PW + PH) { x = 300 - (s - PW - PH); y = -248; }
+        else { x = -300; y = -248 - (s - 2 * PW - PH); }
+        st.bulbs.push(circle(m, f2(x), f2(y), 9, C.pocket, C.grey, 3));
+      }
+
+      // fenêtre des rouleaux
+      st.frameFill = rect(m, -304, -204, 608, 308, 14, C.ink);
+      const rg = g(m, { 'clip-path': `url(#sm${uid}-clip)` });
+      st.reels = [0, 1, 2].map((i) => {
+        const gr = g(rg, { transform: `translate(${(i - 1) * RW} -50)` });
+        rect(gr, -RW / 2, -140, RW, 280, 0, C.paper);
+        line(gr, -RW / 2, 0, RW / 2, 0, C.ink, 12);
+        line(gr, -RW / 2, 0, RW / 2, 0, C.red, 6);
+        const slots = [];
+        for (let k = 0; k < 4; k++) {
+          const sg = g(gr);
+          const u = [0, 1, 2].map(() => sv('use', { href: `#sm${uid}-cherry` }, sg));
+          slots.push({ sg, u });
+        }
+        return { slots };
+      });
+      for (const sx of [-96, 96]) rect(rg, sx - 4, -190, 8, 280, 0, C.ink);
+      rect(rg, -288, -190, 576, 30, 0, C.ink, null, 0, { opacity: 0.16 });
+      rect(rg, -288, 60, 576, 30, 0, C.ink, null, 0, { opacity: 0.16 });
+      for (const sg of [-1, 1]) { line(m, sg * 288, -50, sg * 262, -50, C.ink, 14, { 'stroke-linecap': 'butt' }); line(m, sg * 288, -50, sg * 262, -50, C.red, 7, { 'stroke-linecap': 'butt' }); }
+      for (const sg of [-1, 1]) path(m, `M${sg * 340} -66 L${sg * 316} -50 L${sg * 340} -34Z`, C.red, C.ink, 4);
+      st.frame = rect(m, -304, -204, 608, 308, 14, 'none', C.paper, 6);
+
+      // bandeau CRÉDIT / MISE / GAIN (le crédit est dessiné plus haut dans la pile, voir plus bas)
+      const cellBox = (x, lab) => {
+        rect(m, x - 94, 130, 188, 92, 10, C.pocket, C.paper, 4);
+        text(m, lab, x, 160, 18, C.paper, { anchor: 'middle', mono: true, weight: 700, spacing: 3 }).setAttribute('opacity', 0.7);
+      };
+      cellBox(-200, 'CRÉDIT'); cellBox(0, 'MISE'); cellBox(200, 'GAIN');
+      st.miseT = text(m, '', 0, 207, 42, C.white, { anchor: 'middle', mono: true, weight: 700 });
+      st.gainBox = rect(m, 106, 130, 188, 92, 10, C.pocket, C.paper, 4);
+      st.gainLab = text(m, 'GAIN', 200, 160, 18, C.paper, { anchor: 'middle', mono: true, weight: 700, spacing: 3 });
+      st.gainT = text(m, '', 200, 207, 42, C.white, { anchor: 'middle', mono: true, weight: 700 });
+      st.tourT = text(m, '', -200, 326, 30, C.paper, { anchor: 'middle', mono: true, weight: 700 });
+
+      // bouton SPIN
+      const bg = g(m, { transform: 'translate(0 318)' });
+      circle(bg, 0, 0, 78, C.pocket, C.paper, 5);
+      circle(bg, 0, 10, 62, C.ink);
+      st.btn = g(bg);
+      circle(st.btn, 0, 0, 62, C.red, C.ink, 6);
+      path(st.btn, 'M-42 -20 A46 46 0 0 1 -8 -46', 'none', C.paper, 6, { opacity: 0.7 });
+      text(st.btn, 'SPIN', 0, 14, 40, C.ink, { anchor: 'middle', len: 98 });
+
+      // levier
+      st.leverG = g(m);
+      if (st.lever) {
+        st.arc = line(st.leverG, 352, 30, 412, -110, C.ink, 24);
+        st.arm = line(st.leverG, 352, 30, 412, -110, C.paper, 12);
+        circle(st.leverG, 352, 30, 22, C.pocket, C.paper, 5);
+        st.knob = g(st.leverG);
+        circle(st.knob, 0, 0, 28, C.red, C.ink, 6);
+        circle(st.knob, -8, -9, 7, C.paper);
+      }
+
+      // extinction : voile ink par-dessus la machine, puis crédit seul allumé
+      st.veil = rect(m, -350, -400, 700, 800, 40, C.ink, null, 0, { opacity: 0 });
+      st.creditBox = rect(m, -294, 130, 188, 92, 10, C.pocket, C.paper, 4);
+      st.creditLab = text(m, 'CRÉDIT', -200, 160, 18, C.paper, { anchor: 'middle', mono: true, weight: 700, spacing: 3 });
+      st.creditLab.setAttribute('opacity', 0.7);
+      st.creditT = text(m, '', -200, 207, 42, C.white, { anchor: 'middle', mono: true, weight: 700 });
+      st.bigG = g(m);
+      text(st.bigG, 'CRÉDIT', 0, -150, 34, C.paper, { anchor: 'middle', mono: true, weight: 700, spacing: 8 });
+      st.bigT = text(st.bigG, '', 0, -20, 150, C.paper, { anchor: 'middle', mono: true, weight: 800 });
+
+      // étincelles plates
+      const rr = rng(4242);
+      st.sparks = [];
+      for (let i = 0; i < 18; i++) {
+        const ang = rr() * Math.PI * 2;
+        const n = sv('path', { d: 'M0 -1L0.3 -0.3L1 0L0.3 0.3L0 1L-0.3 0.3L-1 0L-0.3 -0.3Z', fill: COLS[i % 3], stroke: C.ink, 'stroke-width': 3, 'stroke-linejoin': 'round', visibility: 'hidden' }, m);
+        n.setAttribute('vector-effect', 'non-scaling-stroke');
+        st.sparks.push({ n, dx: Math.cos(ang), dy: Math.sin(ang), sp: 170 + rr() * 260, sz: 22 + rr() * 30, dl: rr() * 0.5, rot: rr() * 90, rv: (rr() - 0.5) * 360 });
+      }
+
+      // sticker « PRESQUE ! »
+      st.nearG = g(m);
+      sticker(st.nearG, 380, 110, C.red, 'PRESQUE !', 64, C.ink, { sh: 10 });
+
+      // main (hors du groupe qui tremble)
+      st.hand = drawHand(g(root));
+      st.handG = st.hand.parentNode;
+
+      /* ---- repères ---- */
+      const fans = cueL('fanfare');
+      st.fans = fans;
+      st.tn = (cueL('near')[0] || {}).t;
+      st.td = (cueL('dim')[0] || {}).t;
+      st.th = (cueL('hand')[0] || {}).t;
+      st.hasRapid = cueL('rapid').length > 0;
+      st.tRapid = st.hasRapid ? cueL('rapid')[0].t : null;
+
+      /* ---- plan des tours : cycles { ts, reel[3] { te, sym, off, r0, V, a, d, J, rest } } ---- */
+      const R = rng(777);
+      const starts = cueL('spin').map((b) => ({ ts: b.t, rapid: false }));
+      if (st.hasRapid) for (let k = 0, tt = st.tRapid; tt < dur - 0.3 && k < 60; k++, tt += 3) starts.push({ ts: tt, rapid: true });
+      starts.sort((a, b) => a.ts - b.ts);
+      const stopB = [1, 2, 3].map((n) => cueL('stop' + n));
+      const nearB = cueL('near');
+      const ov = [new Map(), new Map(), new Map()];
+      reels0.forEach((s, i) => ov[i].set(0, s));
+      const rests = [0, 0, 0];
+      const pickRand = () => { const pool = ['cherry', 'bar', 'lemon', 'bell', 'zero', 'seven', 'cherry', 'bar', 'lemon', 'bell']; return pool[Math.floor(R() * pool.length) % pool.length]; };
+      st.cycles = starts.map((s, c) => {
+        const ts = s.ts, nextTs = c + 1 < starts.length ? starts[c + 1].ts : Infinity;
+        const inWin = (b) => b.t > ts + 0.15 && b.t < nextTs;
+        const nb = s.rapid ? null : nearB.find(inWin) || null;
+        const te = [null, null, null], sym = [null, null, null], user = [false, false, false];
+        for (let i = 0; i < 3; i++) {
+          if (s.rapid) { te[i] = ts + 1.1 + 0.4 * i; continue; }
+          const b = stopB[i].find(inWin);
+          if (b) { te[i] = b.t; if (SYMS.includes(b.sym)) { sym[i] = b.sym; user[i] = true; } }
+        }
+        if (nb) {
+          if (te[2] == null) te[2] = nb.t;
+          if (te[0] == null) te[0] = Math.max(ts + 0.7, nb.t - 1.1);
+          if (te[1] == null) te[1] = Math.max(ts + 0.9, nb.t - 0.55);
+          for (let i = 0; i < 3; i++) if (!user[i]) sym[i] = 'seven';
+          if (!user[2]) sym[2] = 'seven';
+        }
+        for (let i = 0; i < 3; i++) {
+          if (te[i] == null && nextTs < Infinity) te[i] = Math.max(ts + 0.6, nextTs - 0.12);
+          if (te[i] != null && te[i] < ts + 0.4) te[i] = ts + 0.4;
+        }
+        for (let i = 0; i < 3; i++) if (!sym[i]) sym[i] = pickRand();
+        if (!nb && !user.some(Boolean) && sym[0] === sym[1] && sym[1] === sym[2]) sym[2] = sym[2] === 'bar' ? 'cherry' : 'bar';
+        const cy = { ts, rapid: s.rapid, near: nb ? nb.t : null, reel: [] };
+        for (let i = 0; i < 3; i++) {
+          const r0 = rests[i], Rl = { ts, te: te[i], r0, a: AA, sym: sym[i], inf: te[i] == null };
+          if (!Rl.inf) {
+            const L = te[i] - ts, aa = Math.min(AA, L * 0.3), dd = Math.min(0.42, L * 0.4);
+            const K = aa / 2 + (L - aa - dd) + dd * (1 + QQ) / 2;
+            const off = nb && i === 2 ? 0.42 : 0;
+            const Jf = Math.max(Math.round(r0 + V0 * K + off), Math.ceil(r0 + off + 3));
+            Rl.a = aa; Rl.d = dd; Rl.off = off; Rl.J = Jf; Rl.rest = Jf - off; Rl.V = (Rl.rest - r0) / K;
+            ov[i].set(Jf, sym[i]); rests[i] = Rl.rest;
+          } else { Rl.V = V0; }
+          cy.reel.push(Rl);
+        }
+        return cy;
+      });
+      st.ov = ov;
+      st.perm = [0, 1, 2].map((i) => { const rq = rng(31 + i * 17), a = SYMS.slice(); for (let k = 5; k > 0; k--) { const j = Math.floor(rq() * (k + 1)); const x = a[k]; a[k] = a[j]; a[j] = x; } return a; });
+      st.shift = [0, 2, 4];
+
+      /* ---- crédit : événements séquentiels ---- */
+      const ev = [];
+      st.cycles.forEach((cy) => ev.push({ t0: cy.ts, t1: cy.ts + 0.3, d: -bet }));
+      fans.forEach((b) => { if (isNum(+b.credit) && b.credit != null) ev.push({ t0: b.t, t1: b.t + 0.5, abs: +b.credit }); });
+      if (st.td != null) {
+        const db = cueL('dim')[0];
+        ev.push({ t0: st.td + 0.7, t1: Math.max(st.td + 3, dur - 0.2), cap: true, to: isNum(+db.credit_to) && db.credit_to != null ? +db.credit_to : null });
+      }
+      ev.sort((a, b) => a.t0 - b.t0);
+      let cur = credit0, allInt = Number.isInteger(credit0) && Number.isInteger(bet);
+      for (const e of ev) {
+        e.from = cur;
+        if (e.abs != null) e.to = e.abs; else if (e.cap) { if (e.to == null) e.to = Math.max(0, Math.floor(cur * 0.6)); } else e.to = Math.max(0, cur + e.d);
+        if (!Number.isInteger(e.to)) allInt = false;
+        cur = e.to;
+      }
+      st.ev = ev; st.dec = !allInt;
+      st.miseT.textContent = st.dec ? dec2(bet) : String(bet);
+      return st;
+    },
+
+    update(st, t, shot) {
+      const cy = st.cycles;
+      const reelPos = (i, tt) => {
+        let c = null;
+        for (let k = cy.length - 1; k >= 0; k--) if (tt >= cy[k].ts) { c = cy[k]; break; }
+        if (!c) return 0;
+        const Rl = c.reel[i], s = tt - Rl.ts, a = Rl.a;
+        if (Rl.inf) return Rl.r0 + Rl.V * (s < a ? s * s / (2 * a) : a / 2 + (s - a));
+        if (tt >= Rl.te) { const w = tt - Rl.te; return Rl.rest + (w < 0.7 ? 0.2 * Math.exp(-6.5 * w) * Math.sin(2 * Math.PI * 2.3 * w) : 0); }
+        const L = Rl.te - Rl.ts, d = Rl.d, V = Rl.V;
+        if (s < a) return Rl.r0 + V * s * s / (2 * a);
+        if (s < L - d) return Rl.r0 + V * (a / 2 + s - a);
+        const w = s - (L - d);
+        return Rl.r0 + V * (a / 2 + L - a - d) + V * (w - (1 - QQ) * w * w / (2 * d));
+      };
+      const symAt = (i, j) => {
+        const o = st.ov[i];
+        if (o.has(j)) return o.get(j);
+        const P = st.perm[i], sh = st.shift[i];
+        let s = P[mod6(j + sh)];
+        if (o.get(j - 1) === s || o.get(j + 1) === s) s = P[mod6(j + sh + 3)];
+        return s;
+      };
+
+      const td = st.td, dimmed = td != null && t >= td;
+      let fan = null;
+      if (!dimmed) for (const b of st.fans) if (b.t <= t) fan = b;
+      const tn = st.tn, nearOn = !dimmed && tn != null && t >= tn && t < tn + 2.0;
+
+      /* ---- rouleaux ---- */
+      let spinning = false, shx = 0, shy = 0;
+      for (let i = 0; i < 3; i++) {
+        const r = reelPos(i, t);
+        const v = (r - reelPos(i, t - 0.025)) / 0.025;
+        if (v > 2) spinning = true;
+        const gh = clamp(v * CELL * 0.02, 0, 56);
+        const base = Math.floor(r);
+        const slots = st.reels[i].slots;
+        for (let k = 0; k < 4; k++) {
+          const j = base - 1 + k, y = (r - j) * CELL, sl = slots[k];
+          const vis = Math.abs(y) < 216;
+          setA(sl.sg, 'visibility', vis ? 'visible' : 'hidden');
+          if (!vis) continue;
+          setA(sl.sg, 'transform', `translate(0 ${f2(y)})`);
+          const href = `#sm${st.uid}-${symAt(i, j)}`;
+          for (let q = 0; q < 3; q++) setA(sl.u[q], 'href', href);
+          const gv = gh > 2.5;
+          setA(sl.u[0], 'visibility', gv ? 'visible' : 'hidden'); setA(sl.u[1], 'visibility', gv ? 'visible' : 'hidden');
+          if (gv) {
+            setA(sl.u[0], 'transform', `translate(0 ${f2(-gh)})`); setA(sl.u[1], 'transform', `translate(0 ${f2(gh)})`);
+            setA(sl.u[0], 'opacity', 0.5); setA(sl.u[1], 'opacity', 0.5);
+          }
+          setA(sl.u[2], 'opacity', gv ? 0.88 : 1);
+        }
+      }
+      // tremblements : impacts des rouleaux, presque, fanfare
+      for (const c of cy) {
+        if (t < c.ts || t > c.ts + 8) continue;
+        for (let i = 0; i < 3; i++) { const Rl = c.reel[i]; if (!Rl.inf) { const s = shakeAt(t, Rl.te, 3, 0.2); shx += s[0]; shy += s[1]; } }
+      }
+      if (tn != null) { const s = shakeAt(t, tn, 16, 0.55); shx += s[0]; shy += s[1]; }
+      if (fan) { const s = shakeAt(t, fan.t, 7, 0.4); shx += s[0]; shy += s[1]; }
+      st.m.setAttribute('transform', `translate(${f2(st.cx + shx)} ${f2(MY + shy)})`);
+
+      /* ---- ampoules ---- */
+      const nbk = st.bulbs.length;
+      for (let i = 0; i < nbk; i++) {
+        let on = st.lights, col = COLS[i % 3];
+        if (dimmed) on = false;
+        else if (fan) { on = true; col = COLS[(i + Math.floor((t - fan.t) * 5)) % 3]; }
+        else if (nearOn) { on = true; col = ((i + Math.floor((t - tn) * 5)) & 1) ? C.red : C.lime; }
+        else if (spinning) on = st.lights && mod6(i - Math.floor(t * 6)) % 3 === 0;
+        const b = st.bulbs[i];
+        setA(b, 'fill', on ? col : C.pocket); setA(b, 'stroke', on ? C.ink : C.grey);
+      }
+
+      /* ---- fanfare : cadre, fronton, GAIN, étincelles ---- */
+      const blink = fan ? Math.floor((t - fan.t) * 2.5) % 2 === 0 : false;
+      setA(st.frame, 'stroke', fan ? (blink ? C.lime : C.red) : C.paper);
+      setA(st.label, 'fill', fan ? (blink ? C.lime : C.white) : C.paper);
+      setA(st.shadow, 'fill', dimmed ? C.pocket : fan && !blink ? C.red : C.lime);
+      const winTxt = fan && fan.win != null ? (typeof fan.win === 'string' ? fan.win : (Number.isInteger(+fan.win) ? fr(+fan.win) : dec2(+fan.win))) : '0';
+      if (st.gainT.textContent !== winTxt) st.gainT.textContent = winTxt;
+      setA(st.gainBox, 'fill', fan ? (blink ? C.lime : C.pocket) : C.pocket);
+      setA(st.gainT, 'fill', fan ? (blink ? C.ink : C.lime) : C.white);
+      setA(st.gainLab, 'fill', fan && blink ? C.ink : C.paper);
+      for (const sp of st.sparks) {
+        let s = fan ? (t - fan.t - sp.dl) : -1;
+        let q = -1;
+        if (s >= 0) { s %= 1.3; q = s / 1.0; }
+        if (q < 0 || q >= 1) { setA(sp.n, 'visibility', 'hidden'); continue; }
+        const e = E.out3(q), sz = sp.sz * (1 - 0.6 * q);
+        setA(sp.n, 'visibility', 'visible');
+        sp.n.setAttribute('transform', `translate(${f2(sp.dx * sp.sp * e)} ${f2(-50 + sp.dy * sp.sp * e)}) rotate(${f2(sp.rot + sp.rv * q)}) scale(${f2(sz)})`);
+      }
+
+      /* ---- sticker PRESQUE ! ---- */
+      if (tn != null) {
+        const pp = prog(t, tn, tn + 0.28), po = 1 - E.in2(prog(t, tn + 2.6, tn + 2.85));
+        const sc = E.back(pp) * (t > tn + 2.6 ? Math.max(po, 0) : 1);
+        put(st.nearG, 200, -212, -7, sc, sc, pp > 0 ? 1 : 0);
+      } else put(st.nearG, 200, -212, -7, 0, 0, 0);
+
+      /* ---- crédit, mise, tours ---- */
+      let cr = st.credit0;
+      for (const e of st.ev) {
+        if (t >= e.t1) cr = e.to;
+        else { if (t > e.t0) cr = lerp(e.from, e.to, (t - e.t0) / (e.t1 - e.t0)); break; }
+      }
+      const crT = st.dec ? dec2(cr) : fr(Math.round(cr));
+      if (st.creditT.textContent !== crT) st.creditT.textContent = crT;
+      if (st.hasRapid) {
+        let n = 0; for (const c of cy) if (c.rapid && c.ts <= t) n++;
+        const tt = n ? 'TOUR ' + n : '';
+        if (st.tourT.textContent !== tt) st.tourT.textContent = tt;
+      }
+
+      /* ---- bouton, levier, main ---- */
+      let press = 0, pull = 0;
+      for (const c of cy) {
+        if (t < c.ts) break;
+        const s = t - c.ts;
+        press = Math.max(press, s < 0.1 ? s / 0.1 : s < 0.35 ? 1 - (s - 0.1) / 0.25 : 0);
+        if (s < 0.18) pull = Math.max(pull, E.out2(s / 0.18)); else if (s < 0.6) pull = Math.max(pull, 1 - E.io2((s - 0.18) / 0.42));
+      }
+      const th = st.th;
+      const hp = th == null ? 0 : E.out3(prog(t, th, th + 0.45));
+      press = Math.max(press, hp >= 0.97 ? 0.9 : 0);
+      setA(st.btn, 'transform', `translate(0 ${f2(8 * press)})`);
+      if (st.lever) {
+        const kx = lerp(412, 424, pull), ky = lerp(-110, 130, pull);
+        for (const n of [st.arc, st.arm]) { n.setAttribute('x2', f2(kx)); n.setAttribute('y2', f2(ky)); }
+        const ks = 1 + 0.18 * pull;
+        st.knob.setAttribute('transform', `translate(${f2(kx)} ${f2(ky)}) scale(${f2(ks)})`);
+      }
+      if (th == null || hp <= 0) setA(st.handG, 'visibility', 'hidden');
+      else {
+        const k = 1 - hp;
+        const tx = st.cx + 10 + 150 * k, ty = MY + 318 + 36 + 420 * k + (hp >= 0.97 ? 6 : 0);
+        setA(st.handG, 'visibility', 'visible');
+        st.hand.setAttribute('transform', `translate(${f2(tx)} ${f2(ty)}) rotate(-12)`);
+      }
+
+      /* ---- extinction ---- */
+      if (td != null) {
+        const pd = E.io3(prog(t, td, td + 0.6)), pb = prog(t, td + 0.5, td + 0.9);
+        setA(st.veil, 'opacity', f2(0.95 * pd));
+        const showBig = pb > 0;
+        setA(st.bigG, 'visibility', showBig ? 'visible' : 'hidden'); setA(st.bigG, 'opacity', f2(pb));
+        if (st.bigT.textContent !== crT) st.bigT.textContent = crT;
+      } else { setA(st.veil, 'opacity', 0); setA(st.bigG, 'visibility', 'hidden'); }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/streak-board.js ==== */
 // Composant « streak-board » : la série des 26 noirs (2 rangées de 13 tuiles), gros compteur lime, bulles de la salle,
 // panneau « PROCHAIN TOUR : 18/37 ROUGE » qui ne change jamais, tuile « ? », répartition fantôme 50/50, flèche « RATTRAPER ? ».
@@ -5974,6 +7275,192 @@
         put(a.shaft, a.x, a.y, 0, Math.max(E.out3(q), 0.0001), 1, q > 0 ? 1 : 0);
         put(a.pl, a.x + 175, a.y - 118, -3, E.back(qs) || 0.0001, E.back(qs) || 0.0001, qs > 0 ? 1 : 0);
       }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/tick-grid.js ==== */
+// Composant `tick-grid` : « un tour toutes les 3 secondes ». Anneau-minuteur de 3 s + point qui s'allume, puis grille de 1 200 carrés (60 × 20, 22 px) qui se remplit.
+// Cues : tick, minute, hour, hand, no-pause. Fond paper. Aucun dégradé, flou, lueur ni filter ; remplissage = progression (rien ne clignote).
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, sticker, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const NB = ' ';
+  const COLS = 60, ROWS = 20, PITCH = 22, SZ = 17, GX = 300, GY = 300, N = COLS * ROWS;
+  const RR = 190;
+  const pad5 = (n) => { const s = String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, NB); return NB.repeat(Math.max(0, 5 - s.length)) + s; };
+  const dsec = (v) => (Math.round(v * 10) / 10).toFixed(1).replace('.', ',');
+
+  function drawHand(parent) {
+    const h = g(parent);
+    rect(h, -52, 150, 124, 190, 46, C.paper, C.ink, 5);
+    for (let k = 0; k < 3; k++) rect(h, 8, 104 + k * 36, 60 - k * 5, 32, 16, C.paper, C.ink, 5);
+    path(h, 'M-19 19 A19 19 0 0 1 19 19 L19 206 L-19 206Z', C.paper);
+    path(h, 'M-19 206 L-19 19 A19 19 0 0 1 19 19 L19 206', 'none', C.ink, 5);
+    const th = g(h, { transform: 'translate(-48 176) rotate(30)' });
+    sv('ellipse', { cx: 0, cy: 0, rx: 17, ry: 44, fill: C.paper, stroke: C.ink, 'stroke-width': 5 }, th);
+    rect(h, -62, 330, 142, 150, 6, C.red, C.ink, 5);
+    rect(h, -62, 352, 142, 16, 0, C.ink);
+    return h;
+  }
+
+  ZV.define('tick-grid', {
+    init(root, shot) {
+      const p = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 8;
+      const cueL = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t);
+      const period = isNum(+p.period) && p.period != null && +p.period > 0 ? +p.period : 3;
+      const perMin = isNum(+p.per_minute) && p.per_minute != null && +p.per_minute > 0 ? Math.round(+p.per_minute) : 20;
+      const perHour = isNum(+p.per_hour) && p.per_hour != null && +p.per_hour > 0 ? Math.round(+p.per_hour) : 1200;
+      const accent = p.accent === 'red' ? C.red : C.lime;
+      const st = { dur, period, perMin, perHour: Math.min(perHour, N), accent, dKey: -1 };
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+
+      /* ---- grille : 1 200 carrés, remplissage colonne par colonne (1 colonne = 1 minute) ---- */
+      st.gridG = g(root);
+      st.cells = [];
+      for (let i = 0; i < N; i++) {
+        const c = Math.floor(i / ROWS), r = i % ROWS;
+        st.cells.push({ n: rect(st.gridG, GX + c * PITCH + 2.5, GY + r * PITCH + 2.5, SZ, SZ, 3, C.ink, null, 0, { opacity: 0.12 }), s: 0 });
+      }
+      st.curN = 0;
+
+      /* ---- compteur (plaque) ---- */
+      st.plate = g(root);
+      rect(st.plate, -410 + 12, -70 + 12, 820, 140, 16, C.ink);
+      rect(st.plate, -410, -70, 820, 140, 16, accent, C.ink, 6);
+      st.cnt = text(st.plate, '', -330, 34, 96, C.ink, { mono: true, weight: 800 });
+
+      /* ---- anneau ---- */
+      st.ringG = g(root);
+      circle(st.ringG, 0, 0, RR, 'none', C.ink, 48);
+      circle(st.ringG, 0, 0, RR, 'none', C.paper, 34);
+      st.arc = sv('circle', { cx: 0, cy: 0, r: RR, fill: 'none', stroke: accent, 'stroke-width': 34, pathLength: 1, transform: 'rotate(-90)', 'stroke-dasharray': '0 1.01' }, st.ringG);
+      st.dot = g(st.ringG, { transform: `translate(0 ${-RR})` });
+      st.dotC = circle(st.dot, 0, 0, 22, C.paper, C.ink, 7);
+      st.clock = text(st.ringG, '3 s', 0, 32, 92, C.ink, { anchor: 'middle', mono: true, weight: 800 });
+      st.mini = [];
+      for (let i = 0; i < 8; i++) st.mini.push(circle(st.ringG, (i - 3.5) * 36, RR + 78, 13, C.paper, C.ink, 5));
+      st.stk = g(root);
+      sticker(st.stk, 150, 80, accent, '3 s', 50, C.ink, { sh: 8 });
+
+      /* ---- no-pause, bouton, main ---- */
+      st.labels = ['CROUPIER', 'BILLE', 'PAUSE'].map((lab) => {
+        const gg = g(root);
+        sticker(gg, 330, 78, C.white, lab, 44, C.ink, { sh: 9, r: 12 });
+        const k0 = sv('line', { x1: -170, y1: 8, x2: 170, y2: -8, stroke: C.ink, 'stroke-width': 13, 'stroke-linecap': 'round' }, gg);
+        const k1 = sv('line', { x1: -170, y1: 8, x2: 170, y2: -8, stroke: C.red, 'stroke-width': 6, 'stroke-linecap': 'round' }, gg);
+        return { gg, k0, k1 };
+      });
+      st.btn = g(root, { transform: 'translate(1760 770)' });
+      circle(st.btn, 0, 0, 74, C.paper, C.ink, 6);
+      circle(st.btn, 0, 10, 56, C.ink);
+      st.btnTop = g(st.btn);
+      circle(st.btnTop, 0, 0, 56, C.red, C.ink, 6);
+      text(st.btnTop, 'SPIN', 0, 13, 36, C.ink, { anchor: 'middle', len: 88 });
+      st.handG = g(root);
+      st.hand = drawHand(st.handG);
+
+      /* ---- repères ---- */
+      const ticks = cueL('tick').map((b) => b.t);
+      const tm = (cueL('minute')[0] || {}).t, thh = (cueL('hour')[0] || {}).t, tnp = (cueL('no-pause')[0] || {}).t, thand = (cueL('hand')[0] || {}).t;
+      st.tm = tm; st.th = thh; st.tnp = tnp; st.thand = thand;
+      st.tg = tm != null && thh != null ? Math.min(tm, thh) : tm != null ? tm : thh;
+      st.laps = ticks.map((t0, i) => {
+        const bound = i + 1 < ticks.length ? ticks[i + 1] : dur;
+        const fd = bound - t0 >= period + 0.3 ? period : Math.max(0.8, bound - t0 - 0.3);
+        return { t0, fd };
+      });
+      st.hourD = clamp(dur - (thh == null ? 0 : thh) - 0.8, 1.2, 3.2);
+      st.base = tm != null ? perMin : 0;
+      st.lblY = st.tg != null && tnp != null && tnp >= st.tg ? 785 : 770;
+      return st;
+    },
+
+    update(st, t) {
+      const { tm, th, tg, tnp, thand } = st;
+      /* ---- grille visible à partir de tg ---- */
+      const gp = tg == null ? 0 : E.out3(prog(t, tg, tg + 0.35));
+      const gv = gp > 0;
+      setA(st.gridG, 'visibility', gv ? 'visible' : 'hidden');
+      setA(st.gridG, 'transform', `translate(0 ${GY}) scale(1 ${f2(Math.max(gp, 0.001))}) translate(0 ${-GY})`);
+      setA(st.plate, 'visibility', gv ? 'visible' : 'hidden');
+
+      /* ---- remplissage ---- */
+      let n = 0, hourMode = false;
+      if (tm != null) n = clamp(Math.floor((t - tm - 0.35) / 0.1) + 1, 0, st.perMin);
+      let clap = 0, tEnd = null;
+      if (th != null) {
+        const q = prog(t, th + 0.2, th + 0.2 + st.hourD);
+        if (t >= th) { hourMode = true; n = Math.max(n, Math.floor(st.base + (st.perHour - st.base) * Math.pow(q, 2.2))); }
+        tEnd = th + 0.2 + st.hourD;
+        if (t >= tEnd) clap = prog(t, tEnd, tEnd + 0.4);
+      }
+      n = Math.min(n, N);
+      // styles : 0 éteint, 1 allumé, 2 front (les 24 dernières)
+      const lo = Math.max(0, Math.min(st.curN, n) - 26), hi = Math.min(N, Math.max(st.curN, n) + 1);
+      for (let i = lo; i < hi; i++) {
+        const s = i >= n ? 0 : i >= n - 24 && n < st.perHour ? 2 : 1;
+        const c = st.cells[i];
+        if (c.s === s) continue;
+        c.s = s;
+        const nn = c.n;
+        if (s === 0) { nn.setAttribute('fill', C.ink); nn.setAttribute('opacity', 0.12); nn.removeAttribute('stroke'); nn.removeAttribute('stroke-width'); }
+        else if (s === 1) { nn.setAttribute('fill', st.accent); nn.setAttribute('opacity', 1); nn.setAttribute('stroke', C.ink); nn.setAttribute('stroke-width', 2.5); }
+        else { nn.setAttribute('fill', C.ink); nn.setAttribute('opacity', 1); nn.setAttribute('stroke', C.ink); nn.setAttribute('stroke-width', 2.5); }
+      }
+      st.curN = n;
+      // compteur quantifié (4 pas / s en phase heure)
+      let shown = n;
+      if (hourMode && t < tEnd) { const tq = Math.floor(t * 4) / 4; const q = prog(tq, th + 0.2, th + 0.2 + st.hourD); shown = Math.min(st.perHour, Math.floor(st.base + (st.perHour - st.base) * Math.pow(q, 2.2))); }
+      if (hourMode && t >= tEnd) shown = st.perHour;
+      const txt = hourMode ? `${pad5(shown)} / H` : `${pad5(shown)} / MIN`;
+      if (st.cnt.textContent !== txt) st.cnt.textContent = txt;
+      const cs = 1 + 0.1 * Math.sin(Math.PI * clap), sh = clap > 0 && clap < 1 ? shakeAt(t, tEnd, 6, 0.35) : [0, 0];
+      const pp = gv ? E.back(clamp((t - tg) / 0.4)) : 0;
+      put(st.plate, 960 + sh[0], 205 + sh[1], 0, pp * cs, pp * cs, gv ? 1 : 0);
+
+      /* ---- anneau ---- */
+      let lap = null, done = 0;
+      for (const l of st.laps) { if (l.t0 <= t) lap = l; if (t >= l.t0 + l.fd) done++; }
+      const pr = lap ? clamp((t - lap.t0) / lap.fd) : 0;
+      setA(st.arc, 'stroke-dasharray', `${f2(pr)} 1.01`);
+      setA(st.arc, 'visibility', pr > 0 ? 'visible' : 'hidden');
+      const full = lap && pr >= 1;
+      const dp = full ? E.back(clamp((t - (lap.t0 + lap.fd)) / 0.3)) : 0;
+      setA(st.dotC, 'fill', full ? st.accent : C.paper);
+      st.dot.setAttribute('transform', `translate(0 ${-RR}) scale(${f2(full ? 0.6 + 0.9 * Math.min(dp, 1.2) * (dp > 1 ? 1 : 1) : 1)})`);
+      const ck = lap ? (full ? `${dsec(lap.fd)} s` : `${dsec(pr * lap.fd)} s`) : `${st.period} s`;
+      if (st.clock.textContent !== ck) st.clock.textContent = ck;
+      st.mini.forEach((m, i) => { setA(m, 'fill', i < done ? st.accent : C.paper); setA(m, 'visibility', gp < 0.5 ? 'visible' : 'hidden'); });
+      const gp2 = E.io3(prog(t, tg == null ? 1e9 : tg, (tg == null ? 1e9 : tg) + 0.55));
+      const rs = lerp(1, 0.46, gp2), rx = lerp(960, 240, gp2), ry = lerp(430, 200, gp2);
+      put(st.ringG, rx, ry, 0, rs, rs, 1);
+      // sticker « 3 s » à chaque tour
+      let so = 0, sa = 0;
+      if (lap) { const s = t - lap.t0; sa = E.back(clamp(s / 0.25)); if (s > 1.4) sa *= 1 - E.in2(prog(s, 1.4, 1.65)); so = s >= 0 && sa > 0.001 ? 1 : 0; }
+      put(st.stk, rx + 215 * rs + 30, ry - 190 * rs - 10, -7, sa * (0.6 + 0.4 * rs), sa * (0.6 + 0.4 * rs), so);
+
+      /* ---- no-pause ---- */
+      st.labels.forEach((L, i) => {
+        const t0 = tnp == null ? 1e9 : tnp + i * 0.55;
+        const q = prog(t, t0, t0 + 0.25), sc = q > 0 ? E.back(q) : 0;
+        put(L.gg, 700 + i * 340, st.lblY, i === 1 ? 2 : -2, sc, sc, q > 0 ? 1 : 0);
+        const k = E.out3(prog(t, t0 + 0.5, t0 + 0.75));
+        for (const kn of [L.k0, L.k1]) { setA(kn, 'visibility', k > 0 ? 'visible' : 'hidden'); kn.setAttribute('x2', f2(lerp(-170, 170, k))); kn.setAttribute('y2', f2(lerp(8, -8, k))); }
+      });
+
+      /* ---- bouton + main ---- */
+      const hp = thand == null ? 0 : E.out3(prog(t, thand, thand + 0.45));
+      setA(st.btn, 'visibility', hp > 0 ? 'visible' : 'hidden');
+      setA(st.btnTop, 'transform', `translate(0 ${hp >= 0.97 ? 8 : 0})`);
+      setA(st.handG, 'visibility', hp > 0 ? 'visible' : 'hidden');
+      const k = 1 - hp;
+      st.hand.setAttribute('transform', `translate(${f2(1768 + 150 * k)} ${f2(770 + 36 + 420 * k + (hp >= 0.97 ? 6 : 0))}) rotate(-12)`);
     }
   });
 })();
@@ -6324,6 +7811,125 @@
     }
     return { a: st.phiK + theta, r: R_REST, s: 1, o: 1, fast: false };
   }
+})();
+;
+/* ==== tools/video/composition/components/zone-tunnel.js ==== */
+// Composant « zone-tunnel » (épisode 2, « La zone ») : voir tools/video/composition/EP2-COMPONENTS.md. Fonction pure du temps du plan, aplats seulement.
+// Anneaux concentriques qui viennent vers nous ; la distance parcourue est une table cumulée (fonction de t seulement), des stickers sont aspirés au centre.
+(() => {
+  const { C, E, clamp, prog, lerp, f2, put, g, rect, text, circle } = ZV;
+  const CX = 960, CY = 500, N = 18;
+  const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+  // largeur approchée d'un libellé Bricolage 800 (on impose textLength : la mise en page ne dépend pas de la police chargée)
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  function stk(parent, w, h, fill, str, size, tc, sh) {
+    const gr = g(parent);
+    rect(gr, -w / 2 + sh, -h / 2 + sh, w, h, 18, C.ink);
+    rect(gr, -w / 2, -h / 2, w, h, 18, fill, C.ink, 7);
+    text(gr, str, 0, size * 0.35, size, tc, { anchor: 'middle', len: f2(bw(str, size)) });
+    return gr;
+  }
+  const CYC = {
+    lime: [C.ink, C.lime, C.ink, C.paper, C.ink, C.lime, C.ink, C.red],
+    red: [C.ink, C.red, C.ink, C.paper, C.ink, C.red, C.ink, C.lime]
+  };
+  const SPOTS = [[470, 255, -5], [1450, 330, 4], [640, 690, -3]];
+  const FILLS = [C.paper, C.lime, C.white];
+
+  ZV.define('zone-tunnel', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const st = { dur: Math.max(0.1, shot.dur || 1) };
+      st.speed = clamp(num(P.speed, 1), 0.1, 4);
+      st.labels = (Array.isArray(P.labels) && P.labels.length ? P.labels : ["L'HEURE", "L'ARGENT", 'TON CORPS']).slice(0, 3).map(String);
+      st.final = P.final != null ? String(P.final) : 'LE TOUR SUIVANT';
+      st.cyc = CYC[P.palette === 'red' ? 'red' : 'lime'];
+      const cu = (n) => ZV.cue(shot, n);
+      st.cE = cu('enter'); st.cN = cu('next'); st.cX = cu('exit');
+      st.lose = [cu('lose-1'), cu('lose-2'), cu('lose-3')];
+      const none = st.cE === null && st.cN === null && st.cX === null && st.lose.every((x) => x === null);
+      if (none) st.cE = 0.3;
+      const ex = ZV.cues(shot, 'exit')[0];
+      st.exitText = ex && ex.text ? String(ex.text) : '';
+      // distance cumulée (en anneaux) : table à 60 pas/s, interpolée
+      const rate = (t) => {
+        let v = 0.16;
+        if (st.cE !== null && t >= st.cE) v = 0.16 + 1.9 * E.io2(prog(t, st.cE, st.cE + 3.5)) + Math.min(0.9, 0.12 * Math.max(0, t - st.cE - 3.5));
+        if (st.cN !== null && t >= st.cN) v += 2.6 * E.out2(prog(t, st.cN, st.cN + 0.9));
+        if (st.cX !== null && t >= st.cX) v *= 1 - E.out2(prog(t, st.cX, st.cX + 0.9));
+        return Math.min(3, v * st.speed * 0.54);        // ≤ 3 anneaux/s : un point de l'écran ne change jamais de couleur plus de 3 fois par seconde
+      };
+      const STEP = 1 / 60, n = Math.ceil(st.dur / STEP) + 3;
+      st.tab = new Float64Array(n);
+      for (let i = 1; i < n; i++) st.tab[i] = st.tab[i - 1] + 0.5 * STEP * (rate((i - 1) * STEP) + rate(i * STEP));
+      st.STEP = STEP; st.rateEnd = rate((n - 1) * STEP);
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      st.rings = [];
+      for (let j = 0; j < N; j++) st.rings.push(circle(root, CX, CY, 10, C.ink, C.ink, 4));
+      st.cover = circle(root, CX, CY, 1, C.paper, C.ink, 8);   // aplat paper qui s'étend une seule fois (retour au réel)
+      st.dot = g(root);
+      circle(st.dot, 0, 0, 20, C.white, C.ink, 6);
+      st.lab = st.labels.map((s, i) => {
+        const size = 62, w = bw(s, size) + 84, gr = stk(root, w, 104, FILLS[i % 3], s, size, C.ink, 10);
+        return { g: gr };
+      });
+      const fs = Math.min(128, 1320 / (bw(st.final, 1) || 1));
+      st.fin = stk(root, bw(st.final, fs) + 130, fs * 1.55, C.lime, st.final, fs, C.ink, 14);
+      const ps = 170;
+      st.pan = st.exitText ? stk(root, bw(st.exitText, ps) + 110, ps * 1.5, C.red, st.exitText, ps, C.ink, 14) : null;
+      return st;
+    },
+
+    update(st, t, shot) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const fi = Math.min(st.tab.length - 2, Math.max(0, t / st.STEP)), i0 = Math.floor(fi);
+        const s = lerp(st.tab[i0], st.tab[i0 + 1], fi - i0);
+        const base = Math.floor(s), frac = s - base, L = st.cyc.length;
+        const tD = st.cX !== null ? st.cX + 0.9 : 1e9;
+        for (let j = 0; j < N; j++) {
+          const i = N - 1 - j, u = (frac + i) / N;
+          let r = 8 + 1330 * Math.pow(u, 2.1);
+          const nd = st.rings[j];
+          nd.setAttribute('r', f2(Math.max(0.01, r)));
+          nd.setAttribute('fill', st.cyc[(((base - i) % L) + L) % L]);
+          nd.setAttribute('stroke-width', f2(2 + 7 * u));
+          nd.setAttribute('visibility', r < 0.5 ? 'hidden' : 'visible');
+        }
+        { const q = E.in2(prog(t, tD, tD + 0.6)), rr = 1350 * q; st.cover.setAttribute('r', f2(Math.max(0.01, rr))); st.cover.setAttribute('visibility', q > 0 ? 'visible' : 'hidden'); }
+        // point central
+        const gone = t > tD + 0.2;
+        const pul = 1 + 0.12 * Math.sin(t * 7) + (st.cN !== null && t >= st.cN ? 0.35 : 0);
+        put(st.dot, CX, CY, 0, gone ? 0 : pul, gone ? 0 : pul, gone ? 0 : 1);
+        // stickers « L'HEURE » …
+        for (let k = 0; k < st.lab.length; k++) {
+          const sp = SPOTS[k], tl = st.lose[k];
+          const pop = E.back(prog(t, 0.15 + 0.14 * k, 0.55 + 0.14 * k));
+          let x = sp[0] + 10 * Math.sin(t * 1.7 + k * 2.1), y = sp[1] + 12 * Math.cos(t * 1.3 + k * 1.7), r = sp[2] + 1.5 * Math.sin(t * 2.2 + k), sc = pop, o = 1;
+          if (tl !== null && t >= tl) {
+            const p = prog(t, tl, tl + 0.8), e = E.in3(p);
+            x = lerp(x, CX, e); y = lerp(y, CY, e); r += 520 * e; sc = lerp(1, 0.04, e);
+            if (p >= 1) o = 0;
+          }
+          if (t > tD - 0.9 && st.cX !== null) o = 0;
+          put(st.lab[k].g, x, y, r, sc, sc, o);
+        }
+        // texte final
+        let fo = 0, fs = 1;
+        if (st.cN !== null && t >= st.cN + 0.2) {
+          fs = E.back(prog(t, st.cN + 0.2, st.cN + 0.5)) * (1 + 0.035 * Math.sin((t - st.cN) * 9));
+          fo = 1;
+          if (st.cX !== null && t > st.cX + 0.3) fo = 0;
+        }
+        put(st.fin, CX, CY, -2, fs, fs, fo);
+        if (st.pan) {
+          const tp = tD + 0.5, p = E.back(prog(t, tp, tp + 0.25)), sh = ZV.shakeAt(t, tp + 0.18, 9, 0.35);
+          put(st.pan, CX + sh[0], CY + sh[1], -6, p, p, t >= tp ? 1 : 0);
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
 })();
 ;
 /* ==== tools/video/composition/embed-prelude.js ==== */
@@ -6796,7 +8402,7 @@
   /* ------------------------------------------------------------------ démarrage */
   const loadScript = (src) => new Promise((res) => { const s = document.createElement('script'); s.src = src; s.onload = () => res(true); s.onerror = () => res(false); document.head.appendChild(s); });
   async function boot() {
-    TL = await (await fetch((CFG && CFG.timelineUrl) || '/output/video/data/timeline.json', CFG && CFG.timelineUrl ? {} : { cache: 'no-store' })).json();
+    TL = await (await fetch((CFG && CFG.timelineUrl) || new URLSearchParams(location.search).get('tl') || '/output/video/data/timeline.json', CFG && CFG.timelineUrl ? {} : { cache: 'no-store' })).json();
     FPS = (TL.video && TL.video.fps) || 30;
     TOTAL = TL.total;
     const ids = [...new Set(TL.shots.map((s) => s.component))];

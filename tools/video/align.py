@@ -36,12 +36,13 @@ VOICED_FLOOR_DB = -62.0  # ... mais jamais sous ce plancher absolu (dBFS)
 FUZZY_MIN_RATIO = 0.5  # similarité minimale pour apparier deux mots différents de même rang
 MIN_WORD = 0.06        # s : durée minimale d'un mot (les horodatages Whisper en écrasent parfois)
 DOUBT_RUN = 3          # une zone est douteuse si > DOUBT_RUN mots consécutifs sont interpolés
-EPISODE_SLUG = 'la-bille-n-a-pas-de-memoire'
+EPISODE_SLUG = os.environ.get('ZV_SLUG', 'la-bille-n-a-pas-de-memoire')
+EP_DIR = os.environ.get('ZV_EP', '')  # ex. « ep2 » : tout va dans output/video/ep2/ (vide = épisode 1)
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-VO_DIR = os.path.join(ROOT, 'output', 'video', 'assets', 'vo')
-DATA_DIR = os.path.join(ROOT, 'output', 'video', 'data')
-WORK_DIR = os.path.join(ROOT, 'output', 'video', 'work', 'align')
+VO_DIR = os.path.join(ROOT, 'output', 'video', EP_DIR, 'assets', 'vo')
+DATA_DIR = os.path.join(ROOT, 'output', 'video', EP_DIR, 'data')
+WORK_DIR = os.path.join(ROOT, 'output', 'video', EP_DIR, 'work', 'align')
 FFMPEG = os.environ.get('FFMPEG', os.path.expanduser('~/.local/ffmpeg-6.0/ffmpeg'))
 NODE = os.environ.get('NODE', os.path.expanduser('~/.local/node-v26.13.0/bin/node'))
 VENV_DIR = os.environ.get('ZV_VENV', os.path.expanduser('~/.cache/zero-vert/venv'))

@@ -22,8 +22,8 @@ import { isDeepStrictEqual } from 'node:util';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const argv = process.argv.slice(2);
 const FLAGS = new Set(argv.filter((a) => a.startsWith('--')));
-const FILE = path.resolve(argv.find((a) => !a.startsWith('--')) || path.join(ROOT, 'output/video/data/direction.json'));
-const SLUG = 'la-bille-n-a-pas-de-memoire';
+const FILE = path.resolve(argv.find((a) => !a.startsWith('--')) || path.join(ROOT, 'output/video', process.env.ZV_EP || '', 'data/direction.json'));
+const SLUG = process.env.ZV_SLUG || 'la-bille-n-a-pas-de-memoire';
 // durées des prises par section (spec) et constantes de la ligne de temps, pour l'estimation seulement
 const TAKES = [68.1, 82.5, 73.9, 66.3, 81.0, 68.6];
 const LEAD_IN = 2.2, PARA_GAP = 0.9, SECTION_GAP = 3.2, TAIL = 14.0, NATURAL_PARA_PAUSE = 0.15, TRIM = 0.2;
