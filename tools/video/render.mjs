@@ -3,6 +3,8 @@
 //   node tools/video/render.mjs [--from 0] [--to <total>] [--workers 4] [--fps 30] [--scale 1] [--out output/video/video-silent.mp4]
 //                               [--jpeg-quality 92] [--format jpeg|png] [--port 8801] [--crf 16] [--preset medium]
 //                               [--mount /préfixe=/dossier] [--frame-dir dossier] [--query 'force=x&extra=/y.js'] [--serve]
+//                               [--width 1920] [--height 1080] [--page /tools/video/composition/index.html] [--profile high]
+// Version verticale TikTok : voir render-tiktok.mjs (--page tiktok.html --width 1080 --height 1920).
 // Chaque image est une fonction pure de T (window.renderAt) : le résultat ne dépend pas du worker qui la produit.
 // --serve : démarre seulement le serveur statique (racine = dépôt) pour la mise au point.
 import http from 'node:http';
@@ -18,7 +20,7 @@ const HOME = os.homedir();
 /* ---------------------------------------------------------------- arguments */
 const A = { from: 0, to: null, workers: Math.max(2, Math.min(8, os.cpus().length - 4)), fps: null, scale: 1, out: path.join(ROOT, 'output/video/video-silent.mp4'),
   'jpeg-quality': 92, format: 'jpeg', port: 8801, crf: 16, preset: 'medium', mount: [], 'frame-dir': '', serve: false,
-  ffmpeg: path.join(HOME, '.local/ffmpeg-6.0/ffmpeg'), chrome: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', page: '/tools/video/composition/index.html', query: '', quiet: false };
+  ffmpeg: path.join(HOME, '.local/ffmpeg-6.0/ffmpeg'), chrome: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', page: '/tools/video/composition/index.html', query: '', quiet: false, width: 1920, height: 1080, profile: '' };
 {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -89,7 +91,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function launchChrome() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zv-chrome-'));
   const args = [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--headless=new', '--hide-scrollbars', '--mute-audio', '--no-first-run', '--no-default-browser-check',
-    '--force-device-scale-factor=1', '--window-size=1920,1080', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
+    '--force-device-scale-factor=1', `--window-size=${A.width},${A.height}`, '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
     '--disable-features=CalculateNativeWinOcclusion,Translate', '--disable-extensions', '--disable-sync', '--disable-component-update', '--autoplay-policy=no-user-gesture-required', 'about:blank'];
   const proc = spawn(A.chrome, args, { stdio: ['ignore', 'ignore', 'pipe'] });
   let errBuf = ''; proc.stderr.on('data', (d) => { errBuf = (errBuf + d).slice(-2000); });
@@ -121,7 +123,8 @@ async function main() {
   const from = Math.max(0, A.from), to = Math.min(A.to == null ? total : A.to, total);
   const nFrames = Math.max(1, Math.round((to - from) * fps));
   const scale = A.scale;
-  const outW = Math.round(1920 * scale / 2) * 2, outH = Math.round(1080 * scale / 2) * 2;
+  const VW = A.width, VH = A.height;
+  const outW = Math.round(VW * scale / 2) * 2, outH = Math.round(VH * scale / 2) * 2;
   fs.mkdirSync(path.dirname(A.out), { recursive: true });
   if (A['frame-dir']) fs.mkdirSync(A['frame-dir'], { recursive: true });
   const png = A.format === 'png';
@@ -130,7 +133,7 @@ async function main() {
   // ffmpeg : les images arrivent dans l'ordre sur stdin
   const vf = (png ? 'scale=out_range=tv:out_color_matrix=bt709' : 'scale=in_range=pc:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709') + ',format=yuv420p';
   const ffArgs = ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', png ? 'png' : 'mjpeg', '-i', 'pipe:0', '-vf', vf,
-    '-c:v', 'libx264', '-preset', A.preset, '-crf', String(A.crf), '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv', '-r', String(fps), '-movflags', '+faststart', A.out];
+    '-c:v', 'libx264', ...(A.profile ? ['-profile:v', A.profile] : []), '-preset', A.preset, '-crf', String(A.crf), '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv', '-r', String(fps), '-movflags', '+faststart', A.out];
   const ff = spawn(A.ffmpeg, ffArgs, { stdio: ['pipe', 'ignore', 'pipe'] });
   state.ff = ff;
   let ffErr = ''; ff.stderr.on('data', (d) => { ffErr = (ffErr + d).slice(-3000); process.stderr.write(d); });
@@ -147,11 +150,11 @@ async function main() {
   const pageUrl = `${base}${A.page}${A.query ? (A.query[0] === '?' ? A.query : '?' + A.query) : ''}`;
   const pages = [];
   for (let i = 0; i < nW; i++) {
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', width: 1920, height: 1080, newWindow: true });
+    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', width: VW, height: VH, newWindow: true });
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
     const send = (m, p) => cdp.send(m, p, sessionId);
     await send('Page.enable'); await send('Runtime.enable');
-    await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false });
+    await send('Emulation.setDeviceMetricsOverride', { width: VW, height: VH, deviceScaleFactor: 1, mobile: false });
     try { await send('Emulation.setFocusEmulationEnabled', { enabled: true }); } catch {}
     pages.push({ send, sessionId, targetId, id: i });
   }
@@ -175,7 +178,7 @@ async function main() {
 
   /* ordonnancement : les workers prennent les images dans l'ordre, l'écriture vers ffmpeg est ordonnée */
   const shotParams = { format: png ? 'png' : 'jpeg', ...(png ? {} : { quality: A['jpeg-quality'] }), optimizeForSpeed: true, fromSurface: true, captureBeyondViewport: false };
-  if (scale !== 1) shotParams.clip = { x: 0, y: 0, width: 1920, height: 1080, scale };
+  if (scale !== 1) shotParams.clip = { x: 0, y: 0, width: VW, height: VH, scale };
   let next = 0, writeIdx = 0, flushing = false, written = 0;
   const results = new Map(), waiters = [];
   const maxAhead = nW * 3;

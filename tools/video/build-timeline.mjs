@@ -1,7 +1,7 @@
 // Résout toutes les ancres de direction.json sur la ligne de temps réelle (timing.json) et écrit output/video/data/timeline.json.
 //   node tools/video/build-timeline.mjs
 // Les plans sont rendus jointifs par construction : la fin d'un plan est le début du suivant.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadTiming, resolve } from './lib/anchors.mjs';
@@ -36,5 +36,11 @@ for (const sec of timing.sections) {
 }
 const out = { video: dir.video, total: r3(total), lead_in: timing.lead_in, tail: timing.tail, sections, shots, sentences, captions: dir.captions, transitions: dir.transitions };
 writeFileSync(path.join(data, 'timeline.json'), JSON.stringify(out));
+// Copie compacte, COMMITÉE : la page de l'épisode (lecteur « motion ») la charge. On retire seulement ce que le rendu n'utilise pas (les notes de réalisation).
+const SITE_TIMELINE = path.join(root, 'assets', 'podcast', 'la-bille-n-a-pas-de-memoire.timeline.json');
+const compact = { ...out, shots: out.shots.map(({ notes, ...s }) => s) };
+mkdirSync(path.dirname(SITE_TIMELINE), { recursive: true });
+writeFileSync(SITE_TIMELINE, JSON.stringify(compact));
+console.log(`copie du site : ${path.relative(root, SITE_TIMELINE)} (${(JSON.stringify(compact).length / 1024).toFixed(1)} Ko)`);
 const d = shots.map((s) => s.dur);
 console.log(`${shots.length} plans, ${sentences.length} phrases, durée ${total.toFixed(2)} s ; plan le plus court ${Math.min(...d).toFixed(2)} s, le plus long ${Math.max(...d).toFixed(2)} s`);

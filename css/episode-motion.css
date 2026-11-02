@@ -1,0 +1,138 @@
+/* ZÉRO VERT — page d'épisode « expérience motion » : la scène de la vidéo, jouée en direct, calée sur l'audio.
+   Mêmes briques que podcast.css (aplats, bordures ink épaisses, ombres dures) ; chargée après lui. Mobile d'abord. */
+
+.pod-motion .pod-help { padding-block: clamp(26px, 4vw, 52px); }
+.pod-motion .ep-nav { padding-bottom: clamp(48px, 6vw, 84px); }
+
+.ep-motion { background: var(--paper); padding: clamp(14px, 2.4vw, 30px) 0 clamp(26px, 4vw, 48px); }
+.ep-motion-wrap { max-width: calc(1400px + 2 * clamp(14px, 2.6vw, 36px)); margin: 0 auto; padding-inline: clamp(14px, 2.6vw, 36px); }
+.ep-motion-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-bottom: 12px; }
+.ep-motion .crumbs { margin: 0; }
+.ep-motion .crumbs a { color: var(--ink); text-underline-offset: 3px; }
+
+/* titre et accroche : compacts, pour que la scène soit visible sans défiler */
+.ep-motion-head { display: grid; gap: 8px 40px; align-items: end; margin-bottom: clamp(14px, 2vw, 22px); }
+.ep-motion h1 {
+  margin: 0; max-width: none; color: var(--ink); text-transform: uppercase; font-weight: 800;
+  font-size: clamp(28px, 4.9vw, 60px); line-height: 0.94; letter-spacing: -0.045em; overflow-wrap: anywhere; text-wrap: balance;
+}
+.ep-motion .lead { margin: 0; max-width: 40ch; font-size: clamp(16px, 1.6vw, 20px); font-weight: 700; line-height: 1.3; letter-spacing: -0.015em; }
+.ep-motion .ep-tag { margin: 0; }
+
+/* le lecteur */
+.zv { position: relative; display: grid; gap: clamp(14px, 2vw, 22px); }
+.zv > audio { display: none; }
+
+.zv-stage {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; background: var(--ink); color: var(--ink);
+  border: 4px solid var(--ink); border-radius: var(--r); box-shadow: 8px 8px 0 var(--ink);
+  overflow: hidden; isolation: isolate; cursor: pointer; container-type: inline-size; -webkit-tap-highlight-color: transparent;
+}
+.zv-stage svg { display: block; width: 100%; height: 100%; }
+.zv-stage { -webkit-font-smoothing: auto; } /* même lissage du texte que le rendu vidéo (index.html) */
+.zv-stage:not(:has(svg)) { background: var(--ink) url("/assets/podcast/mark.svg") center / 18% no-repeat; }
+
+/* gros bouton « ▶ » au centre de la scène (avant la première lecture et en fin d'épisode) */
+.zv-big {
+  position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(10px, 2cqw, 20px);
+  margin: 0; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; font: inherit;
+}
+.zv-big-disc {
+  display: grid; place-items: center; width: clamp(76px, 13cqw, 150px); aspect-ratio: 1; border-radius: 50%;
+  background: var(--lime); border: clamp(4px, 0.55cqw, 6px) solid var(--ink); box-shadow: 0 0 0 clamp(3px, 0.4cqw, 5px) var(--white), 7px 7px 0 clamp(3px, 0.4cqw, 5px) var(--ink);
+  transition: transform 0.08s ease-out;
+}
+.zv-big:hover .zv-big-disc { transform: translate(-2px, -2px) scale(1.04); }
+.zv-big:active .zv-big-disc { transform: translate(3px, 3px); }
+.zv-big svg { width: 44%; height: 44%; margin-left: 7%; fill: var(--ink); }
+.zv[data-state="ended"] .zv-big svg { margin-left: 0; }
+.zv-big .i-replay { display: none; }
+.zv[data-state="ended"] .zv-big .i-play { display: none; }
+.zv[data-state="ended"] .zv-big .i-replay { display: block; }
+.zv-big-label {
+  font: 800 clamp(14px, 2cqw, 22px)/1 var(--display); text-transform: uppercase; letter-spacing: 0.02em; padding: 0.6em 1em;
+  background: var(--white); border: 3px solid var(--ink); border-radius: 12px; box-shadow: 4px 4px 0 var(--ink); transform: rotate(-2deg);
+}
+.zv-big-label:empty { display: none; }
+.zv[data-state="playing"] .zv-big, .zv[data-state="paused"] .zv-big { display: none; }
+/* fin d'épisode : « Revoir » se range dans le coin, pour ne pas cacher la carte de fin (et le numéro d'aide qu'elle affiche) */
+.zv[data-state="ended"] .zv-big { inset: auto clamp(10px, 2cqw, 24px) clamp(10px, 2cqw, 24px) auto; flex-direction: row-reverse; gap: clamp(8px, 1.4cqw, 16px); }
+.zv[data-state="ended"] .zv-big-disc { width: clamp(52px, 7.5cqw, 92px); box-shadow: 0 0 0 3px var(--white), 5px 5px 0 3px var(--ink); }
+.zv[data-state="ended"] .zv-big-label { transform: rotate(-2deg); }
+
+.zv-status {
+  position: absolute; left: 12px; bottom: 12px; z-index: 3; margin: 0; max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 10px;
+  background: var(--ink); color: var(--lime); font: 700 13px/1.3 var(--mono); text-transform: uppercase; letter-spacing: 0.02em; pointer-events: none;
+}
+.zv-status:empty { display: none; }
+
+/* barre de commandes */
+.zv-bar {
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; grid-template-areas: "play time seek mute fs"; align-items: center; gap: 6px clamp(10px, 1.6vw, 18px);
+  padding: 10px 14px; background: var(--white); border: 3px solid var(--ink); border-radius: 22px; box-shadow: 6px 6px 0 var(--ink);
+}
+.zv-btn {
+  display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 3px solid var(--ink); border-radius: 50%;
+  background: var(--white); color: var(--ink); cursor: pointer; transition: transform 0.08s ease-out, background-color 0.15s; -webkit-tap-highlight-color: transparent;
+}
+.zv-btn svg { width: 22px; height: 22px; fill: currentColor; }
+.zv-btn:hover { background: var(--lime); transform: translate(-1px, -1px); }
+.zv-btn:active { transform: translate(2px, 2px); }
+.zv-btn[data-act="play"] { grid-area: play; width: 56px; height: 56px; background: var(--lime); box-shadow: 3px 3px 0 var(--ink); }
+.zv-btn[data-act="play"]:hover { background: var(--white); }
+.zv-btn[data-act="mute"] { grid-area: mute; }
+.zv-btn[data-act="fs"] { grid-area: fs; }
+.zv-btn[data-act="play"] svg { width: 26px; height: 26px; }
+.zv-btn .i-pause, .zv-btn .i-mute, .zv-btn .i-exit { display: none; }
+.zv[data-state="playing"] .zv-btn .i-play { display: none; }
+.zv[data-state="playing"] .zv-btn .i-pause { display: block; }
+.zv.is-muted .zv-btn .i-vol { display: none; }
+.zv.is-muted .zv-btn .i-mute { display: block; }
+.zv.is-fs .zv-btn .i-enter { display: none; }
+.zv.is-fs .zv-btn .i-exit { display: block; }
+
+.zv-time { grid-area: time; font: 700 15px/1 var(--mono); letter-spacing: 0.01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.zv-time span:last-child { opacity: 0.65; }
+
+.zv-seek { grid-area: seek; position: relative; display: flex; align-items: center; height: 48px; padding-inline: 8px; cursor: pointer; touch-action: pan-y; min-width: 0; }
+.zv-rail { position: relative; flex: 1; min-width: 0; height: 16px; }
+.zv-track { position: absolute; inset: 0; overflow: hidden; background: var(--paper); border: 3px solid var(--ink); border-radius: 999px; }
+.zv-fill { position: absolute; inset: 0; background: var(--lime); transform-origin: 0 50%; transform: scaleX(var(--p, 0)); }
+.zv-marks { position: absolute; inset: 0; pointer-events: none; }
+.zv-mark { position: absolute; left: var(--x, 0); top: 50%; width: 6px; height: 28px; transform: translate(-50%, -50%); background: var(--red); border: 2px solid var(--ink); border-radius: 3px; }
+.zv-thumb { position: absolute; left: calc(var(--p, 0) * 100%); top: 50%; width: 24px; height: 24px; transform: translate(-50%, -50%); border-radius: 50%; background: var(--ink); border: 4px solid var(--lime); box-shadow: 0 0 0 2px var(--ink); pointer-events: none; }
+
+/* chapitres */
+.zv-chapters { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: 1fr; }
+.zv-chapters button {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 52px; margin: 0; padding: 7px 14px 7px 8px; text-align: left;
+  background: var(--white); color: var(--ink); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 4px 4px 0 var(--ink); cursor: pointer;
+  font: 800 clamp(15px, 1.4vw, 18px)/1.15 var(--display); letter-spacing: -0.02em; transition: transform 0.08s ease-out, box-shadow 0.08s ease-out, background-color 0.15s;
+}
+.zv-chapters button:hover { background: var(--paper); transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--ink); }
+.zv-chapters button:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+.zv-chapters button[aria-current] { background: var(--lime); }
+.zv-chapters b { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--ink); color: var(--lime); font: 800 15px/1 var(--mono); }
+.zv-chapters time { font: 700 13px/1 var(--mono); font-variant-numeric: tabular-nums; opacity: 0.75; }
+
+/* plein écran (natif, ou « maison » sur iPhone) : la scène et sa barre */
+html.zv-lock { overflow: hidden; }
+.zv.is-fs { position: fixed; inset: 0; z-index: 1000; width: 100%; height: 100%; height: 100dvh; gap: 0; grid-template-rows: minmax(0, 1fr) auto; background: var(--ink); }
+.zv.is-fs .zv-stage { aspect-ratio: auto; height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+.zv.is-fs .zv-bar { border-width: 3px 0 0; border-radius: 0; box-shadow: none; }
+.zv.is-fs .zv-chapters { display: none; }
+
+/* petit écran : la barre passe sur deux lignes, tout reste tactile (≥ 44 px) */
+@media (max-width: 639px) {
+  .zv-bar { grid-template-columns: auto 1fr auto auto; grid-template-areas: "play time mute fs" "seek seek seek seek"; padding: 8px 10px; }
+  .zv-stage { border-width: 3px; border-radius: 16px; box-shadow: 5px 5px 0 var(--ink); }
+  .zv-big-label { padding: 0.5em 0.8em; }
+}
+@media (min-width: 720px) { .zv-chapters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 900px) {
+  .ep-motion-head { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+  .ep-motion .lead { justify-self: end; padding-bottom: 4px; }
+}
+@media (min-width: 1100px) { .zv-chapters { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* sans scripts : <audio controls> natif (voir le <noscript> de l'en-tête) */

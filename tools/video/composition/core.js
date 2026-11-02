@@ -3,11 +3,15 @@
 // dans l'image, aucune horloge. Les instances de composants sont créées une fois (init) puis seulement mises à jour (update).
 // Paramètres d'URL de mise au point : ?t=12.5 (rend cet instant) · ?force=<id> (tous les plans utilisent ce composant) ·
 // ?extra=<url> (script supplémentaire chargé après les composants) · ?nocaps=1.
+// Intégration dans une page du site (sans changer le rendu vidéo) : définir AVANT ce fichier
+//   window.ZV_CONFIG = { timelineUrl, componentsInline: true, mount: <élément>, size: 'fluid', autoBoot: false }
+// puis utiliser window.ZVEmbed = { ready: Promise, boot(), renderAt(T), total, fps, timeline }. Sans ZV_CONFIG, rien ne change.
 (() => {
   'use strict';
   const Z = window.ZV;
   const { C, W, H, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt, sticker } = Z;
-  const Q = new URLSearchParams(location.search);
+  const CFG = window.ZV_CONFIG || null;   // null = page de rendu (index.html) ; sinon intégration dans le site
+  const Q = new URLSearchParams(CFG ? '' : location.search);
   const COMP_DIR = '/tools/video/composition/components/';
   const INK = C.ink, GREY = C.grey;
   let TL = null, FPS = 30, TOTAL = 0;
@@ -448,16 +452,17 @@
   /* ------------------------------------------------------------------ démarrage */
   const loadScript = (src) => new Promise((res) => { const s = document.createElement('script'); s.src = src; s.onload = () => res(true); s.onerror = () => res(false); document.head.appendChild(s); });
   async function boot() {
-    TL = await (await fetch('/output/video/data/timeline.json', { cache: 'no-store' })).json();
+    TL = await (await fetch((CFG && CFG.timelineUrl) || '/output/video/data/timeline.json', CFG && CFG.timelineUrl ? {} : { cache: 'no-store' })).json();
     FPS = (TL.video && TL.video.fps) || 30;
     TOTAL = TL.total;
     const ids = [...new Set(TL.shots.map((s) => s.component))];
-    const loaded = await Promise.all(ids.map((id) => loadScript(`${COMP_DIR}${id}.js?v=${Date.now()}`)));
+    const loaded = CFG && CFG.componentsInline ? ids.map(() => true) : await Promise.all(ids.map((id) => loadScript(`${COMP_DIR}${id}.js?v=${Date.now()}`)));
     if (FORCE) await loadScript(`${COMP_DIR}${FORCE}.js`);
     if (Q.get('extra')) await loadScript(Q.get('extra'));
     const need = (id) => document.fonts.load(`800 50px "${id}"`, 'AaÉéÀÔçœ0123456789 .,:;!?’«»·×÷€¢%/-');
     await Promise.all([need('Bricolage Grotesque'), need('JetBrains Mono'), document.fonts.load('800 50px "Bricolage Grotesque"', 'āēūŁ'), document.fonts.ready]);
-    svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, document.getElementById('stage'));
+    const fluid = !!(CFG && CFG.size === 'fluid');
+    svg = sv('svg', fluid ? { viewBox: `0 0 ${W} ${H}`, width: '100%', height: '100%', preserveAspectRatio: 'xMidYMid meet' } : { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, (CFG && CFG.mount) || document.getElementById('stage'));
     rect(svg, 0, 0, W, H, 0, INK);
     stage = g(svg); capsLayer = g(svg); fxLayer = g(svg);
     measureG = g(svg, { visibility: 'hidden' });
@@ -468,5 +473,15 @@
     if (Q.get('t') !== null && Q.get('t') !== '') renderAt(parseFloat(Q.get('t')));
     window.__ready = true;
   }
-  boot().catch((e) => { console.error('[core] boot', e && e.stack || e); window.__error = String(e && e.message || e); });
+  // API d'intégration (pages du site) : ready se résout quand la scène est montée et prête à rendre.
+  let booting = null, resolveReady, rejectReady;
+  const readyP = new Promise((res, rej) => { resolveReady = res; rejectReady = rej; });
+  readyP.catch(() => {});
+  const start = () => booting || (booting = boot().then(() => resolveReady(true), (e) => { console.error('[core] boot', e && e.stack || e); window.__error = String(e && e.message || e); rejectReady(e); }));
+  window.ZVEmbed = {
+    ready: readyP, boot: start,
+    renderAt(T) { return TL ? window.renderAt(T) : false; },
+    get total() { return TOTAL; }, get fps() { return FPS; }, get timeline() { return TL; }
+  };
+  if (!(CFG && CFG.autoBoot === false)) start();
 })();
