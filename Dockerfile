@@ -5,6 +5,7 @@ COPY --chown=node:node package.json serve.js server.mjs index.html classic.html 
 COPY --chown=node:node js ./js
 COPY --chown=node:node css ./css
 COPY --chown=node:node assets ./assets
+COPY --chown=node:node podcast ./podcast
 COPY --chown=node:node vendor ./vendor
 USER node
 EXPOSE 8787
