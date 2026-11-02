@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><title>Aperçu d'un plan</title>
+<link rel="stylesheet" href="/css/podcast-fonts.css">
+<style>html,body{margin:0;background:#222;overflow:hidden}svg{display:block;width:1920px;height:1080px;background:#0A0A0A}</style></head>
+<body><div id="stage"></div>
+<script src="/tools/video/composition/lib.js"></script>
+<script>
+// Aperçu d'UN plan à un instant relatif : /tools/video/composition/preview.html?shot=s0-02&t=3.5
+// (serveur statique à la racine du dépôt, par ex. `python3 -m http.server 88NN` ; lit /output/video/data/timeline.json)
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const ids = ['wheel','felt','pocket-grid','division','chip-stacks','big-number','kinetic','chapter-card','newspaper','saga','pictos','coin-flips','paths','streak-board','last-numbers','doc-card','logo-reveal','end-card'];
+  await Promise.all(ids.map((id) => new Promise((res) => { const s = document.createElement('script'); s.src = `/tools/video/composition/components/${id}.js`; s.onload = s.onerror = res; document.head.appendChild(s); })));
+  const tl = await (await fetch('/output/video/data/timeline.json')).json();
+  const shot = tl.shots.find((s) => s.id === q.get('shot')) || tl.shots[0];
+  const impl = ZV.REG[shot.component];
+  const svg = ZV.sv('svg', { viewBox: '0 0 1920 1080' }, document.getElementById('stage'));
+  ZV.rect(svg, 0, 0, 1920, 1080, 0, ZV.C.ink);
+  const root = ZV.g(svg);
+  await document.fonts.ready;
+  window.__info = { shot: shot.id, component: shot.component, dur: shot.dur, defined: !!impl };
+  if (!impl) { ZV.text(root, `composant « ${shot.component} » non défini`, 960, 540, 60, ZV.C.red, { anchor: 'middle' }); window.__ready = true; return; }
+  const state = impl.init(root, shot);
+  window.renderAt = (t) => impl.update(state, Math.min(Math.max(t, 0), shot.dur), shot);
+  renderAt(parseFloat(q.get('t') || '0'));
+  window.__ready = true;
+})();
+</script></body></html>
