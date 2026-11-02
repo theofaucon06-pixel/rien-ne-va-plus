@@ -1,4 +1,4 @@
-// Generates podcast/*.html and podcast/feed.xml from js/podcast-data.js.
+// Generates podcast/*.html, podcast/feed.xml and (for episodes with `experience: 'motion'`) the js/episode-motion.js bundle from js/podcast-data.js.
 //   node tools/build-podcast.mjs          write the files
 //   node tools/build-podcast.mjs --check  fail if a generated file is missing or stale (used by npm test)
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
@@ -29,5 +29,5 @@ if (check) {
   mkdirSync(dir, { recursive: true });
   for (const f of readdirSync(dir)) if (!files.has(`podcast/${f}`)) rmSync(path.join(dir, f));
   for (const [rel, content] of files) writeFileSync(path.join(root, rel), content);
-  console.log(`${files.size} fichiers écrits dans podcast/`);
+  console.log(`${files.size} fichiers écrits (podcast/${[...files.keys()].some((k) => !k.startsWith('podcast/')) ? ', js/episode-motion.js' : ''})`);
 }

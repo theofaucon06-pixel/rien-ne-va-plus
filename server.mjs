@@ -497,13 +497,33 @@ export function createApp({
       const data = await readFile(filename).catch(() =>
         fail(404, "Page introuvable."),
       );
-      res.writeHead(200, {
+      const headers = {
         "Content-Type":
           MIME[path.extname(filename)] || "application/octet-stream",
         "Cache-Control": /\/(assets|vendor)\//.test(pathname)
           ? "public, max-age=86400"
           : "no-cache",
-      });
+        "Accept-Ranges": "bytes",
+      };
+      // Byte ranges: browsers need them to seek in an audio file (chapters, progress bar) without downloading it all first.
+      const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || "");
+      if (range && (range[1] || range[2])) {
+        let start = range[1] ? Number(range[1]) : data.length - Number(range[2]);
+        let end = range[1] && range[2] ? Number(range[2]) : data.length - 1;
+        start = Math.max(0, start);
+        end = Math.min(end, data.length - 1);
+        if (start > end || start >= data.length) {
+          res.writeHead(416, { "Content-Range": `bytes */${data.length}` });
+          return res.end();
+        }
+        res.writeHead(206, {
+          ...headers,
+          "Content-Range": `bytes ${start}-${end}/${data.length}`,
+          "Content-Length": end - start + 1,
+        });
+        return res.end(req.method === "HEAD" ? undefined : data.subarray(start, end + 1));
+      }
+      res.writeHead(200, headers);
       res.end(req.method === "HEAD" ? undefined : data);
     } catch (e) {
       if (res.headersSent) return res.end();

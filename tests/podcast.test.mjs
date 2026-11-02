@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SHOW, THEMES, EPISODES } from "../js/podcast-data.js";
 import { REVELATIONS, WITNESSES, SOURCES } from "../js/content.js";
-import { buildAll, renderFeed, renderEpisode, renderIndex, minutes, hasAudio, publishedEpisodes, upcomingEpisodes } from "../tools/podcast-render.mjs";
+import { buildAll, renderFeed, renderEpisode, renderIndex, renderMotionBundle, minutes, hasAudio, publishedEpisodes, upcomingEpisodes } from "../tools/podcast-render.mjs";
 import { createApp } from "../server.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -15,6 +15,9 @@ const live = publishedEpisodes();
 const soon = upcomingEpisodes();
 const SCENES = ["wheel", "wells", "pockets", "average", "streak", "outro"];
 const pageOf = (ep) => pages.get(`podcast/${ep.slug}.html`);
+const isMotion = (ep) => ep.experience === "motion";
+const motionEps = live.filter(isMotion);
+const classicEps = live.filter((e) => !isMotion(e));
 
 test("episodes are well formed, numbered in order and use known themes", () => {
   assert.ok(EPISODES.length >= 2);
@@ -116,7 +119,7 @@ test("generated files are present and up to date (run `npm run podcast`)", () =>
 });
 
 test("only published episodes have a page; soon episodes have none", () => {
-  assert.equal(pages.size, live.length + 2); // index + feed + one page per published episode
+  assert.equal(pages.size, live.length + 2 + (motionEps.length ? 1 : 0)); // index + feed + one page per published episode (+ the motion bundle)
   for (const ep of soon) {
     assert.ok(!pages.has(`podcast/${ep.slug}.html`), `${ep.slug} must not have a page`);
     assert.ok(!existsSync(path.join(root, `podcast/${ep.slug}.html`)), `stale page for ${ep.slug}`);
@@ -128,7 +131,8 @@ test("only published episodes have a page; soon episodes have none", () => {
 test("brand, fonts and motion files referenced by the pages are shipped", () => {
   for (const f of [
     "assets/podcast/logo.svg", "assets/podcast/mark.svg", "assets/podcast/favicon.svg", "assets/podcast/cover.svg", "assets/podcast/cover.png",
-    "css/podcast-fonts.css", "css/podcast-motion.css", "js/podcast-motion.js"
+    "css/podcast-fonts.css", "css/podcast-motion.css", "js/podcast-motion.js", "css/episode-motion.css",
+    ...motionEps.flatMap((ep) => ["js/episode-motion.js", `assets/podcast/${ep.slug}.timeline.json`, ep.audio.file])
   ]) assert.ok(existsSync(path.join(root, f)), "missing " + f);
 });
 
@@ -137,17 +141,18 @@ test("pages load the stylesheets and scripts in the agreed order, with the brand
     if (!rel.endsWith(".html")) continue;
     const css = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]);
     const isEp = rel !== "podcast/index.html";
-    assert.deepEqual(css, isEp ? ["/css/podcast-fonts.css", "/css/podcast.css", "/css/podcast-motion.css"] : ["/css/podcast-fonts.css", "/css/podcast.css"], rel);
+    const motion = isEp && motionEps.some((ep) => rel === `podcast/${ep.slug}.html`);
+    assert.deepEqual(css, motion ? ["/css/podcast-fonts.css", "/css/podcast.css", "/css/episode-motion.css"] : isEp ? ["/css/podcast-fonts.css", "/css/podcast.css", "/css/podcast-motion.css"] : ["/css/podcast-fonts.css", "/css/podcast.css"], rel);
     assert.match(html, /<link rel="icon" href="\/assets\/podcast\/favicon\.svg"/);
     assert.match(html, /<img src="\/assets\/podcast\/logo\.svg"/);
     const js = [...html.matchAll(/<script src="([^"]+)" defer>/g)].map((m) => m[1]);
-    assert.deepEqual(js, isEp ? ["/js/podcast-motion.js", "/js/podcast.js"] : ["/js/podcast.js"], rel);
+    assert.deepEqual(js, motion ? ["/js/episode-motion.js"] : isEp ? ["/js/podcast-motion.js", "/js/podcast.js"] : ["/js/podcast.js"], rel);
     assert.ok(!/La Maison Gagne/.test(html), rel + " still uses the old name");
   }
 });
 
-test("episode pages expose the scenes: data-* on each section and one stage block", () => {
-  for (const ep of live) {
+test("classic episode pages expose the scenes: data-* on each section and one stage block", () => {
+  for (const ep of classicEps) {
     const html = pageOf(ep);
     const secs = [...html.matchAll(/<section class="script-sec"[^>]*>/g)].map((m) => m[0]);
     assert.equal(secs.length, ep.sections.length);
@@ -216,6 +221,86 @@ test("every page has one h1, valid JSON-LD, and only working internal links", ()
   }
 });
 
+test("a motion episode page shows the player and no script: scene, controls, 6 chapters, hidden transcript, help line, sources", () => {
+  assert.ok(motionEps.length >= 1, "episode 1 is a motion episode");
+  for (const ep of motionEps) {
+    const html = pageOf(ep);
+    assert.match(html, /<section class="ep-motion" /);
+    assert.equal((html.match(/class="ep-motion"/g) || []).length, 1, "one .ep-motion block");
+    assert.match(html, new RegExp(`<audio controls preload="metadata" src="/${ep.audio.file.replace(/\./g, "\\.")}"></audio>`));
+    assert.match(html, /data-zv-mount/);
+    assert.match(html, new RegExp(`data-poster="${ep.poster}"`));
+    assert.match(html, /class="zv-big"/);
+    for (const act of ["play", "mute", "fs"]) assert.ok(html.includes(`data-act="${act}"`), act);
+    assert.match(html, /role="slider"/);
+    assert.equal((html.match(/data-chap="\d+"/g) || []).length, ep.sections.length, "one chapter button per section");
+    for (const sec of ep.sections) assert.ok(html.includes(`<span>${sec.h.replace(/’/g, "’")}</span>`), "chapter " + sec.h);
+    // the full text stays for search engines and screen readers, but is not visible
+    const tr = html.match(/<section class="visually-hidden" aria-label="Transcription">([\s\S]*?)\n      <\/section>/);
+    assert.ok(tr, "hidden Transcription region");
+    for (const sec of ep.sections) for (const par of sec.p) assert.ok(tr[1].includes(par.replace(/&/g, "&amp;")), "transcript lacks a paragraph");
+    // what the client does not want to see any more
+    for (const gone of ['class="script"', 'class="script-sec"', 'class="toc"', 'class="retenir"', 'id="retenir"', 'class="in-game"', 'class="people"', 'data-tts', 'data-player=', 'class="ep-summary"'])
+      assert.ok(!html.includes(gone), "must not contain " + gone);
+    // the help line and the sources
+    assert.match(html, /<aside class="pod-help"/);
+    assert.ok(html.includes(SHOW.help.phone));
+    assert.equal((html.match(/<details /g) || []).length, 1);
+    assert.match(html, /<details class="sources" id="sources">/);
+    assert.ok(!/<details[^>]* open/.test(html), "sources are closed");
+    assert.match(html, /<nav class="ep-nav"/);
+    // JSON-LD with the real duration, and a no-JS fallback to the native audio element
+    const ld = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/s)[1].replace(/\\u003c/g, "<"));
+    assert.match(ld.timeRequired, /^PT\d+M\d+S$/);
+    assert.ok(Math.abs(Number(/PT(\d+)M(\d+)S/.exec(ld.timeRequired).slice(1).reduce((a, v, i) => a + (i ? +v : v * 60), 0)) - ep.audio.seconds) <= 1);
+    assert.match(html, /<noscript><style>[^<]*\.zv>audio\{display:block/);
+    assert.equal((html.match(/<h1[ >]/g) || []).length, 1);
+  }
+});
+
+test("the motion bundle and the timeline are committed and up to date", () => {
+  for (const ep of motionEps) {
+    const bundleFile = path.join(root, "js/episode-motion.js");
+    const bundle = readFileSync(bundleFile, "utf8");
+    assert.equal(bundle, renderMotionBundle(), "js/episode-motion.js is stale: run `npm run podcast`");
+    // lib + every component + prelude + core + player, in a fixed order, with the embed API
+    const dir = path.join(root, "tools/video/composition");
+    const comps = readdirSync(path.join(dir, "components")).filter((f) => f.endsWith(".js"));
+    assert.ok(comps.length >= 15);
+    for (const f of ["lib.js", ...comps.map((c) => "components/" + c), "embed-prelude.js", "core.js", "embed-player.js"])
+      assert.ok(bundle.includes(readFileSync(path.join(dir, f), "utf8").trimEnd()), "bundle lacks " + f);
+    assert.ok(bundle.indexOf("tools/video/composition/lib.js") < bundle.indexOf("tools/video/composition/core.js"));
+    assert.ok(bundle.indexOf("embed-prelude.js") < bundle.indexOf("tools/video/composition/core.js"));
+    assert.ok(bundle.indexOf("tools/video/composition/core.js") < bundle.indexOf("embed-player.js"));
+    assert.ok(!bundle.includes("tiktok"), "the vertical version is not part of the site bundle");
+    // the committed timeline (written by tools/video/build-timeline.mjs) is what the page loads
+    const tlFile = path.join(root, `assets/podcast/${ep.slug}.timeline.json`);
+    const tl = JSON.parse(readFileSync(tlFile, "utf8"));
+    assert.ok(Math.abs(tl.total - ep.audio.seconds) < 2, "timeline and audio have the same duration");
+    assert.equal(tl.sections.length, ep.sections.length);
+    assert.ok(tl.shots.length > 50 && tl.sentences.length > 50);
+    let end = 0;
+    for (const sh of tl.shots) { assert.ok(Math.abs(sh.start - end) < 0.01, "shots are contiguous: " + sh.id); end = sh.end; assert.ok(!("notes" in sh)); }
+    assert.ok(Math.abs(end - tl.total) < 0.01);
+    assert.ok(readFileSync(path.join(root, pageOf(ep) ? `podcast/${ep.slug}.html` : ""), "utf8").includes(`data-timeline="/assets/podcast/${ep.slug}.timeline.json?v=`));
+    // when the video pipeline's own output is here (it is git-ignored), the committed copy must be its compact twin
+    const src = path.join(root, "output/video/data/timeline.json");
+    if (existsSync(src)) {
+      const full = JSON.parse(readFileSync(src, "utf8"));
+      full.shots = full.shots.map(({ notes, ...s }) => s);
+      assert.deepEqual(tl, full, "assets/podcast/*.timeline.json is stale: run `node tools/video/build-timeline.mjs`");
+    }
+  }
+});
+
+test("core.js stays backwards compatible: embed config is optional and the video render does not depend on it", () => {
+  const core = readFileSync(path.join(root, "tools/video/composition/core.js"), "utf8");
+  for (const k of ["window.ZV_CONFIG", "timelineUrl", "componentsInline", "autoBoot", "window.ZVEmbed", "'/output/video/data/timeline.json'"]) assert.ok(core.includes(k), k);
+  const html = readFileSync(path.join(root, "tools/video/composition/index.html"), "utf8");
+  assert.ok(!html.includes("ZV_CONFIG"));
+  assert.ok(html.indexOf("lib.js") < html.indexOf("core.js"));
+});
+
 test("RSS feed is well formed and lists exactly the published episodes that have audio", () => {
   const xml = renderFeed();
   assert.match(xml, /^<\?xml version="1.0" encoding="UTF-8"\?>/);
@@ -253,7 +338,23 @@ test("the server serves the podcast, its feed and episodes, and nothing outside 
   const feed = await get("/podcast/feed.xml");
   assert.equal(feed.status, 200);
   assert.match(feed.headers.get("content-type"), /xml/);
-  for (const p of ["/css/podcast.css", "/js/podcast.js"]) assert.equal((await get(p)).status, 200, p);
+  for (const p of ["/css/podcast.css", "/js/podcast.js", "/css/episode-motion.css"]) assert.equal((await get(p)).status, 200, p);
+  for (const ep of motionEps) {
+    const js = await get("/js/episode-motion.js");
+    assert.equal(js.status, 200);
+    assert.match(js.headers.get("content-type"), /text\/javascript/);
+    assert.equal(await js.text(), readFileSync(path.join(root, "js/episode-motion.js"), "utf8"));
+    const tl = await get(`/assets/podcast/${ep.slug}.timeline.json`);
+    assert.equal(tl.status, 200);
+    assert.match(tl.headers.get("content-type"), /application\/json/);
+    assert.ok(JSON.parse(await tl.text()).shots.length > 10);
+    // audio must be seekable (chapters, progress bar): byte ranges
+    const part = await fetch(base + "/" + ep.audio.file, { headers: { Range: "bytes=10-19" } });
+    assert.equal(part.status, 206);
+    assert.equal(part.headers.get("content-range")?.startsWith("bytes 10-19/"), true);
+    assert.equal((await part.arrayBuffer()).byteLength, 10);
+    assert.equal((await fetch(base + "/" + ep.audio.file, { headers: { Range: "bytes=99999999999-" } })).status, 416);
+  }
   for (const ep of soon) assert.equal((await get("/podcast/" + ep.slug)).status, 404, ep.slug + " has no page");
   for (const p of ["/podcast/inconnu", "/podcast/..%2Fserver.mjs", "/podcast/%2e%2e/package.json", "/podcast/index.html/x", "/js/podcast-data.js.map"])
     assert.equal((await get(p)).status, 404, p);
@@ -261,13 +362,15 @@ test("the server serves the podcast, its feed and episodes, and nothing outside 
 
 test("publishing a recording switches the page to a real player and adds the episode to the feed", () => {
   const ep = live[0];
-  const before = ep.audio;
+  const before = ep.audio, beforeExp = ep.experience;
   try {
+    ep.experience = undefined; // the classic template: the motion one has its own test
     ep.audio = { file: "assets/podcast/essai.mp3", bytes: 3456789, seconds: 215 };
     const html = renderEpisode(ep);
     assert.match(html, /<audio controls preload="none" src="\/assets\/podcast\/essai\.mp3">/);
     assert.ok(!html.includes('data-player="speech"'));
     assert.match(html, /"associatedMedia"/);
+    assert.match(html, /"timeRequired":"PT3M35S"/);
     const xml = renderFeed();
     assert.equal((xml.match(/<item>/g) || []).length, 1);
     assert.match(xml, /<enclosure url="https:\/\/rien-ne-va-plus\.vercel\.app\/assets\/podcast\/essai\.mp3" length="3456789" type="audio\/mpeg"\/>/);
@@ -275,6 +378,7 @@ test("publishing a recording switches the page to a real player and adds the epi
     assert.ok(xml.includes(`<podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/${ep.slug}"`));
   } finally {
     ep.audio = before;
+    ep.experience = beforeExp;
   }
   assert.equal(renderEpisode(ep).includes('data-player="speech"'), !hasAudio(ep));
 });

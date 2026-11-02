@@ -106,7 +106,7 @@ Pour en publier un, passe son `status` à `'published'` (et donne-lui des scène
 - `podcast/` : pages **générées** (accueil, une page par épisode publié, `feed.xml`). Ne pas les éditer à la main.
 - `tools/podcast-render.mjs` et `tools/build-podcast.mjs` : le générateur.
 - `css/podcast.css`, `css/podcast-fonts.css`, `js/podcast.js` : style, polices, lecteur.
-- `css/podcast-motion.css`, `js/podcast-motion.js` : le **motion design** (voir plus bas).
+- `css/podcast-motion.css`, `js/podcast-motion.js` : les scènes de l'ancien gabarit (voir plus bas) ; `css/episode-motion.css`, `js/episode-motion.js` : l'**expérience motion** (épisode 1).
 - `tools/podcast-brand.mjs` : dessine le logo, l'icône, le favicon et la pochette dans `assets/podcast/`.
 - `assets/fonts/` : Bricolage Grotesque et JetBrains Mono (licence SIL OFL, voir `assets/fonts/LICENSES.md`).
 
@@ -120,7 +120,37 @@ npm test             # pages à jour, liens, flux RSS, calculs cités, serveur
 `cover.png` (1400 × 1400, pour les annuaires) s'exporte depuis `cover.svg` ; la commande est
 en tête de `tools/podcast-brand.mjs`.
 
-**Motion design.** Chaque section d'un épisode porte une `scene` (`wheel`, `wells`, `pockets`,
+**Expérience motion (épisode 1).** Un épisode qui porte `experience: 'motion'` (et `poster: <secondes>`, l'instant
+de l'image d'affiche) n'affiche plus son texte : sa page est un lecteur. La scène de la vidéo (`tools/video/composition/`,
+`window.renderAt(T)` est une fonction pure du temps) est rejouée **en direct** dans le navigateur, calée sur
+`audio.currentTime` de l'audio réel (le mixage voix + effets + musique) : aucune vidéo à héberger. Le lecteur
+a un gros bouton ▶, play/pause, temps, barre de progression cliquable avec les repères des chapitres (les titres des
+sections), boutons de chapitres, muet, plein écran, et le clavier (espace ou K, ←/→ ±5 s, F, M). La position est mémorisée, la
+boucle de dessin s'arrête quand l'onglet est caché, et le rendu passe à une image sur deux si la machine peine
+(> 28 ms de moyenne sur 60 images). Sans JavaScript, la page retombe sur un `<audio controls>` natif. Le texte complet
+reste dans le HTML, masqué (`aria-label="Transcription"`), pour l'accessibilité et le référencement. Sous le lecteur :
+le bandeau Joueurs Info Service, les sources (un `<details>` fermé) et les épisodes voisins.
+
+Deux artefacts sont **versionnés et générés**, à ne pas éditer à la main :
+
+- `assets/podcast/<slug>.timeline.json` : la ligne de temps compacte (plans, repères, mots). Elle est écrite par
+  `node tools/video/build-timeline.mjs` (en plus de `output/video/data/timeline.json`, ignoré par git).
+  Relance-le chaque fois que `direction.json` ou le timing de la voix changent, puis `npm run podcast`.
+- `js/episode-motion.js` : le bundle (`lib.js` + `components/*.js` + `embed-prelude.js` + `core.js` + `embed-player.js`,
+  concaténés dans cet ordre fixe), produit par `npm run podcast`. Modifier la composition (un composant, `core.js`)
+  oblige à le régénérer, sinon `npm test` signale « stale ». `core.js` sert aux deux usages : le rendu vidéo n'a pas
+  changé (`index.html`), et l'intégration au site s'active par `window.ZV_CONFIG = { timelineUrl, componentsInline: true,
+  mount, size: 'fluid', autoBoot: false }` (posé par `embed-prelude.js`) et expose `window.ZVEmbed = { ready, boot, renderAt, total }`.
+
+Pour donner l'expérience à un autre épisode : produire sa vidéo (`tools/video/SPEC.md`), publier son mp3 (`audio`),
+ajouter `experience: 'motion'` et `poster` à son bloc de `js/podcast-data.js`, faire écrire sa timeline dans
+`assets/podcast/<slug>.timeline.json` (le générateur lit ce nom), puis `npm run podcast` et `npm test`. Pour l'instant
+la composition est celle de l'épisode 1 (un seul `direction.json`) : un second épisode demandera d'en paramétrer le bundle.
+Le serveur (`server.mjs`) sert les mp3 par plages d'octets (indispensable pour se déplacer dans l'audio).
+Mise au point : `?t=<secondes>` sur la page ou `window.__seek(t)` placent la lecture sans lancer le son ; `window.__zv`
+donne l'état et les mesures de rendu.
+
+**Scènes de l'ancien gabarit.** Chaque section d'un épisode porte une `scene` (`wheel`, `wells`, `pockets`,
 `average`, `streak`, `outro`), une légende courte `cap` et un gros mot `big`. La page affiche la
 scène animée correspondante : à gauche et collée sur grand écran, en haut sur mobile. Elle suit la
 lecture vocale paragraphe par paragraphe, et le défilement quand rien n'est lu. Les scènes sont du

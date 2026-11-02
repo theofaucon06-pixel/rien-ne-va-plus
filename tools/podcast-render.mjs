@@ -1,7 +1,8 @@
 // Pure rendering of the podcast: data in, strings out. No file is written here (see build-podcast.mjs).
 // Pages use root-absolute URLs so they work under /podcast, /podcast/ and /podcast/<slug> alike.
 // Only episodes with `status: 'published'` get a page, a link and a feed entry; `soon` ones are teasers on the home page.
-import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SHOW, THEMES, EPISODES } from '../js/podcast-data.js';
@@ -42,7 +43,7 @@ export const kindOfStatus = (s) => (/composite/.test(s) ? 'composite' : /fictif/
 const kindLabel = { réel: 'Personne réelle', composite: 'Personnage composite', fictif: 'Personnage fictif' };
 
 // ---------------------------------------------------------------- shared page frame
-function head({ title, description, path: p, type = 'website', ld, full: fullTitle, motion = false }) {
+function head({ title, description, path: p, type = 'website', ld, full: fullTitle, motion = false, experience = false }) {
   const full = fullTitle || `${title} — ${SHOW.name}`;
   const image = coverPng() ? url('/assets/podcast/cover.png') : url('/assets/icons/icon-512.png');
   return `<!DOCTYPE html>
@@ -67,7 +68,7 @@ function head({ title, description, path: p, type = 'website', ld, full: fullTit
 <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
 <link rel="icon" href="/assets/podcast/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/css/podcast-fonts.css">
-<link rel="stylesheet" href="/css/podcast.css">${motion ? '\n<link rel="stylesheet" href="/css/podcast-motion.css">' : ''}
+<link rel="stylesheet" href="/css/podcast.css">${motion ? '\n<link rel="stylesheet" href="/css/podcast-motion.css">' : ''}${experience ? '\n<link rel="stylesheet" href="/css/episode-motion.css">\n<noscript><style>.zv-stage,.zv-bar,.zv-chapters{display:none}.zv>audio{display:block;width:100%}</style></noscript>' : ''}
 <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>
 </head>`;
 }
@@ -104,14 +105,14 @@ const footer = () => `<footer class="pod-footer">
   <a href="/">Jouer à Rien ne va plus</a>
 </footer>`;
 
-const frame = (inner, current, { motion = false } = {}) => `<body class="pod${motion ? ' pod-ep' : ' pod-home'}">
+const frame = (inner, current, { motion = false, experience = false } = {}) => `<body class="pod${experience ? ' pod-motion' : motion ? ' pod-ep' : ' pod-home'}">
 <a class="pod-skip" href="#main">Aller au contenu</a>
 ${header(current)}
 <main id="main">
 ${inner}
 </main>
 ${footer()}
-${motion ? '<script src="/js/podcast-motion.js" defer></script>\n' : ''}<script src="/js/podcast.js" defer></script>
+${experience ? '<script src="/js/episode-motion.js" defer></script>' : `${motion ? '<script src="/js/podcast-motion.js" defer></script>\n' : ''}<script src="/js/podcast.js" defer></script>`}
 </body>
 </html>
 `;
@@ -232,7 +233,7 @@ ${first ? `  <p class="sticker st-ink tilt-r hero-badge">Épisode ${first.number
     </div>
 ${feature}
 ${liveCards ? `    <ul class="live-grid">\n${liveCards}\n    </ul>` : ''}
-    <p class="note-audio">${anyAudio ? 'Chaque page propose aussi le texte complet.' : 'Chaque page propose le texte complet et une lecture vocale par ton navigateur. La version enregistrée arrive bientôt.'}</p>
+    <p class="note-audio">${live.every((e) => e.experience === 'motion') ? 'Chaque épisode se regarde en même temps qu’il s’écoute : le motion design se joue en direct, calé sur la voix.' : anyAudio ? 'Chaque page propose aussi le texte complet.' : 'Chaque page propose le texte complet et une lecture vocale par ton navigateur. La version enregistrée arrive bientôt.'}</p>
   </div>
 </section>
 
@@ -330,12 +331,162 @@ function sourcesFor(ep) {
 
 const attr = (name, v) => (v == null || v === '' ? '' : ` ${name}="${esc(v)}"`);
 
-export function renderEpisode(ep) {
+const frTime = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec) % 60).padStart(2, '0')}`;
+const isoDuration = (sec) => `PT${Math.floor(sec / 60)}M${Math.round(sec) % 60}S`;
+
+function sourcesHtml(ep) {
+  return sourcesFor(ep)
+    .map(
+      (g) => `      <div class="src-group"><h4>${esc(g.title)}</h4><ul>
+${g.refs.map((r) => `        <li>${r}</li>`).join('\n')}
+      </ul></div>`
+    )
+    .join('\n');
+}
+
+function episodeLd(ep) {
+  const min = minutes(ep);
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'PodcastEpisode',
+    name: ep.title,
+    description: ep.summary,
+    url: url(episodePath(ep)),
+    datePublished: SHOW.published,
+    inLanguage: SHOW.language,
+    episodeNumber: ep.number,
+    timeRequired: ep.audio ? isoDuration(ep.audio.seconds) : `PT${min}M`,
+    partOfSeries: { '@type': 'PodcastSeries', name: SHOW.name, url: url('/podcast') },
+    author: { '@type': 'Person', name: SHOW.host },
+    ...(ep.audio ? { associatedMedia: { '@type': 'MediaObject', contentUrl: url('/' + ep.audio.file) } } : {})
+  };
+}
+
+function episodeNav(ep) {
   const live = publishedEpisodes();
   const i = live.indexOf(ep);
   const prev = live[i - 1];
   const nextLive = live[i + 1];
   const nextSoon = EPISODES.find((e) => isSoon(e) && e.number > ep.number);
+  const left = prev
+    ? `<a class="nav-card" href="${episodePath(prev)}"><small>← ${esc(episodeLabel(prev))}</small><span>${esc(prev.title)}</span></a>`
+    : `<a class="nav-card" href="/podcast#episodes"><small>← Retour</small><span>Tous les épisodes</span></a>`;
+  const right = nextLive
+    ? `<a class="nav-card nav-next" href="${episodePath(nextLive)}"><small>${esc(episodeLabel(nextLive))} →</small><span>${esc(nextLive.title)}</span></a>`
+    : nextSoon
+      ? `<div class="nav-card nav-next is-soon"><small>Bientôt · ${esc(episodeLabel(nextSoon))}</small><span>${esc(nextSoon.title)}</span></div>`
+      : `<a class="nav-card nav-next" href="/podcast#suivre"><small>La suite</small><span>Suivre le podcast →</span></a>`;
+  return `<nav class="ep-nav" aria-label="Épisodes voisins">
+    ${left}
+    ${right}
+  </nav>`;
+}
+
+// ---- gabarit « motion » : la scène de la vidéo rejouée en direct, calée sur l'audio (voir README, « Le podcast »)
+const svgIcon = (cls, inner) => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${inner}</svg>`;
+const stroke = 'fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"';
+const ICON = {
+  play: svgIcon('i-play', '<path d="M7 4.5v15l13-7.5z"/>'),
+  pause: svgIcon('i-pause', '<path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/>'),
+  vol: svgIcon('i-vol', `<path d="M3 9.5v5h4l5 4.5v-14L7 9.5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.2 5.8a9 9 0 0 1 0 12.4" ${stroke} stroke-width="2.2"/>`),
+  mute: svgIcon('i-mute', `<path d="M3 9.5v5h4l5 4.5v-14L7 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5" ${stroke} stroke-width="2.2"/>`),
+  enter: svgIcon('i-enter', `<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" ${stroke} stroke-width="2.6"/>`),
+  exit: svgIcon('i-exit', `<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" ${stroke} stroke-width="2.6"/>`),
+  replay: svgIcon('i-replay', `<path d="M5 12a7 7 0 1 0 2.2-5.1M4 3.5v5h5" ${stroke} stroke-width="3"/>`)
+};
+
+// The timeline copy is committed (assets/podcast/<slug>.timeline.json, written by tools/video/build-timeline.mjs): the page
+// must not depend on output/, which git ignores. Its hash goes in the URL so a cached copy never outlives a change.
+function timelineFor(ep) {
+  const rel = `assets/podcast/${ep.slug}.timeline.json`;
+  const abs = path.join(root, rel);
+  if (!existsSync(abs)) throw new Error(`${rel} manquant : lance « node tools/video/build-timeline.mjs » (voir README, « Le podcast »)`);
+  return { rel, hash: createHash('sha1').update(readFileSync(abs)).digest('hex').slice(0, 8) };
+}
+
+function renderMotionEpisode(ep) {
+  const p = episodePath(ep);
+  if (!ep.audio) throw new Error(`${ep.slug}: l'expérience motion a besoin de l'audio (champ \`audio\`)`);
+  const tl = timelineFor(ep);
+  const poster = typeof ep.poster === 'number' ? ep.poster : 0;
+  const chapters = ep.sections
+    .map((s, k) => `        <li><button type="button" data-chap="${k}"><b>${k + 1}</b><span>${esc(s.h)}</span><time></time></button></li>`)
+    .join('\n');
+  const transcript = ep.sections
+    .map((s) => `      <h2>${esc(s.h)}</h2>\n${s.p.map((t) => `      <p>${esc(t)}</p>`).join('\n')}`)
+    .join('\n');
+  const label = `${ep.title}, ${episodeLabel(ep)}`;
+
+  const inner = `<article class="ep-motion-page">
+  <section class="ep-motion" aria-labelledby="ep-title">
+    <div class="ep-motion-wrap">
+      <div class="ep-motion-top">
+        <span class="sticker st-red tilt-r ep-tag">${esc(episodeLabel(ep))}</span>
+        <nav class="crumbs" aria-label="Fil d’Ariane"><a href="/podcast">Podcast</a> <span aria-hidden="true">/</span> <span>${esc(episodeLabel(ep))}</span></nav>
+      </div>
+      <div class="ep-motion-head">
+        <h1 id="ep-title">${esc(ep.title)}</h1>
+        <p class="lead">${esc(ep.hook)}</p>
+      </div>
+
+      <div class="zv" data-zv data-slug="${esc(ep.slug)}" data-title="${esc(label)}" data-poster="${poster}" data-total="${ep.audio.seconds}" data-timeline="/${tl.rel}?v=${tl.hash}">
+        <div class="zv-stage" data-zv-mount>
+          <button type="button" class="zv-big" aria-label="Lancer l’épisode : ${esc(ep.title)}"><span class="zv-big-disc">${ICON.play}${ICON.replay}</span><span class="zv-big-label"></span></button>
+          <p class="zv-status" role="status" aria-live="polite"></p>
+        </div>
+        <div class="zv-bar" role="group" aria-label="Commandes du lecteur">
+          <button type="button" class="zv-btn" data-act="play" aria-label="Lecture" aria-pressed="false">${ICON.play}${ICON.pause}</button>
+          <p class="zv-time" aria-hidden="true"><span data-cur>0:00</span><span> / </span><span data-tot>${frTime(ep.audio.seconds)}</span></p>
+          <div class="zv-seek" data-seek role="slider" tabindex="0" aria-label="Position dans l’épisode" aria-valuemin="0" aria-valuemax="${ep.audio.seconds}" aria-valuenow="0" aria-valuetext="0 minute 0 seconde">
+            <div class="zv-rail"><div class="zv-track"><i class="zv-fill"></i></div><span class="zv-marks"></span><span class="zv-thumb"></span></div>
+          </div>
+          <button type="button" class="zv-btn" data-act="mute" aria-label="Couper le son" aria-pressed="false">${ICON.vol}${ICON.mute}</button>
+          <button type="button" class="zv-btn" data-act="fs" aria-label="Plein écran" aria-pressed="false">${ICON.enter}${ICON.exit}</button>
+        </div>
+        <ol class="zv-chapters" aria-label="Chapitres">
+${chapters}
+        </ol>
+        <audio controls preload="metadata" src="/${ep.audio.file}"></audio>
+      </div>
+
+      <section class="visually-hidden" aria-label="Transcription">
+${transcript}
+      <h2>À retenir</h2>
+      <ol>
+${ep.retenir.map((t) => `        <li>${esc(t)}</li>`).join('\n')}
+      </ol>
+      </section>
+    </div>
+  </section>
+
+${helpBlock()}
+
+  <div class="ep-motion-more">
+    <div class="ep-motion-wrap">
+      <details class="sources" id="sources">
+        <summary>Sources et références</summary>
+${sourcesHtml(ep)}
+      </details>
+    </div>
+  </div>
+
+  ${episodeNav(ep)}
+</article>`;
+
+  return head({ title: ep.title, description: ep.summary, path: p, type: 'article', ld: episodeLd(ep), experience: true }) + '\n' + frame(inner, 'episodes', { experience: true });
+}
+
+// js/episode-motion.js = lib.js + every component + the embed prelude + core.js + the player, concatenated in a fixed order
+// (the same files render the video: nothing is duplicated). Generated by tools/build-podcast.mjs: never edit it by hand.
+export function renderMotionBundle() {
+  const dir = path.join(root, 'tools', 'video', 'composition');
+  const files = ['lib.js', ...readdirSync(path.join(dir, 'components')).filter((f) => f.endsWith('.js')).sort().map((f) => `components/${f}`), 'embed-prelude.js', 'core.js', 'embed-player.js'];
+  const parts = files.map((f) => `/* ==== tools/video/composition/${f} ==== */\n${readFileSync(path.join(dir, f), 'utf8').trimEnd()}\n`);
+  return `/* Zéro Vert — lecteur « motion » des épisodes. FICHIER GÉNÉRÉ par tools/build-podcast.mjs (npm run podcast) : ne pas éditer.\n   Sources : tools/video/composition/ (lib, components/*, embed-prelude, core, embed-player). */\n` + parts.join(';\n');
+}
+
+export function renderEpisode(ep) {
+  if (ep.experience === 'motion') return renderMotionEpisode(ep);
   const p = episodePath(ep);
   const min = minutes(ep);
   const hasScene = ep.sections.some((s) => s.scene);
@@ -360,14 +511,7 @@ ${s.p.map((t) => `      <p data-tts>${esc(t)}</p>`).join('\n')}
     })
     .join('\n        ');
 
-  const srcGroups = sourcesFor(ep);
-  const sources = srcGroups
-    .map(
-      (g) => `      <div class="src-group"><h4>${esc(g.title)}</h4><ul>
-${g.refs.map((r) => `        <li>${r}</li>`).join('\n')}
-      </ul></div>`
-    )
-    .join('\n');
+  const sources = sourcesHtml(ep);
 
   const audio = ep.audio
     ? `<div class="player" data-player="audio" data-slug="${ep.slug}">
@@ -394,33 +538,9 @@ ${g.refs.map((r) => `        <li>${r}</li>`).join('\n')}
       <div class="progress" aria-hidden="true"><i></i></div>
     </div>`;
 
-  const ld = {
-    '@context': 'https://schema.org',
-    '@type': 'PodcastEpisode',
-    name: ep.title,
-    description: ep.summary,
-    url: url(p),
-    datePublished: SHOW.published,
-    inLanguage: SHOW.language,
-    episodeNumber: ep.number,
-    timeRequired: `PT${min}M`,
-    partOfSeries: { '@type': 'PodcastSeries', name: SHOW.name, url: url('/podcast') },
-    author: { '@type': 'Person', name: SHOW.host },
-    ...(ep.audio ? { associatedMedia: { '@type': 'MediaObject', contentUrl: url('/' + ep.audio.file) } } : {})
-  };
+  const ld = episodeLd(ep);
 
-  const left = prev
-    ? `<a class="nav-card" href="${episodePath(prev)}"><small>← ${esc(episodeLabel(prev))}</small><span>${esc(prev.title)}</span></a>`
-    : `<a class="nav-card" href="/podcast#episodes"><small>← Retour</small><span>Tous les épisodes</span></a>`;
-  const right = nextLive
-    ? `<a class="nav-card nav-next" href="${episodePath(nextLive)}"><small>${esc(episodeLabel(nextLive))} →</small><span>${esc(nextLive.title)}</span></a>`
-    : nextSoon
-      ? `<div class="nav-card nav-next is-soon"><small>Bientôt · ${esc(episodeLabel(nextSoon))}</small><span>${esc(nextSoon.title)}</span></div>`
-      : `<a class="nav-card nav-next" href="/podcast#suivre"><small>La suite</small><span>Suivre le podcast →</span></a>`;
-  const nav = `<nav class="ep-nav" aria-label="Épisodes voisins">
-    ${left}
-    ${right}
-  </nav>`;
+  const nav = episodeNav(ep);
 
   const stage = hasScene ? `<div class="stage" data-stage aria-hidden="true"><div class="stage-view"></div><div class="stage-hud"></div></div>\n      ` : '';
 
@@ -543,6 +663,7 @@ export function buildAll() {
   const files = new Map();
   files.set('podcast/index.html', renderIndex());
   for (const ep of publishedEpisodes()) files.set(`podcast/${ep.slug}.html`, renderEpisode(ep));
+  if (publishedEpisodes().some((ep) => ep.experience === 'motion')) files.set('js/episode-motion.js', renderMotionBundle());
   files.set('podcast/feed.xml', renderFeed());
   return files;
 }

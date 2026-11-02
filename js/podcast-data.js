@@ -41,6 +41,7 @@ export const THEMES = {
 
 // `status`: 'published' (page + feed) or 'soon' (draft kept in the data, shown as a teaser, no page).
 // `audio`: null, or { file: 'assets/podcast/xx.mp3', bytes: 12345678, seconds: 1234 }
+// `experience`: optional, 'motion' = the page plays the video's motion design live on top of the audio (needs assets/podcast/<slug>.timeline.json); `poster`: the still shown before playing.
 export const EPISODES = [
   {
     slug: 'bande-annonce',
@@ -105,6 +106,9 @@ export const EPISODES = [
     mechanics: ['avantage', 'memoire'],
     witnesses: ['wells'],
     audio: { file: 'assets/podcast/01-la-bille-n-a-pas-de-memoire.mp3', bytes: 8107279, seconds: 494 },
+    // Page « expérience motion » : la scène de la vidéo est rejouée en direct, calée sur l'audio (voir README). `poster` = instant de l'affiche (s).
+    experience: 'motion',
+    poster: 10.9,
     sections: [
       {
         h: 'Rien ne va plus',
