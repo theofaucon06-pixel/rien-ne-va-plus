@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:podcast="https://podcastindex.org/namespace/1.0">
   <channel>
-    <title>La Maison Gagne</title>
+    <title>Zéro Vert</title>
     <link>https://rien-ne-va-plus.vercel.app/podcast</link>
     <atom:link href="https://rien-ne-va-plus.vercel.app/podcast/feed.xml" rel="self" type="application/rss+xml"/>
     <description>Chaque épisode prend un mécanisme réel d’un casino, une personne réelle qui l’a vécu, et montre comment la maison gagne. Sans conseil pour gagner, sans sermon : des chiffres, des histoires et des sources. Un podcast de prévention par le récit, compagnon du jeu Rien ne va plus.</description>
@@ -15,7 +15,7 @@
     <itunes:explicit>false</itunes:explicit>
     <itunes:category text="Society &amp; Culture"><itunes:category text="Documentary"/></itunes:category>
     <itunes:image href="https://rien-ne-va-plus.vercel.app/assets/podcast/cover.png"/>
-    <image><url>https://rien-ne-va-plus.vercel.app/assets/podcast/cover.png</url><title>La Maison Gagne</title><link>https://rien-ne-va-plus.vercel.app/podcast</link></image>
+    <image><url>https://rien-ne-va-plus.vercel.app/assets/podcast/cover.png</url><title>Zéro Vert</title><link>https://rien-ne-va-plus.vercel.app/podcast</link></image>
 
   </channel>
 </rss>

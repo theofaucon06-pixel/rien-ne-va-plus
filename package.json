@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "node serve.js",
-    "podcast": "node tools/podcast-cover.mjs && node tools/build-podcast.mjs",
+    "podcast": "node tools/podcast-brand.mjs && node tools/build-podcast.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:smoke": "node tools/smoke.mjs"
   },

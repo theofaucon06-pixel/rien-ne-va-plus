@@ -1,4 +1,4 @@
-// « La Maison Gagne » — the podcast of the Rien ne va plus universe.
+// « Zéro Vert » — the podcast of the Rien ne va plus universe.
 // One source of truth: the pages in /podcast, the RSS feed and the tests are all generated from this file
 // by `npm run podcast`. Facts and references come from js/content.js (REVELATIONS, WITNESSES, SOURCES):
 // an episode only lists the ids it draws on, and its sources are pulled from there.
@@ -7,8 +7,8 @@
 // Until then the episode page offers the text and a synthetic reading by the browser.
 
 export const SHOW = {
-  name: 'La Maison Gagne',
-  tagline: 'Le podcast qui regarde le casino de l’intérieur.',
+  name: 'Zéro Vert',
+  tagline: 'Le podcast qui t’explique comment la maison gagne.',
   description:
     'Chaque épisode prend un mécanisme réel d’un casino, une personne réelle qui l’a vécu, et montre comment la maison gagne. ' +
     'Sans conseil pour gagner, sans sermon : des chiffres, des histoires et des sources. Un podcast de prévention par le récit, ' +
@@ -39,10 +39,12 @@ export const THEMES = {
   aide: 'En sortir'
 };
 
+// `status`: 'published' (page + feed) or 'soon' (draft kept in the data, shown as a teaser, no page).
 // `audio`: null, or { file: 'assets/podcast/xx.mp3', bytes: 12345678, seconds: 1234 }
 export const EPISODES = [
   {
     slug: 'bande-annonce',
+    status: 'soon',
     number: 0,
     kind: 'trailer',
     title: 'Rien ne va plus',
@@ -88,62 +90,99 @@ export const EPISODES = [
 
   {
     slug: 'la-bille-n-a-pas-de-memoire',
+    status: 'published',
     number: 1,
     title: 'La bille n’a pas de mémoire',
-    hook: 'Trente-sept cases, trente-cinq fois la mise : la plus belle arithmétique du casino est une soustraction.',
+    hook: 'Un homme fait sauter la banque, le noir sort vingt-six fois : et c’est quand même le zéro vert qui gagne.',
     summary:
-      'Pourquoi la roulette européenne prend 2,7 % de chaque mise, ce que veut dire « avantage de la maison », et l’histoire des vingt-six noirs de Monte-Carlo.',
+      'Charles Wells à Monte-Carlo, la division qui donne 97,3 centimes, la nuit des vingt-six noirs. Pourquoi l’avantage de la maison est une moyenne et pas un quota, et pourquoi la bille ne se souvient de rien.',
     themes: ['maths', 'psycho', 'histoires'],
     mechanics: ['avantage', 'memoire'],
     witnesses: ['wells'],
     audio: null,
     sections: [
       {
-        h: 'Juillet 1891, Monte-Carlo',
+        h: 'Rien ne va plus',
+        scene: 'wheel',
+        cap: 'La bille est lancée',
+        big: '3 MOTS',
         p: [
-          'Charles Wells entre au casino de Monte-Carlo. Il en ressort avec un million de francs. Les journaux disent qu’il a « fait sauter la banque ». Une chanson naît, qui porte encore son nom.',
-          'Wells affirme avoir un système. Il n’en a pas. Il a une série favorable. Et surtout, l’argent qu’il joue n’est pas le sien : il vient d’investisseurs anglais qui croyaient financer ses inventions.',
-          'Il revient. Il perd. Il est arrêté, extradé, condamné. À sa sortie de prison, il recommence en France sous un autre nom, et il est condamné à nouveau. Il meurt en 1922, sans un sou.',
-          'On se souvient de la chanson. Pas de la fosse commune. C’est une forme de publicité que le casino ne paie pas.'
+          'Tu poses un jeton sur le dix-sept. Le croupier lance la bille. Elle file, elle claque, elle hésite. Et lui, il lâche trois mots : rien ne va plus.',
+          'Traduction : les mises sont fermées. Plus personne ne touche à rien. À partir de là, c’est la bille contre la roue.',
+          'Enfin, presque. Sur cette roue, il y a une case ni rouge ni noire. Elle est verte, elle porte un zéro, et elle bosse pour la maison à chaque tour. Ce podcast porte son nom. Bienvenue dans Zéro Vert.',
+          'Au programme : un homme qui a fait sauter la banque, vingt-six noirs de suite, et une division que le casino adore.'
         ]
       },
       {
-        h: 'Trente-sept cases, trente-cinq contre un',
+        h: 'Il a fait sauter la banque',
+        scene: 'wells',
+        cap: 'Monte-Carlo, juillet 1891',
+        big: '1 M FRANCS',
         p: [
-          'Regardons la roue européenne. Trente-sept cases : les numéros de un à trente-six, plus le zéro.',
-          'Tu mises un euro sur un numéro. Si le tien sort, le casino te rend ta mise et ajoute trente-cinq euros. Au total, trente-six. Mais tu avais une chance sur trente-sept, pas une chance sur trente-six.',
-          'Fais le calcul. Trente-six divisés par trente-sept, ça donne un peu moins de un. Pour chaque euro misé, tu récupères en moyenne 97,3 centimes. Les 2,7 centimes qui manquent, c’est l’avantage de la maison.',
-          'Sur une roulette américaine, avec un double zéro, ce prélèvement monte à 5,26 pour cent. Même roue, même bille, même sourire. Le double prélèvement.'
+          'Juillet 1891, Monte-Carlo. Un certain Charles Wells entre au casino. Il en ressort avec un million de francs. Il a fait sauter la banque. Douze fois.',
+          'En vrai, faire sauter la banque, c’est vider la caisse d’une table. Pas celle du casino. Drap noir sur la table, on va chercher de l’argent au coffre, et ça repart. Le casino n’a pas fermé une heure. Mais les journaux s’enflamment jusqu’à New York. Une chanson porte encore son nom.',
+          'Wells jure qu’il a un système. Il n’en a pas. Il a une bonne série. Et un secret : l’argent qu’il joue n’est pas à lui. Il vient d’investisseurs anglais qui croient financer ses inventions.',
+          'Il revient en novembre, gagne encore. Puis en 1892, il débarque en yacht, payé avec l’argent des autres. Cette fois, il perd tout en quelques jours. Arrestation. Huit ans de prison en Angleterre. Il recommence en France sous un autre nom, condamné encore. Il meurt en 1922, sans un sou, dans une fosse commune.'
+        ]
+      },
+      {
+        h: 'Trente-six sur trente-sept',
+        scene: 'pockets',
+        cap: 'Le zéro change tout',
+        big: '97,3 ¢',
+        p: [
+          'Comment la maison gagne sans tricher ? Regarde la roue. Trente-sept cases : de un à trente-six, plus le zéro. Le vert.',
+          'Tu mets un euro sur un numéro. S’il sort, le casino te paie trente-cinq contre un. Ton euro revient, plus trente-cinq : trente-six en tout. Ça a l’air juste. Sauf que tu avais une chance sur trente-sept. Pas sur trente-six.',
+          'Trente-six divisé par trente-sept : pour chaque euro misé, tu récupères en moyenne 97,3 centimes. Les 2,7 centimes qui manquent, c’est l’avantage de la maison. Ils n’existent qu’à cause du zéro vert.',
+          'La roulette américaine, elle, a un double zéro. L’avantage monte à 5,26 pour cent. Même bille, même roue. Deux fois plus de vert.'
         ]
       },
       {
         h: 'Une moyenne, pas un quota',
+        scene: 'average',
+        cap: 'Tu peux gagner ce soir',
+        big: '2,7 %',
         p: [
-          'Attention à un contresens fréquent. Un avantage de 2,7 % ne veut pas dire que tu perdras 2,7 % ce soir.',
-          'C’est une espérance mathématique. Une moyenne, calculée sur un très grand nombre de tours. Sur une soirée, tu peux gagner. Sur dix soirées, tu peux gagner. C’est justement ce qui rend le jeu attirant.',
-          'Mais l’avantage s’applique à chaque jeton misé. Plus tu mises, plus il travaille. Cent mille euros misés au total, sur une roue européenne, cela représente en moyenne deux mille sept cents euros qui restent à la maison. Sans tricher. Sans malchance. Juste la moyenne.'
+          'Attention, piège. Un avantage de 2,7 pour cent ne veut pas dire que tu perds 2,7 pour cent ce soir. C’est une moyenne. Pas un quota.',
+          'Ce soir, tu peux gagner. Pour de vrai. Même après mille tours, ton résultat peut s’écarter fort de la moyenne. C’est même pour ça que ça accroche : on gagne assez souvent pour y croire.',
+          'Le casino, lui, ne joue pas une soirée. Il joue tous les soirs, à toutes les tables. Et l’avantage s’applique à chaque jeton. Plus tu mises, plus la moyenne travaille. Cent mille euros misés au total sur des numéros, c’est en moyenne deux mille sept cents euros qui restent à la maison. Sans tricher. Sans malchance. Juste la moyenne.'
         ]
       },
       {
         h: 'Vingt-six noirs',
+        scene: 'streak',
+        cap: 'Monte-Carlo, 18 août 1913',
+        big: '26 NOIRS',
         p: [
-          'Le 18 août 1913, à Monte-Carlo, le noir sort vingt-six fois de suite. L’histoire est rapportée par l’auteur Darrell Huff, et reprise depuis dans les manuels sur le sophisme du joueur.',
-          'Autour de la table, les joueurs misent sur le rouge. Après dix noirs, le rouge est forcément dû. Après quinze, c’est certain. Après vingt, c’est une évidence. La salle perd des millions.',
-          'Mais la bille n’a pas de mémoire. À chaque tour, le rouge a exactement dix-huit chances sur trente-sept. Au premier tour comme au vingt-septième.',
-          'Une série de vingt-six noirs à partir d’un tour donné, c’est environ une chance sur cent trente-sept millions. Rare, oui. Mais quand elle se produit, elle ne change pas la probabilité du tour suivant.',
-          'Et le tableau des derniers numéros, au-dessus de la table ? Il est là pour te donner l’impression d’une tendance. Il ne sert à rien. Sauf à faire monter les mises.'
+          'Retour à Monte-Carlo. Le 18 août 1913, le noir sort. Puis encore. Puis encore. Vingt-six fois de suite. C’est l’auteur Darrell Huff qui la raconte.',
+          'Autour de la table, ça s’excite. Après dix noirs, le rouge est forcément dû. Après quinze, c’est sûr. Après vingt, c’est une évidence. Tout le monde mise rouge. La salle perd des millions.',
+          'Sauf que la bille n’a pas de mémoire. Elle ne sait pas ce qu’elle a fait il y a une minute. Au tour suivant, le rouge a dix-huit chances sur trente-sept. Comme au premier tour. Comme toujours. Croire le contraire, ça a un nom : le sophisme du joueur.',
+          'Une série pareille, à partir d’un tour donné, c’est à peu près une chance sur cent trente-sept millions. Rare, oui. Mais quand elle arrive, elle ne change rien au tour d’après. Et le tableau des derniers numéros, au-dessus de la table ? Il n’est pas là pour t’aider. Il est là pour faire monter les mises.'
+        ]
+      },
+      {
+        h: 'Le zéro ne perd jamais',
+        scene: 'outro',
+        cap: 'Le zéro, c’est la marge',
+        big: '0',
+        p: [
+          'Wells a gagné un million. La salle de 1913 a perdu des millions. Dans les deux cas, la roue n’a rien fait de spécial. Elle a tourné.',
+          'Wells croyait à son système. Les joueurs de 1913 croyaient à une série. Ni l’un ni l’autre n’existait. Ce qui existe, c’est une case qui fait payer trente-cinq contre un sur trente-sept cases. Tu peux lui prendre une bataille. Wells l’a fait. La guerre, elle l’avait gagnée avant que tu t’assoies.',
+          'Prochain épisode : La zone. Les machines à sous, et une joueuse de Las Vegas qui ne joue pas pour gagner, mais pour que ça ne s’arrête pas.',
+          'D’ici là, quand tu entends rien ne va plus, regarde la case verte. La bille n’a pas de mémoire. Le zéro, lui, n’oublie aucun jeton. C’était Zéro Vert.'
         ]
       }
     ],
     retenir: [
-      'À la roulette européenne, chaque euro misé rapporte en moyenne 97,3 centimes.',
-      'Un avantage de la maison est une moyenne : il ne dit pas ce qui va arriver ce soir.',
-      'Une série n’est pas un signal. À chaque tour, le hasard repart de zéro.'
+      'Pour un euro misé, la roulette européenne rend en moyenne 97,3 centimes. Le reste, c’est le zéro vert.',
+      'L’avantage de la maison est une moyenne, pas un quota : tu peux gagner ce soir, le casino gagne sur la durée.',
+      'Une série n’est pas un signal. La bille n’a pas de mémoire.'
     ]
   },
 
   {
     slug: 'la-zone',
+    status: 'soon',
     number: 2,
     title: 'La zone',
     hook: 'Une joueuse de Las Vegas ne joue pas pour gagner. Elle joue pour que ça ne s’arrête pas.',
@@ -207,6 +246,7 @@ export const EPISODES = [
 
   {
     slug: 'le-systeme-infaillible',
+    status: 'soon',
     number: 3,
     title: 'Le système infaillible',
     hook: 'Dostoïevski a écrit un chef-d’œuvre en vingt-six jours pour payer ses dettes de jeu. Son système, lui, n’a jamais marché.',
@@ -271,6 +311,7 @@ export const EPISODES = [
 
   {
     slug: 'se-refaire',
+    status: 'soon',
     number: 4,
     title: 'Se refaire',
     hook: 'Il a transformé 50 dollars en 40 millions. Puis il a voulu se refaire.',
@@ -326,6 +367,7 @@ export const EPISODES = [
 
   {
     slug: 'le-seul-jeu-quon-peut-battre',
+    status: 'soon',
     number: 5,
     title: 'Le seul jeu qu’on peut battre',
     hook: 'Au blackjack, on peut gagner. Et le jour où on y arrive, la maison change les règles.',
@@ -382,6 +424,7 @@ export const EPISODES = [
 
   {
     slug: 'une-maison-sans-horloges',
+    status: 'soon',
     number: 6,
     title: 'Une maison sans horloges',
     hook: 'Depuis que tu es entré, as-tu vu une fenêtre ? Une horloge ? Un panneau « Sortie » ?',
@@ -437,6 +480,7 @@ export const EPISODES = [
 
   {
     slug: 'le-tapis-rouge',
+    status: 'soon',
     number: 7,
     title: 'Le tapis rouge',
     hook: 'Le casino connaît ton chiffre. Tout ce qu’on t’offre a été calculé dessus.',
@@ -496,6 +540,7 @@ export const EPISODES = [
 
   {
     slug: 'le-casino-dans-la-poche',
+    status: 'soon',
     number: 8,
     title: 'Le casino dans la poche',
     hook: 'Il n’a jamais mis les pieds dans un casino. Il n’en a pas eu besoin.',
@@ -555,6 +600,7 @@ export const EPISODES = [
 
   {
     slug: 'la-sortie',
+    status: 'soon',
     number: 9,
     title: 'La sortie',
     hook: 'Une soirée gagnante est possible. Elle ne supprime pas l’avantage mathématique des jeux.',
