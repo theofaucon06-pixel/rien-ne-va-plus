@@ -95,7 +95,7 @@ export const EPISODES = [
     title: 'La bille n’a pas de mémoire',
     hook: 'Un homme fait sauter la banque, le noir sort vingt-six fois : et c’est quand même le zéro vert qui gagne.',
     summary:
-      'Charles Wells à Monte-Carlo, la division qui donne 97,3 centimes, la nuit des vingt-six noirs. Pourquoi l’avantage de la maison est une moyenne et pas un quota, et pourquoi la bille ne se souvient de rien.',
+      'Charles Wells à Monte-Carlo, de la banque qui saute à la fosse commune. La division qui donne 97,3 centimes, l’espérance mathématique dite simplement, la nuit des vingt-six noirs et la loi des petits nombres. Pourquoi l’avantage de la maison est une moyenne et pas un quota, et pourquoi la bille ne se souvient de rien.',
     themes: ['maths', 'psycho', 'histoires'],
     mechanics: ['avantage', 'memoire'],
     witnesses: ['wells'],
@@ -108,9 +108,10 @@ export const EPISODES = [
         big: '3 MOTS',
         p: [
           'Tu poses un jeton sur le dix-sept. Le croupier lance la bille. Elle file, elle claque, elle hésite. Et lui, il lâche trois mots : rien ne va plus.',
-          'Traduction : les mises sont fermées. Plus personne ne touche à rien. À partir de là, c’est la bille contre la roue.',
-          'Enfin, presque. Sur cette roue, il y a une case ni rouge ni noire. Elle est verte, elle porte un zéro, et elle bosse pour la maison à chaque tour. Ce podcast porte son nom. Bienvenue dans Zéro Vert.',
-          'Au programme : un homme qui a fait sauter la banque, vingt-six noirs de suite, et une division que le casino adore.'
+          'Traduction : les mises sont fermées. Tu peux souffler sur tes doigts, fixer la roue très fort, négocier avec l’univers. À partir de là, c’est la bille contre la roue, et ton avis n’intéresse plus personne.',
+          'Enfin, presque. Regarde bien la roue. Des cases rouges, des cases noires. Et puis une case à part. Ni rouge, ni noire. Elle est verte, elle porte un zéro, et elle bosse pour la maison à chaque tour. Pas de pause, pas de congés, jamais de mauvaise soirée. Ce podcast porte son nom. Bienvenue dans Zéro Vert.',
+          'Le principe : un mécanisme réel du casino. Une histoire vraie. Et les sources en bas de la page, pour que tu vérifies. Pas de système pour gagner : il n’en existe pas. Pas de sermon non plus : ta soirée t’appartient. Je veux juste que tu saches qui est assis en face de toi.',
+          'Au programme aujourd’hui : un escroc qui a fait sauter la banque de Monte-Carlo, une division que le casino adore, une nuit où le noir est sorti vingt-six fois de suite. Et une question qui a l’air bête. Est-ce que la bille se souvient ? Spoiler : non.'
         ]
       },
       {
@@ -119,10 +120,12 @@ export const EPISODES = [
         cap: 'Monte-Carlo, juillet 1891',
         big: '1 M FRANCS',
         p: [
-          'Juillet 1891, Monte-Carlo. Un certain Charles Wells entre au casino. Il en ressort avec un million de francs. Il a fait sauter la banque. Douze fois.',
-          'En vrai, faire sauter la banque, c’est vider la caisse d’une table. Pas celle du casino. Drap noir sur la table, on va chercher de l’argent au coffre, et ça repart. Le casino n’a pas fermé une heure. Mais les journaux s’enflamment jusqu’à New York. Une chanson porte encore son nom.',
-          'Wells jure qu’il a un système. Il n’en a pas. Il a une bonne série. Et un secret : l’argent qu’il joue n’est pas à lui. Il vient d’investisseurs anglais qui croient financer ses inventions.',
-          'Il revient en novembre, gagne encore. Puis en 1892, il débarque en yacht, payé avec l’argent des autres. Cette fois, il perd tout en quelques jours. Arrestation. Huit ans de prison en Angleterre. Il recommence en France sous un autre nom, condamné encore. Il meurt en 1922, sans un sou, dans une fosse commune.'
+          'L’histoire de Charles Wells, c’est une série en quatre saisons. Saison un : juillet 1891, Monte-Carlo. Wells entre au casino. Il en ressort avec un million de francs. Il a fait sauter la banque. Douze fois.',
+          'En vrai, faire sauter la banque, c’est vider la caisse d’une table, pas celle du casino. Drap noir sur la table, on va chercher de l’argent au coffre, et ça repart. Le casino n’a pas fermé une heure. Mais les journaux s’enflamment, de Londres à New York, et une chanson naît : L’homme qui a fait sauter la banque à Monte-Carlo.',
+          'Il jure aux journalistes qu’il a un système. Et il cache un secret : l’argent qu’il joue n’est pas à lui. Il vient d’investisseurs anglais qui croient financer ses inventions.',
+          'Saison deux : il revient en novembre, et il gagne encore. Saison trois : 1892. Il débarque en yacht, acheté avec l’argent des autres. À bord, une maîtresse et un orchestre. Oui, un orchestre. Cette fois, il perd tout. En quelques jours.',
+          'Saison quatre, la moins glamour. Arrestation. Extradition. Procès à Londres en 1893. Huit ans de prison. À sa sortie, il recommence en France, sous un autre nom. Condamné encore. Il meurt en 1922, sans un sou, dans une fosse commune.',
+          'Son système a marché onze jours en juillet et cinq en novembre. Un système qui marche seize jours et échoue le reste d’une vie, ça s’appelle une série. Et tout le monde se souvient de la chanson. Personne de la fosse commune. Pour le casino, c’est de la publicité gratuite.'
         ]
       },
       {
@@ -131,10 +134,12 @@ export const EPISODES = [
         cap: 'Le zéro change tout',
         big: '97,3 ¢',
         p: [
-          'Comment la maison gagne sans tricher ? Regarde la roue. Trente-sept cases : de un à trente-six, plus le zéro. Le vert.',
+          'Alors, comment la maison gagne sans tricher ? Pas d’aimant sous la table, pas de croupier véreux. Il suffit de compter les cases. Trente-sept : de un à trente-six, plus le zéro. Le vert.',
           'Tu mets un euro sur un numéro. S’il sort, le casino te paie trente-cinq contre un. Ton euro revient, plus trente-cinq : trente-six en tout. Ça a l’air juste. Sauf que tu avais une chance sur trente-sept. Pas sur trente-six.',
-          'Trente-six divisé par trente-sept : pour chaque euro misé, tu récupères en moyenne 97,3 centimes. Les 2,7 centimes qui manquent, c’est l’avantage de la maison. Ils n’existent qu’à cause du zéro vert.',
-          'La roulette américaine, elle, a un double zéro. L’avantage monte à 5,26 pour cent. Même bille, même roue. Deux fois plus de vert.'
+          'Imagine. Un euro sur chacune des trente-sept cases. Trente-sept euros sur le tapis. Une case gagne forcément, donc tu gagnes à coup sûr. Le casino te rend trente-six euros. Bravo : tu as gagné, et tu as perdu un euro.',
+          'Trente-six divisé par trente-sept : pour chaque euro misé, tu récupères en moyenne 97,3 centimes. Les 2,7 centimes qui manquent, c’est l’avantage de la maison. Les matheux appellent ça l’espérance mathématique. En clair : ce que rapporte une mise en moyenne, si on la rejouait un nombre énorme de fois. À la roulette, elle est négative. Pour toi. Et elle n’existe qu’à cause du zéro.',
+          'Sur le rouge, c’est pareil : le zéro le fait perdre comme le noir. Exemple : dix euros par tour, pendant mille tours. Ça fait dix mille euros misés. En moyenne, environ deux cent soixante-dix restent à la maison.',
+          'Et la roulette américaine ? Elle ajoute un double zéro. L’avantage grimpe à 5,26 pour cent. Même bille, même roue. Deux fois plus de vert.'
         ]
       },
       {
@@ -144,8 +149,10 @@ export const EPISODES = [
         big: '2,7 %',
         p: [
           'Attention, piège. Un avantage de 2,7 pour cent ne veut pas dire que tu perds 2,7 pour cent ce soir. C’est une moyenne. Pas un quota.',
-          'Ce soir, tu peux gagner. Pour de vrai. Même après mille tours, ton résultat peut s’écarter fort de la moyenne. C’est même pour ça que ça accroche : on gagne assez souvent pour y croire.',
-          'Le casino, lui, ne joue pas une soirée. Il joue tous les soirs, à toutes les tables. Et l’avantage s’applique à chaque jeton. Plus tu mises, plus la moyenne travaille. Cent mille euros misés au total sur des numéros, c’est en moyenne deux mille sept cents euros qui restent à la maison. Sans tricher. Sans malchance. Juste la moyenne.'
+          'Prends une pièce. Pile ou face, une chance sur deux. Lance-la dix fois. En moyenne, ça fait cinq piles. Mais le cinq-cinq parfait, tu ne l’obtiens qu’environ une fois sur quatre. Le reste du temps, ça penche. Sept-trois, deux-huit, ça arrive sans arrêt. La moyenne ne dit pas ce qui va se passer ce soir. Elle dit où ça se tasse, à la longue.',
+          'La roulette, c’est pareil, avec un petit poids en plus du côté de la maison. Mise sur le rouge pendant cent tours : un peu plus d’une fois sur trois, tu finis devant. Sur mille tours, moins d’une fois sur cinq. Sur dix mille tours, environ trois fois sur mille. Plus ça dure, plus le zéro se fait entendre.',
+          'Donc oui, ce soir, tu peux gagner. Pour de vrai. Et c’est exactement pour ça que ça accroche. On gagne assez souvent pour y croire. Le gain de ce soir, c’est l’hameçon.',
+          'Le casino, lui, ne joue pas une soirée. Il joue tous les soirs, à toutes les tables. Ta soirée gagnante ne l’inquiète pas : elle se noie dans toutes les autres. Et l’avantage s’applique à chaque jeton. Plus on mise, plus la moyenne travaille. Sans tricher. Sans malchance. Juste la moyenne.'
         ]
       },
       {
@@ -154,10 +161,12 @@ export const EPISODES = [
         cap: 'Monte-Carlo, 18 août 1913',
         big: '26 NOIRS',
         p: [
-          'Retour à Monte-Carlo. Le 18 août 1913, le noir sort. Puis encore. Puis encore. Vingt-six fois de suite. C’est l’auteur Darrell Huff qui la raconte.',
+          'Retour à Monte-Carlo. Le 18 août 1913, le noir sort. Puis encore. Puis encore. Vingt-six fois de suite. L’histoire est racontée par l’auteur Darrell Huff, dans un livre de 1959.',
           'Autour de la table, ça s’excite. Après dix noirs, le rouge est forcément dû. Après quinze, c’est sûr. Après vingt, c’est une évidence. Tout le monde mise rouge. La salle perd des millions.',
           'Sauf que la bille n’a pas de mémoire. Elle ne sait pas ce qu’elle a fait il y a une minute. Au tour suivant, le rouge a dix-huit chances sur trente-sept. Comme au premier tour. Comme toujours. Croire le contraire, ça a un nom : le sophisme du joueur.',
-          'Une série pareille, à partir d’un tour donné, c’est à peu près une chance sur cent trente-sept millions. Rare, oui. Mais quand elle arrive, elle ne change rien au tour d’après. Et le tableau des derniers numéros, au-dessus de la table ? Il n’est pas là pour t’aider. Il est là pour faire monter les mises.'
+          'En 1971, deux psychologues, Amos Tversky et Daniel Kahneman, mettent un nom savant sur ce réflexe. Leur article s’intitule : la croyance en la loi des petits nombres. L’idée : on attend d’une courte série qu’elle ressemble déjà à la moyenne. Dix noirs, ce n’est pas moitié-moitié, donc le rouge devrait rattraper. Sauf que la roue ne rattrape rien.',
+          'Et le casino entretient le réflexe. Au-dessus de la table, un tableau affiche les derniers numéros sortis. Il ne prédit rien. Il est là pour nourrir ton intuition et faire monter les mises. Tu connais la phrase du joueur : je sens que ça vient. Réponse honnête : ça vient depuis 1913.',
+          'Une série pareille, à partir d’un tour donné, c’est à peu près une chance sur cent trente-sept millions. Mais quand elle arrive, elle ne change rien au tour d’après.'
         ]
       },
       {
@@ -168,8 +177,10 @@ export const EPISODES = [
         p: [
           'Wells a gagné un million. La salle de 1913 a perdu des millions. Dans les deux cas, la roue n’a rien fait de spécial. Elle a tourné.',
           'Wells croyait à son système. Les joueurs de 1913 croyaient à une série. Ni l’un ni l’autre n’existait. Ce qui existe, c’est une case qui fait payer trente-cinq contre un sur trente-sept cases. Tu peux lui prendre une bataille. Wells l’a fait. La guerre, elle l’avait gagnée avant que tu t’assoies.',
-          'Prochain épisode : La zone. Les machines à sous, et une joueuse de Las Vegas qui ne joue pas pour gagner, mais pour que ça ne s’arrête pas.',
-          'D’ici là, quand tu entends rien ne va plus, regarde la case verte. La bille n’a pas de mémoire. Le zéro, lui, n’oublie aucun jeton. C’était Zéro Vert.'
+          'Tu entendras aussi, à la table : le zéro sort toujours quand je mise gros. Non. Le zéro sort une fois sur trente-sept, comme les autres. Mais il n’a même pas besoin de sortir pour travailler. Il est déjà dans le prix : trente-cinq contre un, au lieu des trente-six qu’il faudrait pour un jeu équitable.',
+          'Prochain épisode : La zone. Les machines à sous, et Mollie, une joueuse de Las Vegas qui ne joue pas pour gagner, mais pour que ça ne s’arrête pas.',
+          'Et si le jeu prend trop de place, chez toi ou chez quelqu’un que tu aimes, Joueurs Info Service répond au zéro neuf, soixante-quatorze, soixante-quinze, treize, treize, tous les jours, anonymement.',
+          'D’ici là, la prochaine fois que tu entends rien ne va plus, oublie le tableau des derniers numéros. Regarde la case verte. La bille n’a pas de mémoire. Le zéro, lui, n’oublie aucun jeton. C’était Zéro Vert.'
         ]
       }
     ],

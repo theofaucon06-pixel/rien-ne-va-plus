@@ -97,7 +97,7 @@ marge de la maison. Il vit à l'adresse `/podcast`, sur le même site, sans dép
 étape de build au chargement.
 
 Pour l'instant **un seul épisode est publié** : l'épisode 1, « La bille n'a pas de mémoire »
-(≈ 5 min). Les neuf autres sont écrits en brouillon dans les données (`status: 'soon'`) : ils
+(≈ 9 min 30). Les neuf autres sont écrits en brouillon dans les données (`status: 'soon'`) : ils
 apparaissent sur l'accueil comme teasers « bientôt », sans page ni entrée de flux.
 Pour en publier un, passe son `status` à `'published'` (et donne-lui des scènes, voir plus bas).
 
