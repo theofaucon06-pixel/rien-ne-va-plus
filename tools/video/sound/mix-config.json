@@ -1,0 +1,126 @@
+{
+  "_doc": "Réglages de mixage. direction.json reste la source des gain_db / ancres ; ce fichier ne contient que des corrections (décalages en dB) et les paramètres des chaînes. Tout est relatif à la voix normalisée à -16 LUFS.",
+  "voice": {
+    "target_lufs": -16,
+    "highpass_hz": 80,
+    "eq": [
+      {
+        "f": 250,
+        "q": 1.2,
+        "g": -2.5
+      },
+      {
+        "f": 3200,
+        "q": 1.0,
+        "g": 2.0
+      }
+    ],
+    "high_shelf": {
+      "f": 10000,
+      "g": 1.5
+    },
+    "compressor": {
+      "threshold_db": -26,
+      "ratio": 3,
+      "attack_ms": 10,
+      "release_ms": 120
+    },
+    "peak_ceiling_db": -3.0,
+    "trim_db": 0
+  },
+  "music": {
+    "target_lufs": -16,
+    "highpass_hz": 35,
+    "eq": [
+      {
+        "f": 2500,
+        "q": 0.8,
+        "g": -2.0
+      }
+    ],
+    "trim_db": -2,
+    "per_id_db": {},
+    "mute_down_s": 0.08,
+    "mute_up_s": 0.25,
+    "loop_xfade_s": 1.0
+  },
+  "sfx": {
+    "peak_norm_db": -1,
+    "trim_db": 0,
+    "layer_trim_db": {
+      "ambience": 8,
+      "foley": 0,
+      "design": 0
+    },
+    "per_id_db": {
+      "logo-sting": -8,
+      "riser-logo": -6,
+      "logo-sting-outro": -3,
+      "board-beeps": -9,
+      "stamp-rnvp": -5,
+      "sub-rnvp": -3,
+      "sub-spoiler": -4,
+      "sub-quota": -2,
+      "sub-non": -2,
+      "counter-up": -3,
+      "wheel-spin": -3,
+      "cell-door": -3
+    },
+    "tail_allow_s": 0.1,
+    "default_fade_in_s": 0.004,
+    "trunc_fade_out_s": 0.04,
+    "end_fade_out_s": 0.01,
+    "loop_xfade_s": 0.5,
+    "ambience": {
+      "highpass_hz": 120,
+      "lowpass_hz": 7000,
+      "target_lufs": -16
+    },
+    "sub": {
+      "pattern": "^sub-",
+      "lowpass_hz": 120
+    }
+  },
+  "ducking": {
+    "music": {
+      "threshold_db": -43,
+      "ratio": 20,
+      "attack_ms": 15,
+      "release_ms": 420,
+      "knee_db": 6
+    },
+    "ambience": {
+      "threshold_db": -42,
+      "ratio": 2,
+      "attack_ms": 15,
+      "release_ms": 420,
+      "knee_db": 6
+    },
+    "key": {
+      "threshold_db": -36,
+      "ratio": 6,
+      "attack_ms": 5,
+      "release_ms": 150
+    }
+  },
+  "reverb": {
+    "enabled": true,
+    "pattern": "^(stamp|stamps|end-stamp|ball|chip|chips|flip|flips|gavel|cell-door|handcuffs|trap-snap)",
+    "decay_s": 0.7,
+    "predelay_ms": 10,
+    "wet_db": -14,
+    "hpf_hz": 250
+  },
+  "master": {
+    "glue": {
+      "threshold_db": -10,
+      "ratio": 2,
+      "attack_ms": 30,
+      "release_ms": 250
+    },
+    "limiter_db": -3.0,
+    "lufs": -14,
+    "true_peak_db": -1.3,
+    "lra": 11
+  }
+}
