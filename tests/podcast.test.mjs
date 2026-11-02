@@ -5,12 +5,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SHOW, THEMES, EPISODES } from "../js/podcast-data.js";
 import { REVELATIONS, WITNESSES, SOURCES } from "../js/content.js";
-import { buildAll, renderFeed, renderEpisode, minutes, hasAudio } from "../tools/podcast-render.mjs";
+import { buildAll, renderFeed, renderEpisode, renderIndex, minutes, hasAudio, publishedEpisodes, upcomingEpisodes } from "../tools/podcast-render.mjs";
 import { createApp } from "../server.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pages = buildAll();
 const allText = (ep) => ep.sections.flatMap((s) => s.p).join(" ");
+const live = publishedEpisodes();
+const soon = upcomingEpisodes();
+const SCENES = ["wheel", "wells", "pockets", "average", "streak", "outro"];
+const pageOf = (ep) => pages.get(`podcast/${ep.slug}.html`);
 
 test("episodes are well formed, numbered in order and use known themes", () => {
   assert.ok(EPISODES.length >= 2);
@@ -26,7 +30,21 @@ test("episodes are well formed, numbered in order and use known themes", () => {
     assert.ok(ep.retenir.length >= 3, ep.slug + " needs takeaways");
     assert.ok(ep.themes.length >= 1 && ep.themes.every((t) => t in THEMES), ep.slug + " themes");
     assert.ok(minutes(ep) >= 1);
+    assert.ok(["published", "soon"].includes(ep.status), `${ep.slug}: status must be published or soon`);
   });
+  assert.ok(live.length >= 1, "at least one published episode");
+  assert.equal(live.length + soon.length, EPISODES.length);
+});
+
+test("published episodes carry a scene, a caption and a big figure per section", () => {
+  for (const ep of live) {
+    for (const [k, sec] of ep.sections.entries()) {
+      if (!sec.scene) continue;
+      assert.ok(SCENES.includes(sec.scene), `${ep.slug} section ${k + 1}: unknown scene ${sec.scene}`);
+      assert.ok(sec.cap?.length > 2, `${ep.slug} section ${k + 1}: missing cap`);
+      assert.ok(sec.big?.length >= 1, `${ep.slug} section ${k + 1}: missing big`);
+    }
+  }
 });
 
 test("every referenced mechanic and person exists in the game content and has sources", () => {
@@ -95,8 +113,76 @@ test("generated files are present and up to date (run `npm run podcast`)", () =>
     assert.ok(existsSync(abs), "missing " + rel);
     assert.equal(readFileSync(abs, "utf8"), content, "stale " + rel);
   }
-  assert.ok(existsSync(path.join(root, "assets/podcast/cover.svg")));
-  assert.ok(existsSync(path.join(root, "assets/podcast/cover.png")));
+});
+
+test("only published episodes have a page; soon episodes have none", () => {
+  assert.equal(pages.size, live.length + 2); // index + feed + one page per published episode
+  for (const ep of soon) {
+    assert.ok(!pages.has(`podcast/${ep.slug}.html`), `${ep.slug} must not have a page`);
+    assert.ok(!existsSync(path.join(root, `podcast/${ep.slug}.html`)), `stale page for ${ep.slug}`);
+  }
+  for (const ep of live) assert.ok(pages.has(`podcast/${ep.slug}.html`), ep.slug);
+});
+
+// These files are delivered by other workstreams (brand, fonts, motion); they are checked here so a release cannot miss them.
+test("brand, fonts and motion files referenced by the pages are shipped", () => {
+  for (const f of [
+    "assets/podcast/logo.svg", "assets/podcast/mark.svg", "assets/podcast/favicon.svg", "assets/podcast/cover.svg", "assets/podcast/cover.png",
+    "css/podcast-fonts.css", "css/podcast-motion.css", "js/podcast-motion.js"
+  ]) assert.ok(existsSync(path.join(root, f)), "missing " + f);
+});
+
+test("pages load the stylesheets and scripts in the agreed order, with the brand icon and logo", () => {
+  for (const [rel, html] of pages) {
+    if (!rel.endsWith(".html")) continue;
+    const css = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]);
+    const isEp = rel !== "podcast/index.html";
+    assert.deepEqual(css, isEp ? ["/css/podcast-fonts.css", "/css/podcast.css", "/css/podcast-motion.css"] : ["/css/podcast-fonts.css", "/css/podcast.css"], rel);
+    assert.match(html, /<link rel="icon" href="\/assets\/podcast\/favicon\.svg"/);
+    assert.match(html, /<img src="\/assets\/podcast\/logo\.svg"/);
+    const js = [...html.matchAll(/<script src="([^"]+)" defer>/g)].map((m) => m[1]);
+    assert.deepEqual(js, isEp ? ["/js/podcast-motion.js", "/js/podcast.js"] : ["/js/podcast.js"], rel);
+    assert.ok(!/La Maison Gagne/.test(html), rel + " still uses the old name");
+  }
+});
+
+test("episode pages expose the scenes: data-* on each section and one stage block", () => {
+  for (const ep of live) {
+    const html = pageOf(ep);
+    const secs = [...html.matchAll(/<section class="script-sec"[^>]*>/g)].map((m) => m[0]);
+    assert.equal(secs.length, ep.sections.length);
+    const hasScene = ep.sections.some((x) => x.scene);
+    if (hasScene) {
+      assert.equal((html.match(/<div class="stage" data-stage aria-hidden="true"><div class="stage-view"><\/div><div class="stage-hud"><\/div><\/div>/g) || []).length, 1, ep.slug + " stage");
+      secs.forEach((tag, k) => {
+        const sec = ep.sections[k];
+        assert.ok(tag.includes(`data-scene="${sec.scene}"`), `${ep.slug} s${k + 1} data-scene`);
+        assert.ok(tag.includes("data-cap="), `${ep.slug} s${k + 1} data-cap`);
+        assert.ok(tag.includes("data-big="), `${ep.slug} s${k + 1} data-big`);
+      });
+    } else assert.ok(!html.includes("data-stage"));
+    assert.match(html, /<details class="sources" id="sources">/);
+    assert.match(html, /id="retenir"/);
+    assert.match(html, /href="\/"[^>]*>Entrer dans le casino/); // link to the game
+  }
+});
+
+test("the home page teases the soon episodes without linking them, and counts honestly", () => {
+  const html = pages.get("podcast/index.html");
+  assert.equal((html.match(/class="soon-card"/g) || []).length, soon.length);
+  for (const ep of soon) {
+    assert.ok(html.includes(ep.title.replace(/’/g, "’")) || html.includes(ep.title), `${ep.slug} teaser title`);
+    assert.ok(!html.includes(`/podcast/${ep.slug}`), `${ep.slug} must not be linked`);
+  }
+  for (const ep of live) assert.ok(html.includes(`href="/podcast/${ep.slug}"`), ep.slug + " is linked");
+  assert.ok(html.includes(`${soon.length} épisode${soon.length > 1 ? "s" : ""} en préparation`));
+  const liveMin = live.reduce((n, e) => n + minutes(e), 0);
+  assert.ok(html.includes(`${live.length} épisode${live.length > 1 ? "s" : ""} · ≈ ${liveMin} min`));
+  assert.match(html, /class="marquee"/);
+  assert.match(html, /href="\/">Jouer à Rien ne va plus/);
+  // voices: only those of published episodes
+  const liveWitnesses = new Set(live.flatMap((e) => e.witnesses));
+  for (const w of WITNESSES) if (!liveWitnesses.has(w.id)) assert.ok(!html.includes(`<b>${w.name}</b>`), `${w.id} should not be listed`);
 });
 
 test("every page has one h1, valid JSON-LD, and only working internal links", () => {
@@ -119,7 +205,9 @@ test("every page has one h1, valid JSON-LD, and only working internal links", ()
       assert.ok(link.startsWith("/"), `${rel}: relative link ${link}`);
       const [p, hash] = link.split("#");
       const file = p === "/" ? "index.html" : p === "/podcast" ? "podcast/index.html" : /^\/podcast\/[\w-]+$/.test(p) ? p.slice(1) + ".html" : p.slice(1);
-      assert.ok(existsSync(path.join(root, file)), `${rel}: dead link ${link}`);
+      if (file.startsWith("podcast/") && file.endsWith(".html")) assert.ok(pages.has(file), `${rel}: link to a page that is not published: ${link}`);
+      if (!file.startsWith("assets/podcast/") && !file.startsWith("css/podcast-") && !file.startsWith("js/podcast-motion"))
+        assert.ok(existsSync(path.join(root, file)), `${rel}: dead link ${link}`); // brand, fonts and motion files are checked in their own test
       if (hash && file.startsWith("podcast/")) {
         const target = pages.get(file);
         assert.ok(target.includes(` id="${hash}"`), `${rel}: dead anchor ${link}`);
@@ -128,7 +216,7 @@ test("every page has one h1, valid JSON-LD, and only working internal links", ()
   }
 });
 
-test("RSS feed is well formed and lists exactly the episodes that have audio", () => {
+test("RSS feed is well formed and lists exactly the published episodes that have audio", () => {
   const xml = renderFeed();
   assert.match(xml, /^<\?xml version="1.0" encoding="UTF-8"\?>/);
   const stack = [];
@@ -139,9 +227,11 @@ test("RSS feed is well formed and lists exactly the episodes that have audio", (
     else stack.push(name);
   }
   assert.deepEqual(stack, []);
-  assert.equal((xml.match(/<item>/g) || []).length, EPISODES.filter(hasAudio).length);
-  assert.equal((xml.match(/<enclosure /g) || []).length, EPISODES.filter(hasAudio).length);
-  for (const ep of EPISODES.filter(hasAudio)) {
+  const feedEps = live.filter(hasAudio);
+  assert.equal((xml.match(/<item>/g) || []).length, feedEps.length);
+  assert.equal((xml.match(/<enclosure /g) || []).length, feedEps.length);
+  assert.ok(!/La Maison Gagne/.test(xml));
+  for (const ep of feedEps) {
     assert.ok(existsSync(path.join(root, ep.audio.file)), "audio file missing: " + ep.audio.file);
     assert.ok(ep.audio.bytes > 0 && ep.audio.seconds > 0);
   }
@@ -154,7 +244,7 @@ test("the server serves the podcast, its feed and episodes, and nothing outside 
   t.after(() => app.close());
   const base = `http://127.0.0.1:${app.server.address().port}`;
   const get = (p) => fetch(base + p);
-  for (const p of ["/podcast", "/podcast/", ...EPISODES.map((e) => "/podcast/" + e.slug)]) {
+  for (const p of ["/podcast", "/podcast/", ...live.map((e) => "/podcast/" + e.slug)]) {
     const res = await get(p);
     assert.equal(res.status, 200, p);
     assert.match(res.headers.get("content-type"), /text\/html/);
@@ -163,14 +253,14 @@ test("the server serves the podcast, its feed and episodes, and nothing outside 
   const feed = await get("/podcast/feed.xml");
   assert.equal(feed.status, 200);
   assert.match(feed.headers.get("content-type"), /xml/);
-  for (const p of ["/css/podcast.css", "/js/podcast.js", "/assets/podcast/cover.svg", "/assets/podcast/cover.png"])
-    assert.equal((await get(p)).status, 200, p);
+  for (const p of ["/css/podcast.css", "/js/podcast.js"]) assert.equal((await get(p)).status, 200, p);
+  for (const ep of soon) assert.equal((await get("/podcast/" + ep.slug)).status, 404, ep.slug + " has no page");
   for (const p of ["/podcast/inconnu", "/podcast/..%2Fserver.mjs", "/podcast/%2e%2e/package.json", "/podcast/index.html/x", "/js/podcast-data.js.map"])
     assert.equal((await get(p)).status, 404, p);
 });
 
 test("publishing a recording switches the page to a real player and adds the episode to the feed", () => {
-  const ep = EPISODES[1];
+  const ep = live[0];
   const before = ep.audio;
   try {
     ep.audio = { file: "assets/podcast/essai.mp3", bytes: 3456789, seconds: 215 };
@@ -182,9 +272,22 @@ test("publishing a recording switches the page to a real player and adds the epi
     assert.equal((xml.match(/<item>/g) || []).length, 1);
     assert.match(xml, /<enclosure url="https:\/\/rien-ne-va-plus\.vercel\.app\/assets\/podcast\/essai\.mp3" length="3456789" type="audio\/mpeg"\/>/);
     assert.match(xml, /<itunes:duration>215<\/itunes:duration>/);
-    assert.match(xml, /<podcast:transcript url="https:\/\/rien-ne-va-plus\.vercel\.app\/podcast\/la-bille-n-a-pas-de-memoire"/);
+    assert.ok(xml.includes(`<podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/${ep.slug}"`));
   } finally {
     ep.audio = before;
   }
   assert.ok(renderEpisode(ep).includes('data-player="speech"'));
+});
+
+test("an episode that is still `soon` never reaches the feed, even with audio", () => {
+  const ep = soon[0];
+  const before = ep.audio;
+  try {
+    ep.audio = { file: "assets/podcast/essai.mp3", bytes: 1, seconds: 1 };
+    assert.equal((renderFeed().match(/<item>/g) || []).length, 0);
+    assert.ok(!buildAll().has(`podcast/${ep.slug}.html`));
+    assert.ok(!renderIndex().includes(`/podcast/${ep.slug}`));
+  } finally {
+    ep.audio = before;
+  }
 });

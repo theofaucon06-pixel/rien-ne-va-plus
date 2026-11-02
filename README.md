@@ -89,45 +89,62 @@ sert uniquement le jeu solo.
 - Sauvegarde uniquement après le démarrage, à la sortie et toutes les 15 secondes.
   La reprise en 3D restaure aussi la position et la direction de la caméra.
 
-## Le podcast — La Maison Gagne
+## Le podcast — Zéro Vert
 
-Un podcast de prévention par le récit, dans l'univers du jeu : dix épisodes (une
-bande-annonce et neuf épisodes) qui prennent chacun un mécanisme réel et une
-personne réelle, avec leurs sources. Il vit à l'adresse `/podcast`, sur le même
-site, sans dépendance ni étape de build au chargement.
+Un podcast de prévention par le récit, dans l'univers du jeu. Le nom vient de la case
+verte de la roulette : c'est elle qui fait payer 35 contre 1 sur 37 cases, donc toute la
+marge de la maison. Il vit à l'adresse `/podcast`, sur le même site, sans dépendance ni
+étape de build au chargement.
 
-- `podcast/` : pages **générées** (accueil, un fichier par épisode, `feed.xml`). Ne pas les éditer à la main.
-- `js/podcast-data.js` : **la seule source** : fiche du podcast, textes, thèmes, ids des mécanismes et des témoins.
-  Les références viennent de `js/content.js` (`SOURCES`) : un épisode ne liste que les ids qu'il utilise.
+Pour l'instant **un seul épisode est publié** : l'épisode 1, « La bille n'a pas de mémoire »
+(≈ 5 min). Les neuf autres sont écrits en brouillon dans les données (`status: 'soon'`) : ils
+apparaissent sur l'accueil comme teasers « bientôt », sans page ni entrée de flux.
+Pour en publier un, passe son `status` à `'published'` (et donne-lui des scènes, voir plus bas).
+
+- `js/podcast-data.js` : **la seule source** : fiche du podcast, textes, thèmes, statuts, ids des
+  mécanismes et des témoins. Les références viennent de `js/content.js` (`SOURCES`).
+- `podcast/` : pages **générées** (accueil, une page par épisode publié, `feed.xml`). Ne pas les éditer à la main.
 - `tools/podcast-render.mjs` et `tools/build-podcast.mjs` : le générateur.
-- `css/podcast.css`, `js/podcast.js` : le style et le lecteur.
-- `assets/podcast/cover.svg` (dessinée par `tools/podcast-cover.mjs`) et `cover.png`.
+- `css/podcast.css`, `css/podcast-fonts.css`, `js/podcast.js` : style, polices, lecteur.
+- `css/podcast-motion.css`, `js/podcast-motion.js` : le **motion design** (voir plus bas).
+- `tools/podcast-brand.mjs` : dessine le logo, l'icône, le favicon et la pochette dans `assets/podcast/`.
+- `assets/fonts/` : Bricolage Grotesque et JetBrains Mono (licence SIL OFL, voir `assets/fonts/LICENSES.md`).
 
-Après toute modification de `js/podcast-data.js` :
+Après toute modification de `js/podcast-data.js` ou du générateur :
 
 ```
-npm run podcast      # régénère podcast/, feed.xml et la pochette SVG
-npm test             # vérifie que les pages sont à jour, les liens, le flux RSS, les calculs cités
+npm run podcast      # régénère podcast/, feed.xml, le logo et la pochette SVG
+npm test             # pages à jour, liens, flux RSS, calculs cités, serveur
 ```
 
-**Écoute.** Tant qu'un épisode n'a pas d'enregistrement, sa page propose le texte
-complet et une *lecture vocale* par la voix du navigateur (Web Speech API), paragraphe
-par paragraphe, avec reprise là où tu t'étais arrêté. C'est un substitut, pas un enregistrement.
+`cover.png` (1400 × 1400, pour les annuaires) s'exporte depuis `cover.svg` ; la commande est
+en tête de `tools/podcast-brand.mjs`.
 
-**Publier un enregistrement.** Dépose le fichier mp3 dans `assets/podcast/` (par exemple `01-la-bille.mp3`)
-puis renseigne l'épisode dans `js/podcast-data.js` :
+**Motion design.** Chaque section d'un épisode porte une `scene` (`wheel`, `wells`, `pockets`,
+`average`, `streak`, `outro`), une légende courte `cap` et un gros mot `big`. La page affiche la
+scène animée correspondante : à gauche et collée sur grand écran, en haut sur mobile. Elle suit la
+lecture vocale paragraphe par paragraphe, et le défilement quand rien n'est lu. Les scènes sont du
+JavaScript pur (SVG et canvas), jouent une fois puis restent sur leur image finale, se mettent en
+pause hors écran et deviennent statiques avec « réduire les animations ». `window.ZVStage.show(id)`
+permet de les appeler à la main.
+
+**Écoute.** Tant qu'un épisode n'a pas d'enregistrement, sa page propose le texte complet et une
+*lecture vocale* par la voix du navigateur (Web Speech API), avec reprise là où tu t'étais arrêté.
+C'est un substitut, pas un enregistrement.
+
+**Publier un enregistrement.** Dépose le mp3 dans `assets/podcast/` puis renseigne l'épisode :
 
 ```js
 audio: { file: 'assets/podcast/01-la-bille.mp3', bytes: 3456789, seconds: 215 },
 ```
 
-Relance `npm run podcast`. La page affiche alors un vrai lecteur audio (vitesse, ±, position retenue)
-et le flux `feed.xml` ajoute l'épisode avec son fichier et un lien vers la transcription.
-Il n'existe pas d'épisode dans le flux sans audio : les plateformes n'acceptent que des fichiers.
+Relance `npm run podcast` : la page affiche un vrai lecteur audio (vitesse, ±, position retenue) et
+`feed.xml` ajoute l'épisode avec son fichier et un lien vers la transcription. Un épisode sans audio
+n'entre pas dans le flux : les plateformes n'acceptent que des fichiers.
 
-**S'inscrire dans les annuaires.** Une fois le premier mp3 publié, soumets `https://rien-ne-va-plus.vercel.app/podcast/feed.xml`
-à Apple Podcasts Connect, Spotify for Creators, etc. Certains demandent une adresse e-mail de contact
-du propriétaire : elle n'est volontairement pas écrite dans le flux, elle se saisit dans leur formulaire.
+**S'inscrire dans les annuaires.** Une fois le premier mp3 publié, soumets
+`https://rien-ne-va-plus.vercel.app/podcast/feed.xml` à Apple Podcasts Connect, Spotify for Creators, etc.
+Certains demandent l'e-mail du propriétaire : il n'est volontairement pas écrit dans le flux.
 Ajoute ensuite leurs liens dans la section « S'abonner » (`tools/podcast-render.mjs`).
 
 Les personnages sont toujours annoncés comme *réels*, *composites* ou *fictifs*, d'après `SOURCES` ;

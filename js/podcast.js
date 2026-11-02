@@ -51,6 +51,39 @@
     for (const id of byId.keys()) { const el = document.getElementById(id); if (el) io.observe(el); }
   }
 
+  /* ---------------------------------------------------------- scene sync (motion design)
+     `pod:section` tells js/podcast-motion.js which illustration to show. It is emitted when the section being read aloud
+     changes (source 'speech') and, when nothing is being read, when a section becomes dominant while scrolling ('scroll').
+     The last scene reached while reading stays on screen after the end of the episode. */
+  const secs = $$('.script-sec');
+  let reading = false, curSec = -1, quietUntil = 0, speechSec = null;
+  function emitSection(sec, source) {
+    const index = secs.indexOf(sec);
+    if (index < 0 || !sec.dataset.scene) return;
+    curSec = index;
+    document.dispatchEvent(new CustomEvent('pod:section', {
+      detail: { index, scene: sec.dataset.scene, cap: sec.dataset.cap || '', big: sec.dataset.big || '', source }
+    }));
+  }
+  if (secs.some((sec) => sec.dataset.scene) && 'IntersectionObserver' in window) {
+    const pick = () => { // the section crossing 45 % of the viewport height, else the nearest one
+      const line = innerHeight * 0.45;
+      let best = null, bd = Infinity;
+      for (const sec of secs) {
+        const r = sec.getBoundingClientRect();
+        const d = r.top <= line && r.bottom >= line ? 0 : Math.min(Math.abs(r.top - line), Math.abs(r.bottom - line));
+        if (d < bd) { bd = d; best = sec; }
+      }
+      return best;
+    };
+    const io = new IntersectionObserver(() => {
+      if (reading || performance.now() < quietUntil) return;
+      const sec = pick();
+      if (sec && secs.indexOf(sec) !== curSec) emitSection(sec, 'scroll');
+    }, { rootMargin: '-35% 0px -45% 0px', threshold: [0, 1] });
+    for (const sec of secs) io.observe(sec);
+  }
+
   /* ---------------------------------------------------------- recorded audio */
   const audioBox = $('[data-player="audio"]');
   if (audioBox) {
@@ -129,6 +162,8 @@
     if (unitIdx === 0) {
       store.set(key, String(idx));
       mark();
+      const sec = blocks[idx].closest('.script-sec');
+      if (sec && sec !== speechSec) { speechSec = sec; emitSection(sec, 'speech'); }
       setStatus('Lecture · ' + label());
       const r = blocks[idx].getBoundingClientRect();
       if (r.top < 160 || r.bottom > innerHeight - 40) blocks[idx].scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
@@ -147,17 +182,17 @@
     synth.cancel();
     synth.resume(); // a cancel issued while paused can leave some engines paused
     token++;
-    playing = true; paused = false;
+    playing = true; paused = false; reading = true; speechSec = null;
     if (typeof from === 'number') idx = Math.min(Math.max(from, 0), blocks.length - 1);
     setPlayUi(true); mark();
     speakUnit(idx, 0, token);
   }
-  function pause() { synth.pause(); paused = true; playing = false; setPlayUi(false); mark(); setStatus('En pause · ' + label()); }
-  function resume() { synth.resume(); paused = false; playing = true; setPlayUi(true); mark(); setStatus('Lecture · ' + label()); }
+  function pause() { synth.pause(); paused = true; playing = false; reading = false; setPlayUi(false); mark(); setStatus('En pause · ' + label()); }
+  function resume() { synth.resume(); paused = false; playing = true; reading = true; setPlayUi(true); mark(); setStatus('Lecture · ' + label()); }
   function stop(finished) {
     token++; synth.cancel();
-    playing = false; paused = false;
-    if (finished) { idx = 0; store.set(key, '0'); }
+    playing = false; paused = false; reading = false;
+    if (finished) { idx = 0; store.set(key, '0'); quietUntil = performance.now() + 1500; } // the last scene stays on screen
     setPlayUi(false); mark();
     if (!finished) setStatus(IDLE);
   }

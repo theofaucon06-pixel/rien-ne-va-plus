@@ -1,5 +1,6 @@
 // Pure rendering of the podcast: data in, strings out. No file is written here (see build-podcast.mjs).
 // Pages use root-absolute URLs so they work under /podcast, /podcast/ and /podcast/<slug> alike.
+// Only episodes with `status: 'published'` get a page, a link and a feed entry; `soon` ones are teasers on the home page.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,13 +22,18 @@ const rfc822 = (iso) => new Date(iso + 'T08:00:00Z').toUTCString();
 export const url = (p = '') => SHOW.baseUrl + p;
 export const episodePath = (ep) => `/podcast/${ep.slug}`;
 export const episodeLabel = (ep) => (ep.number === 0 ? 'Bande-annonce' : `Épisode ${ep.number}`);
+const numLabel = (ep) => String(ep.number).padStart(2, '0');
+
+export const isPublished = (ep) => ep.status === 'published';
+export const isSoon = (ep) => ep.status === 'soon';
+export const publishedEpisodes = () => EPISODES.filter(isPublished);
+export const upcomingEpisodes = () => EPISODES.filter(isSoon);
 
 export const wordCount = (ep) => ep.sections.flatMap((s) => s.p).join(' ').split(/\s+/).filter(Boolean).length;
 // Spoken French runs at roughly 150 words a minute.
 export const minutes = (ep) => Math.max(1, Math.round(wordCount(ep) / 150));
 export const hasAudio = (ep) => !!ep.audio;
-const coverFile = (ext) => existsSync(path.join(root, 'assets', 'podcast', `cover.${ext}`));
-const coverPng = () => coverFile('png');
+const coverPng = () => existsSync(path.join(root, 'assets', 'podcast', 'cover.png'));
 
 const mechanicOf = (id) => REVELATIONS.find((r) => r.id === id);
 const witnessOf = (id) => WITNESSES.find((w) => w.id === id);
@@ -36,7 +42,7 @@ export const kindOfStatus = (s) => (/composite/.test(s) ? 'composite' : /fictif/
 const kindLabel = { réel: 'Personne réelle', composite: 'Personnage composite', fictif: 'Personnage fictif' };
 
 // ---------------------------------------------------------------- shared page frame
-function head({ title, description, path: p, type = 'website', ld, full: fullTitle }) {
+function head({ title, description, path: p, type = 'website', ld, full: fullTitle, motion = false }) {
   const full = fullTitle || `${title} — ${SHOW.name}`;
   const image = coverPng() ? url('/assets/podcast/cover.png') : url('/assets/icons/icon-512.png');
   return `<!DOCTYPE html>
@@ -55,94 +61,131 @@ function head({ title, description, path: p, type = 'website', ld, full: fullTit
 <meta property="og:image" content="${image}">
 <meta property="og:locale" content="fr_FR">
 <meta name="twitter:card" content="summary">
-<meta name="theme-color" content="#0E2A20">
+<meta name="theme-color" content="#C8FF2E">
 <link rel="alternate" type="application/rss+xml" title="${esc(SHOW.name)}" href="/podcast/feed.xml">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
-<link rel="icon" href="/assets/icons/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/css/podcast.css">
+<link rel="icon" href="/assets/podcast/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/podcast-fonts.css">
+<link rel="stylesheet" href="/css/podcast.css">${motion ? '\n<link rel="stylesheet" href="/css/podcast-motion.css">' : ''}
 <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>
 </head>`;
 }
 
 const header = (current) => `<header class="pod-header">
-  <a class="pod-mark" href="/podcast" aria-label="${esc(SHOW.name)}, accueil du podcast"><span class="pod-sym" aria-hidden="true">♦</span><span>${esc(SHOW.name.toUpperCase())}<small>LE PODCAST DE RIEN NE VA PLUS</small></span></a>
+  <a class="pod-mark" href="/podcast"><img src="/assets/podcast/logo.svg" alt="${esc(SHOW.name)}, accueil du podcast" height="44"></a>
   <nav class="pod-nav" aria-label="Navigation du podcast">
     <a href="/podcast#episodes"${current === 'episodes' ? ' aria-current="page"' : ''}>Épisodes</a>
-    <a href="/podcast#voix">Les voix</a>
+    <a href="/podcast#zero">C’est quoi ?</a>
     <a href="/podcast#suivre">S’abonner</a>
-    <a class="pod-game" href="/">Le jeu <span aria-hidden="true">↗</span></a>
+    <a class="pod-game" href="/">Jouer <span aria-hidden="true">↗</span></a>
   </nav>
 </header>`;
 
 const helpBlock = () => `<aside class="pod-help" aria-labelledby="help-title">
-  <div><span class="label">BESOIN D’EN PARLER ?</span>
-  <h2 id="help-title">${esc(SHOW.help.name)}</h2>
-  <p>Écoute sans jugement, ${esc(SHOW.help.hours)}.</p></div>
-  <a class="pod-btn" href="tel:${SHOW.help.phone.replace(/\s/g, '')}">${esc(SHOW.help.phone)}</a>
-  <a class="pod-link" href="${SHOW.help.url}" target="_blank" rel="noopener noreferrer">joueurs-info-service.fr ↗</a>
+  <div class="help-card">
+    <span class="sticker st-red tilt-l">Besoin d’en parler ?</span>
+    <div class="help-copy">
+      <h2 id="help-title">${esc(SHOW.help.name)}</h2>
+      <p>Écoute sans jugement, ${esc(SHOW.help.hours)}.</p>
+    </div>
+    <div class="help-actions">
+      <a class="btn btn-ink" href="tel:${SHOW.help.phone.replace(/\s/g, '')}">${esc(SHOW.help.phone)}</a>
+      <a class="pod-link" href="${SHOW.help.url}" target="_blank" rel="noopener noreferrer">joueurs-info-service.fr ↗</a>
+    </div>
+  </div>
 </aside>`;
 
 const footer = () => `<footer class="pod-footer">
-  <span>${esc(SHOW.name)} · Saison ${SHOW.season}, ${esc(SHOW.seasonTitle)}</span>
-  <span>Un podcast de prévention. Aucun conseil pour gagner : il n’en existe pas.</span>
+  <strong>${esc(SHOW.name)}</strong>
+  <span>Saison ${SHOW.season}, ${esc(SHOW.seasonTitle)}</span>
+  <span class="foot-note">Un podcast de prévention. Aucun conseil pour gagner : il n’en existe pas.</span>
   <a href="/podcast/feed.xml">Flux RSS</a>
+  <a href="/">Jouer à Rien ne va plus</a>
 </footer>`;
 
-const frame = (inner, current) => `<body class="pod">
+const frame = (inner, current, { motion = false } = {}) => `<body class="pod${motion ? ' pod-ep' : ' pod-home'}">
 <a class="pod-skip" href="#main">Aller au contenu</a>
 ${header(current)}
 <main id="main">
 ${inner}
 </main>
 ${footer()}
-<script src="/js/podcast.js" defer></script>
+${motion ? '<script src="/js/podcast-motion.js" defer></script>\n' : ''}<script src="/js/podcast.js" defer></script>
 </body>
 </html>
 `;
 
-const themeChips = (ep) => ep.themes.map((t) => `<span class="chip">${esc(THEMES[t])}</span>`).join('');
+const chips = (ep) => ep.themes.map((t) => `<li>${esc(THEMES[t] || t)}</li>`).join('');
+
+const voiceSticker = (id, i) => {
+  const w = witnessOf(id);
+  const k = kindOfStatus(statusOf(id));
+  return `<li class="voice v${i % 3}"><b>${esc(w.name)}</b><span>${esc(w.sub)}</span><em class="kind k-${k}">${kindLabel[k]}</em></li>`;
+};
+const tilts = ['tilt-l', 'tilt-r', 'tilt-l2', 'tilt-r2'];
 
 // ---------------------------------------------------------------- index
 export function renderIndex() {
-  const [trailer, first] = EPISODES;
-  const used = [...new Set(EPISODES.flatMap((e) => e.witnesses))];
-  const totalMin = EPISODES.reduce((n, e) => n + minutes(e), 0);
+  const live = publishedEpisodes();
+  const soon = upcomingEpisodes();
+  const [first, ...otherLive] = live;
+  const liveMin = live.reduce((n, e) => n + minutes(e), 0);
+  const voiceIds = [...new Set(live.flatMap((e) => e.witnesses))];
+  const anyAudio = live.some(hasAudio);
+  const nameWords = SHOW.name.split(/\s+/);
 
-  const rows = EPISODES.map((ep) => `    <li class="ep-row" data-themes="${ep.themes.join(' ')}">
-      <a class="ep-link" href="${episodePath(ep)}">
-        <span class="ep-num" aria-hidden="true">${ep.number === 0 ? '—' : String(ep.number).padStart(2, '0')}</span>
-        <span class="ep-body">
-          <span class="ep-kicker">${esc(episodeLabel(ep))} · ${hasAudio(ep) ? 'audio' : 'texte'} · ≈ ${minutes(ep)} min</span>
-          <span class="ep-title">${esc(ep.title)}</span>
-          <span class="ep-hook">${esc(ep.hook)}</span>
-          <span class="ep-chips">${themeChips(ep)}</span>
-        </span>
-        <span class="ep-go" aria-hidden="true">→</span>
-      </a>
-    </li>`).join('\n');
+  const marqueeItems = [
+    esc(SHOW.name.toUpperCase()),
+    'LA MAISON GAGNE TOUJOURS',
+    '37 CASES',
+    '35 CONTRE 1',
+    '97,3 CENTIMES PAR EURO MISÉ',
+    'ZÉRO SERMON',
+    'ZÉRO SYSTÈME POUR GAGNER'
+  ];
+  const marqueeSet = marqueeItems.map((t) => `<span>${t}</span>`).join('<i>●</i>') + '<i>●</i>';
 
-  const filters = Object.entries(THEMES)
-    .filter(([k]) => EPISODES.some((e) => e.themes.includes(k)))
-    .map(([k, v]) => `<button type="button" class="filter" data-filter="${k}" aria-pressed="false">${esc(v)}</button>`)
-    .join('\n      ');
+  const playLabel = (ep) => (hasAudio(ep) ? 'Écouter' : 'Lancer');
+  const meta = (ep) => `${episodeLabel(ep)} · ≈ ${minutes(ep)} min · ${hasAudio(ep) ? 'audio' : 'lecture vocale, enregistrement bientôt'}`;
 
-  const voices = used
-    .map((id) => {
-      const w = witnessOf(id);
-      const st = statusOf(id);
-      const k = kindOfStatus(st);
-      const ep = EPISODES.find((e) => e.witnesses.includes(id));
-      return `    <li class="voice" style="--c:${w.color}">
-      <a href="${episodePath(ep)}#personnes">
-        <span class="voice-dot" aria-hidden="true">${esc(w.name.replace(/^(Un|Une|L’|L')\s?/i, '').charAt(0).toUpperCase())}</span>
-        <span class="voice-name">${esc(w.name)}</span>
-        <span class="voice-sub">${esc(w.sub)}</span>
-        <span class="voice-kind k-${k}">${kindLabel[k]}</span>
-      </a>
-    </li>`;
-    })
+  const feature = first
+    ? `<article class="feature">
+    <span class="sticker st-red tilt-r feature-tag">À la une</span>
+    <span class="feature-num" aria-hidden="true">${numLabel(first)}</span>
+    <div class="feature-body">
+      <p class="mono">${esc(meta(first))}</p>
+      <h3><a class="stretch" href="${episodePath(first)}">${esc(first.title)}</a></h3>
+      <p class="feature-hook">${esc(first.hook)}</p>
+      <ul class="chips" aria-label="Thèmes">${chips(first)}</ul>
+      <span class="btn btn-lime" aria-hidden="true"><span class="ico">▶</span> ${playLabel(first)} l’épisode ${first.number}</span>
+    </div>
+  </article>`
+    : '';
+
+  const liveCards = otherLive
+    .map(
+      (ep, i) => `    <li class="live-card ${tilts[i % 4]}">
+      <span class="mono">${esc(episodeLabel(ep))} · ≈ ${minutes(ep)} min</span>
+      <h3><a class="stretch" href="${episodePath(ep)}">${esc(ep.title)}</a></h3>
+      <p>${esc(ep.hook)}</p>
+    </li>`
+    )
     .join('\n');
+
+  const teasers = soon
+    .map(
+      (ep) => `    <li class="soon-card">
+      <span class="soon-num" aria-hidden="true">${numLabel(ep)}</span>
+      <span class="sticker st-red ${ep.number % 2 ? 'tilt-r' : 'tilt-l'}">Bientôt</span>
+      <p class="mono">${esc(episodeLabel(ep))}</p>
+      <h3>${esc(ep.title)}</h3>
+      <p class="soon-hook">${esc(ep.hook)}</p>
+    </li>`
+    )
+    .join('\n');
+
+  const voices = voiceIds.map(voiceSticker).join('\n      ');
 
   const ld = {
     '@context': 'https://schema.org',
@@ -152,88 +195,114 @@ export function renderIndex() {
     url: url('/podcast'),
     inLanguage: SHOW.language,
     webFeed: url('/podcast/feed.xml'),
-    author: { '@type': 'Person', name: SHOW.host }
+    author: { '@type': 'Person', name: SHOW.host },
+    ...(live.length
+      ? { episode: live.map((ep) => ({ '@type': 'PodcastEpisode', name: ep.title, url: url(episodePath(ep)), episodeNumber: ep.number })) }
+      : {})
   };
 
-  const inner = `<section class="pod-hero">
-  <div class="pod-hero-copy">
-    <div class="eyebrow"><span class="live-dot" aria-hidden="true"></span> PODCAST · SAISON ${SHOW.season} · ${esc(SHOW.seasonTitle.toUpperCase())}</div>
-    <h1>La maison<br><em>gagne.</em></h1>
-    <p class="lead">${esc(SHOW.tagline)} ${EPISODES.length - 1} épisodes courts, un mécanisme à chaque fois, une vraie histoire derrière, et toutes les sources.</p>
-    <div class="actions">
-      <a class="pod-btn primary" href="${episodePath(first)}">Commencer par l’épisode 1 <span aria-hidden="true">→</span></a>
-      <a class="pod-btn" href="${episodePath(trailer)}">Bande-annonce</a>
+  const inner = `<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-grid">
+    <div class="hero-copy">
+      <p class="tag"><span class="tag-dot" aria-hidden="true"></span>Podcast · Saison ${SHOW.season} · ${esc(SHOW.seasonTitle)}</p>
+      <h1 id="hero-title">${nameWords.map((w, i) => `<span class="w${i}">${esc(w)}</span>`).join(' ')}</h1>
+      <p class="promise">${esc(SHOW.tagline)}</p>
+      <p class="sub">Des mécanismes réels, des histoires vraies, des sources. Zéro sermon.</p>
+      <div class="hero-actions">
+${first ? `        <a class="btn btn-ink btn-xl" href="${episodePath(first)}"><span class="ico" aria-hidden="true">▶</span> ${playLabel(first)} l’épisode ${first.number}</a>
+        <p class="mono hero-meta">≈ ${minutes(first)} min · ${hasAudio(first) ? 'audio' : 'lecture vocale, enregistrement bientôt'}</p>` : `        <a class="btn btn-ink btn-xl" href="#suivre">Suivre le podcast</a>`}
+      </div>
     </div>
-    <ul class="proofs" aria-label="Nos principes">
-      <li><b>Sourcé</b> chaque chiffre renvoie à une référence</li>
-      <li><b>Sans sermon</b> on explique, on ne juge pas</li>
-      <li><b>Honnête</b> réel, composite ou fictif : toujours dit</li>
+    <div class="hero-art" aria-hidden="true">
+      <div class="zero-disc"><span class="zero">0</span><span class="zero-cap">la case verte</span></div>
+      <span class="sticker st-white tilt-l big-sticker">1 case sur 37</span>
+      <span class="sticker st-red tilt-r big-sticker s2">35 contre 1</span>
+    </div>
+  </div>
+${first ? `  <p class="sticker st-ink tilt-r hero-badge">Épisode ${first.number} dispo</p>` : ''}
+</section>
+
+<div class="marquee" aria-hidden="true"><div class="marquee-track"><div class="marquee-set">${marqueeSet}</div><div class="marquee-set">${marqueeSet}</div><div class="marquee-set">${marqueeSet}</div><div class="marquee-set">${marqueeSet}</div></div></div>
+
+<section class="block block-paper" id="episodes" aria-labelledby="episodes-title">
+  <div class="wrap">
+    <div class="block-head">
+      <h2 id="episodes-title">Dispo <span class="hl">maintenant</span></h2>
+      <p class="mono">${live.length} épisode${live.length > 1 ? 's' : ''} · ≈ ${liveMin} min</p>
+    </div>
+${feature}
+${liveCards ? `    <ul class="live-grid">\n${liveCards}\n    </ul>` : ''}
+    <p class="note-audio">${anyAudio ? 'Chaque page propose aussi le texte complet.' : 'Chaque page propose le texte complet et une lecture vocale par ton navigateur. La version enregistrée arrive bientôt.'}</p>
+  </div>
+</section>
+
+${soon.length ? `<section class="block block-ink" id="bientot" aria-labelledby="soon-title">
+  <div class="wrap">
+    <div class="block-head">
+      <h2 id="soon-title">Ça arrive<span class="hl">.</span></h2>
+      <p class="mono">${soon.length} épisode${soon.length > 1 ? 's' : ''} en préparation</p>
+    </div>
+    <ul class="soon-grid">
+${teasers}
     </ul>
   </div>
-  <div class="pod-hero-art">
-    <img src="/assets/podcast/cover.svg" width="560" height="560" alt="Pochette du podcast : une roue de roulette dont la bille s’arrête, au centre de laquelle on lit « La Maison Gagne »." fetchpriority="high">
-    <p class="art-note"><small>LE SAVIEZ-VOUS ?</small>Sur une roue européenne, chaque euro misé rapporte en moyenne <em>97,3 centimes.</em></p>
-  </div>
-</section>
+</section>` : ''}
 
-<section class="pod-section" id="episodes" aria-labelledby="episodes-title">
-  <div class="section-head">
-    <h2 id="episodes-title">Les épisodes <span>(${EPISODES.length})</span></h2>
-    <span class="muted">≈ ${totalMin} MIN AU TOTAL</span>
-  </div>
-  <div class="filters" role="group" aria-label="Filtrer par thème" hidden>
-      <button type="button" class="filter" data-filter="all" aria-pressed="true">Tous</button>
-      ${filters}
-  </div>
-  <ol class="ep-list">
-${rows}
-  </ol>
-  <p class="muted note-audio">Les épisodes se lisent et s’écoutent : chaque page propose le texte complet et une lecture vocale par ton navigateur. La version enregistrée arrive épisode par épisode.</p>
-</section>
-
-<section class="pod-section split" id="apropos" aria-labelledby="about-title">
-  <div>
-    <span class="label">LE PODCAST</span>
-    <h2 id="about-title">Regarder le décor<br>de l’autre côté</h2>
-  </div>
-  <div class="prose">
-    <p>${esc(SHOW.description)}</p>
-    <p>La Maison Gagne est présenté par ${esc(SHOW.host)}. Il prolonge le jeu <a href="/">Rien ne va plus</a>, une simulation en 3D où l’argent est faux mais les probabilités sont réelles. Chaque épisode correspond à des mécaniques que tu peux expérimenter dans le jeu.</p>
-    <p><strong>Ce que tu n’y trouveras pas :</strong> un système pour gagner. Il n’y en a pas, et c’est le sujet.</p>
-  </div>
-</section>
-
-<section class="pod-section" id="voix" aria-labelledby="voices-title">
-  <div class="section-head"><h2 id="voices-title">Les voix du récit <span>(${used.length})</span></h2><span class="muted">RÉEL · COMPOSITE · FICTIF</span></div>
-  <p class="muted lead-s">Chaque personnage est annoncé pour ce qu’il est : une personne qui a existé, un portrait composite construit sur des témoignages publiés, ou un personnage fictif qui représente un service réel.</p>
-  <ul class="voice-grid">
-${voices}
-  </ul>
-</section>
-
-<section class="pod-section split" id="suivre" aria-labelledby="follow-title">
-  <div>
-    <span class="label">S’ABONNER</span>
-    <h2 id="follow-title">Un flux, tous<br>tes lecteurs</h2>
-  </div>
-  <div class="prose">
-    <p>Le flux RSS fonctionne dans n’importe quelle application de podcasts.</p>
-    <div class="rss">
-      <label for="rss-url" class="visually-hidden">Adresse du flux RSS</label>
-      <input id="rss-url" type="text" readonly value="${url('/podcast/feed.xml')}">
-      <button type="button" class="pod-btn" data-copy="#rss-url">Copier</button>
+<section class="block block-lime" id="zero" aria-labelledby="zero-title">
+  <div class="wrap">
+    <div class="zero-head">
+      <p class="tag"><span class="tag-dot" aria-hidden="true"></span>Le concept</p>
+      <h2 id="zero-title">C’est quoi, le zéro vert ?</h2>
     </div>
-    <p class="muted">${EPISODES.some(hasAudio) ? '' : 'Le flux se remplit automatiquement dès que le premier épisode enregistré est publié : les plateformes n’acceptent que des fichiers audio. '}Les liens Apple Podcasts, Spotify et autres seront ajoutés ici dès l’inscription du flux.</p>
+    <div class="zero-grid">
+      <div class="prose">
+        <p>À la roulette européenne, il y a 36 numéros… et un zéro. Il est vert.</p>
+        <p>Quand tu mises sur un numéro et qu’il sort, le casino te paie 35 contre 1. Sauf qu’il y a 37 cases, pas 36. Cette case en plus, c’est toute la marge de la maison : chaque euro misé te revient, en moyenne, à 97,3 centimes.</p>
+        <p>${esc(SHOW.name)} est présenté par ${esc(SHOW.host)}. Il prolonge le jeu <a href="/">Rien ne va plus</a>, une simulation en 3D où l’argent est faux mais les probabilités sont vraies.</p>
+        <p><strong>Ce que tu n’y trouveras pas :</strong> un système pour gagner. Il n’y en a pas, et c’est le sujet.</p>
+      </div>
+      <ul class="stats" aria-label="Les chiffres du zéro vert">
+        <li class="stat st-red tilt-l"><b>37</b><span>cases sur la roue</span></li>
+        <li class="stat tilt-r st-white"><b>35 : 1</b><span>ce que paie un numéro</span></li>
+        <li class="stat tilt-l2 st-ink"><b>2,7&nbsp;%</b><span>gardés par la maison</span></li>
+      </ul>
+    </div>
+${voices ? `    <div class="voices" id="voix">
+      <h3>Qui parle</h3>
+      <p class="voices-note">Chaque personnage est annoncé pour ce qu’il est : une personne qui a existé, un portrait composite construit sur des témoignages publiés, ou un personnage fictif qui représente un service réel.</p>
+      <ul class="voice-list">
+      ${voices}
+      </ul>
+    </div>` : ''}
   </div>
 </section>
 
-<section class="pod-section cta" aria-labelledby="play-title">
-  <div>
-    <span class="label">ET SI TU ESSAYAIS ?</span>
-    <h2 id="play-title">Entre dans le casino.<br><em>Sans un euro.</em></h2>
-    <p>Quinze mécaniques à découvrir, quatorze témoins à rencontrer, seul ou jusqu’à huit amis. Aucun argent réel, aucun compte.</p>
+<section class="block block-paper" id="suivre" aria-labelledby="follow-title">
+  <div class="wrap follow">
+    <div>
+      <p class="tag"><span class="tag-dot" aria-hidden="true"></span>S’abonner</p>
+      <h2 id="follow-title">Un flux, tous tes lecteurs</h2>
+    </div>
+    <div class="follow-card">
+      <p>Le flux RSS marche dans n’importe quelle appli de podcasts.</p>
+      <div class="rss">
+        <label for="rss-url" class="visually-hidden">Adresse du flux RSS</label>
+        <input id="rss-url" type="text" readonly value="${url('/podcast/feed.xml')}">
+        <button type="button" class="btn btn-ink" data-copy="#rss-url">Copier</button>
+      </div>
+      <p class="honest">${anyAudio ? '' : 'Pour l’instant le flux est vide, et c’est normal : les plateformes n’acceptent que des fichiers audio, et il se remplit tout seul dès que le premier épisode enregistré est publié. '}Les liens Apple Podcasts, Spotify et autres arriveront ici dès l’inscription du flux.</p>
+    </div>
   </div>
-  <a class="pod-btn primary big" href="/">Jouer à Rien ne va plus <span aria-hidden="true">↗</span></a>
+</section>
+
+<section class="play-band" aria-labelledby="play-title">
+  <div class="wrap play-inner">
+    <h2 id="play-title">Un casino pour de faux.<br>Les probabilités pour de vrai.</h2>
+    <div class="play-side">
+      <p>Quinze mécaniques à découvrir, quatorze témoins à rencontrer, seul ou jusqu’à huit amis. Aucun argent réel, aucun compte.</p>
+      <a class="btn btn-ink btn-xl" href="/">Jouer à Rien ne va plus <span class="ico" aria-hidden="true">↗</span></a>
+    </div>
+  </div>
 </section>
 
 ${helpBlock()}`;
@@ -259,43 +328,40 @@ function sourcesFor(ep) {
   return out;
 }
 
+const attr = (name, v) => (v == null || v === '' ? '' : ` ${name}="${esc(v)}"`);
+
 export function renderEpisode(ep) {
-  const i = EPISODES.indexOf(ep);
-  const prev = EPISODES[i - 1];
-  const next = EPISODES[i + 1];
+  const live = publishedEpisodes();
+  const i = live.indexOf(ep);
+  const prev = live[i - 1];
+  const nextLive = live[i + 1];
+  const nextSoon = EPISODES.find((e) => isSoon(e) && e.number > ep.number);
   const p = episodePath(ep);
   const min = minutes(ep);
+  const hasScene = ep.sections.some((s) => s.scene);
 
-  const toc = ep.sections
-    .map((s, k) => `<li><a href="#s${k + 1}">${esc(s.h)}</a></li>`)
-    .join('\n        ');
+  const toc = ep.sections.map((s, k) => `<li><a href="#s${k + 1}">${esc(s.h)}</a></li>`).join('\n      ');
 
   const body = ep.sections
     .map(
-      (s, k) => `    <section class="script-sec" id="s${k + 1}" aria-labelledby="s${k + 1}-h">
+      (s, k) => `    <section class="script-sec" id="s${k + 1}" aria-labelledby="s${k + 1}-h"${attr('data-scene', s.scene)}${attr('data-cap', s.cap)}${attr('data-big', s.big)}>
       <h3 id="s${k + 1}-h" data-tts>${esc(s.h)}</h3>
 ${s.p.map((t) => `      <p data-tts>${esc(t)}</p>`).join('\n')}
     </section>`
     )
     .join('\n');
 
-  const people = ep.witnesses
-    .map((id) => {
-      const w = witnessOf(id);
-      const st = statusOf(id);
-      const k = kindOfStatus(st);
-      return `<li class="person" style="--c:${w.color}"><span class="voice-dot" aria-hidden="true">${esc(w.name.replace(/^(Un|Une|L’|L')\s?/i, '').charAt(0).toUpperCase())}</span><span><b>${esc(w.name)}</b><small>${esc(w.sub)}</small></span><span class="voice-kind k-${k}">${kindLabel[k]}</span></li>`;
-    })
-    .join('\n      ');
+  const people = ep.witnesses.map(voiceSticker).join('\n        ');
 
   const game = ep.mechanics
     .map((id) => {
       const r = mechanicOf(id);
       return `<li><b>${String(r.n).padStart(2, '0')} · ${esc(r.title)}</b><span>${esc(r.hint)}</span></li>`;
     })
-    .join('\n      ');
+    .join('\n        ');
 
-  const sources = sourcesFor(ep)
+  const srcGroups = sourcesFor(ep);
+  const sources = srcGroups
     .map(
       (g) => `      <div class="src-group"><h4>${esc(g.title)}</h4><ul>
 ${g.refs.map((r) => `        <li>${r}</li>`).join('\n')}
@@ -343,48 +409,60 @@ ${g.refs.map((r) => `        <li>${r}</li>`).join('\n')}
     ...(ep.audio ? { associatedMedia: { '@type': 'MediaObject', contentUrl: url('/' + ep.audio.file) } } : {})
   };
 
+  const left = prev
+    ? `<a class="nav-card" href="${episodePath(prev)}"><small>← ${esc(episodeLabel(prev))}</small><span>${esc(prev.title)}</span></a>`
+    : `<a class="nav-card" href="/podcast#episodes"><small>← Retour</small><span>Tous les épisodes</span></a>`;
+  const right = nextLive
+    ? `<a class="nav-card nav-next" href="${episodePath(nextLive)}"><small>${esc(episodeLabel(nextLive))} →</small><span>${esc(nextLive.title)}</span></a>`
+    : nextSoon
+      ? `<div class="nav-card nav-next is-soon"><small>Bientôt · ${esc(episodeLabel(nextSoon))}</small><span>${esc(nextSoon.title)}</span></div>`
+      : `<a class="nav-card nav-next" href="/podcast#suivre"><small>La suite</small><span>Suivre le podcast →</span></a>`;
   const nav = `<nav class="ep-nav" aria-label="Épisodes voisins">
-    ${prev ? `<a class="prev" href="${episodePath(prev)}"><small>← ${esc(episodeLabel(prev))}</small><span>${esc(prev.title)}</span></a>` : '<span></span>'}
-    ${next ? `<a class="next" href="${episodePath(next)}"><small>${esc(episodeLabel(next))} →</small><span>${esc(next.title)}</span></a>` : `<a class="next" href="/podcast"><small>Fin de saison</small><span>Tous les épisodes</span></a>`}
+    ${left}
+    ${right}
   </nav>`;
 
+  const stage = hasScene ? `<div class="stage" data-stage aria-hidden="true"><div class="stage-view"></div><div class="stage-hud"></div></div>\n      ` : '';
+
   const inner = `<article class="ep">
-  <div class="ep-top">
-    <nav class="crumbs" aria-label="Fil d’Ariane"><a href="/podcast">Podcast</a> <span aria-hidden="true">/</span> <span>${esc(episodeLabel(ep))}</span></nav>
-    <div class="eyebrow"><span class="live-dot" aria-hidden="true"></span> ${esc(episodeLabel(ep).toUpperCase())} · SAISON ${SHOW.season}</div>
-    <h1>${esc(ep.title)}</h1>
-    <p class="lead">${esc(ep.hook)}</p>
-    <p class="meta"><span>≈ ${min} min</span><span>Texte du ${frDate(SHOW.published)}</span><span>${ep.audio ? 'Audio disponible' : 'Version audio à venir'}</span></p>
-    <p class="ep-summary">${esc(ep.summary)}</p>
-    <div class="chips">${themeChips(ep)}</div>
-  </div>
-
-  ${audio}
-
-  <div class="ep-grid">
-    <aside class="ep-aside" aria-label="Dans cet épisode">
-      <h2 class="label">DANS CET ÉPISODE</h2>
-      <ol class="toc">
-        ${toc}
-        <li><a href="#retenir">À retenir</a></li>
-        <li><a href="#sources">Sources</a></li>
+  <header class="ep-hero">
+    <div class="wrap">
+      <nav class="crumbs" aria-label="Fil d’Ariane"><a href="/podcast">Podcast</a> <span aria-hidden="true">/</span> <span>${esc(episodeLabel(ep))}</span></nav>
+      <span class="sticker st-red tilt-r ep-tag">${esc(episodeLabel(ep))}</span>
+      <h1>${esc(ep.title)}</h1>
+      <p class="lead">${esc(ep.hook)}</p>
+      <ul class="metas">
+        <li>≈ ${min} min</li>
+        <li>Texte du ${frDate(SHOW.published)}</li>
+        <li>${ep.audio ? 'Audio disponible' : 'Audio bientôt'}</li>
+      </ul>
+      <p class="ep-summary">${esc(ep.summary)}</p>
+      <ol class="toc" aria-label="Dans cet épisode">
+      ${toc}
+      <li><a href="#retenir">À retenir</a></li>
       </ol>
-    </aside>
+    </div>
+  </header>
+
+  <div class="ep-split">
+    <div class="stage-col">
+      ${stage}${audio}
+    </div>
 
     <div class="script">
 ${body}
 
     <section class="retenir" id="retenir" aria-labelledby="retenir-h">
       <h3 id="retenir-h">À retenir</h3>
-      <ul>
+      <ol>
 ${ep.retenir.map((t) => `        <li>${esc(t)}</li>`).join('\n')}
-      </ul>
+      </ol>
     </section>
 
 ${ep.witnesses.length ? `    <section class="people" id="personnes" aria-labelledby="people-h">
       <h3 id="people-h">Les voix de cet épisode</h3>
-      <ul>
-      ${people}
+      <ul class="voice-list">
+        ${people}
       </ul>
     </section>
 ` : ''}
@@ -392,15 +470,15 @@ ${ep.witnesses.length ? `    <section class="people" id="personnes" aria-labelle
       <h3 id="game-h">Dans le jeu</h3>
       <p>Tu peux vivre ${ep.mechanics.length > 1 ? 'ces mécanismes' : 'ce mécanisme'} sans risque, avec de l’argent fictif.</p>
       <ul>
-      ${game}
+        ${game}
       </ul>
-      <a class="pod-btn" href="/">Entrer dans le casino <span aria-hidden="true">↗</span></a>
+      <a class="btn btn-ink" href="/">Entrer dans le casino <span class="ico" aria-hidden="true">↗</span></a>
     </section>
 
-    <section class="sources" id="sources" aria-labelledby="sources-h">
-      <h3 id="sources-h">Sources et références</h3>
+    <details class="sources" id="sources">
+      <summary>Sources et références</summary>
 ${sources}
-    </section>
+    </details>
     </div>
   </div>
 
@@ -409,13 +487,13 @@ ${sources}
 
 ${helpBlock()}`;
 
-  return head({ title: ep.title, description: ep.summary, path: p, type: 'article', ld }) + '\n' + frame(inner, 'episodes');
+  return head({ title: ep.title, description: ep.summary, path: p, type: 'article', ld, motion: true }) + '\n' + frame(inner, 'episodes', { motion: true });
 }
 
 // ---------------------------------------------------------------- RSS
 const x = esc;
 export function renderFeed() {
-  const withAudio = EPISODES.filter(hasAudio);
+  const withAudio = publishedEpisodes().filter(hasAudio);
   const image = coverPng() ? url('/assets/podcast/cover.png') : null;
   const items = withAudio
     .map((ep) => {
@@ -460,11 +538,11 @@ ${items}
 }
 
 // ---------------------------------------------------------------- everything
-// Map of file path (relative to the repository) to its content.
+// Map of file path (relative to the repository) to its content. Only published episodes get a page.
 export function buildAll() {
   const files = new Map();
   files.set('podcast/index.html', renderIndex());
-  for (const ep of EPISODES) files.set(`podcast/${ep.slug}.html`, renderEpisode(ep));
+  for (const ep of publishedEpisodes()) files.set(`podcast/${ep.slug}.html`, renderEpisode(ep));
   files.set('podcast/feed.xml', renderFeed());
   return files;
 }
