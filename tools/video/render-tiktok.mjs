@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(DIR, '..', '..');
-const OUTV = path.join(ROOT, 'output/video');
+const EP = process.env.ZV_EP || '';
+const EP_N = EP.replace(/\D/g, '') || '1';
+const OUTV = path.join(ROOT, 'output/video', EP);
 const args = process.argv.slice(2);
 const noMux = args.includes('--no-mux');
 const rest = args.filter((a) => a !== '--no-mux');
@@ -25,6 +27,6 @@ await run(process.execPath, [...renderArgs, ...rest]);
 console.error(`rendu : ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 if (!noMux && !has('from') && !has('to') && !has('out') && !has('scale')) {
   const ff = path.join(os.homedir(), '.local/ffmpeg-6.0/ffmpeg');
-  await run(ff, ['-y', '-hide_banner', '-loglevel', 'error', '-i', silent, '-i', path.join(OUTV, 'audio-mix.m4a'), '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'copy', '-movflags', '+faststart', path.join(OUTV, 'zero-vert-episode-1-tiktok.mp4')]);
-  console.error(`assemblé : ${path.join(OUTV, 'zero-vert-episode-1-tiktok.mp4')}`);
+  await run(ff, ['-y', '-hide_banner', '-loglevel', 'error', '-i', silent, '-i', path.join(OUTV, 'audio-mix.m4a'), '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'copy', '-movflags', '+faststart', path.join(OUTV, `zero-vert-episode-${EP_N}-tiktok.mp4`)]);
+  console.error(`assemblé : ${path.join(OUTV, `zero-vert-episode-${EP_N}-tiktok.mp4`)}`);
 }

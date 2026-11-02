@@ -117,7 +117,7 @@
   }
 
   const FR = 1 / 30;
-  const MARQ = 'ZÉRO VERT · LA MAISON GAGNE TOUJOURS · ';
+  const MARQ_DEFAULT = 'ZÉRO VERT · LA MAISON GAGNE TOUJOURS · ';
   // symboles des rouleaux de la machine à sous (dessinés à plat)
   function slotSymbol(parent, kind, cell) {
     const gr = g(parent);
@@ -156,7 +156,7 @@
       }
       // ---- bandeau marquee en haut ----
       {
-        const gm = g(root), sz = 38, sp = 0.06;
+        const gm = g(root), sz = 38, sp = 0.06, MARQ = String(P.marquee || MARQ_DEFAULT);
         rect(gm, 0, 0, 1920, 88, 0, dark ? C.lime : C.ink);
         const unit = W(MARQ, sz, { mono: false, sp });
         const n = Math.ceil(1920 / unit) + 2;
@@ -175,7 +175,7 @@
       st.num = P.num ? mkSticker(String(P.num), accent, onAccent, 54, true, -3) : null;
       if (st.num) { st.num.x = 160 + st.num.w / 2; st.num.y = 196; }
       if (next) {
-        st.kick = mkSticker('PROCHAIN ÉPISODE', C.paper, C.ink, 46, true, 2);
+        st.kick = mkSticker(String(P.kick || 'PROCHAIN ÉPISODE').toUpperCase(), C.paper, C.ink, 46, true, 2);
         st.kick.x = 160 + st.kick.w / 2; st.kick.y = 236;
         if (st.num) { st.num.x = 160 + st.num.w / 2; st.num.y = 720; }
       }
@@ -240,7 +240,7 @@
         rect(body, -270 + 16, -250 + 16, 540, 500, 36, C.ink);
         rect(body, -270, -250, 540, 500, 36, C.red, C.ink, 8);
         rect(body, -230, -226, 460, 70, 18, C.ink);
-        text(body, 'ZÉRO VERT', 0, -176, 44, C.lime, { mono: true, anchor: 'middle', spacing: 4 });
+        text(body, String(P.brand || 'ZÉRO VERT'), 0, -176, 44, C.lime, { mono: true, anchor: 'middle', spacing: 4 });
         const wx = -216, wy = -128, ww = 432, wh = 230;
         rect(body, wx - 10, wy - 10, ww + 20, wh + 20, 22, C.ink);
         rect(body, wx, wy, ww, wh, 14, C.paper);

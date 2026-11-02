@@ -156,7 +156,7 @@
   }
 
   const FR = 1 / 30;
-  const MARQ = 'ZÉRO VERT · LA MAISON GAGNE TOUJOURS · ';
+  const MARQ_DEFAULT = 'ZÉRO VERT · LA MAISON GAGNE TOUJOURS · ';
 
   defineTypo('end-card', {
     build(root, shot) {
@@ -173,7 +173,7 @@
       for (let y = 96 + 108; y < 1080; y += 108) rect(grid, 0, y - 2, 1920, 4, 0, TINT.lime);
       // marquee en haut
       {
-        const gm = g(root), sz = 38, sp = 0.06;
+        const gm = g(root), sz = 38, sp = 0.06, MARQ = String(P.marquee || MARQ_DEFAULT);
         rect(gm, 0, 0, 1920, 88, 0, C.ink);
         const unit = W(MARQ, sz, { sp });
         const n = Math.ceil(1920 / unit) + 2;
@@ -190,7 +190,7 @@
 
       if (!final) {
         // ---- À RETENIR : trois cartes numérotées qui restent ----
-        st.title = mkSticker('À RETENIR', C.ink, C.lime, 62, false, -2);
+        st.title = mkSticker(String(P.heading || 'À RETENIR').toUpperCase(), C.ink, C.lime, 62, false, -2);
         st.title.x = 160 + st.title.w / 2; st.title.y = 176; st.tTitle = cue('title', 0.2);
         const items = (P.items || []).slice(0, 3).map((s) => String(s).replace(/ (?=[?:!;])/g, NB));
         const tilts = [-2, 1, -1], times = [cue('i1', 0.8), cue('i2', 2.6), cue('i3', 4.4)];

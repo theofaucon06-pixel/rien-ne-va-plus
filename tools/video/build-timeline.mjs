@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { loadTiming, resolve } from './lib/anchors.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const data = path.join(root, 'output', 'video', 'data');
+// ZV_EP (ex. « ep2 ») : épisode traité, dans output/video/<ZV_EP>/ ; vide = épisode 1 (output/video/). ZV_SLUG : slug de l'épisode (défaut : épisode 1).
+const EP = process.env.ZV_EP || '';
+const SLUG = process.env.ZV_SLUG || 'la-bille-n-a-pas-de-memoire';
+const data = path.join(root, 'output', 'video', EP, 'data');
 const timing = loadTiming(path.join(data, 'timing.json'));
 const dir = JSON.parse(readFileSync(path.join(data, 'direction.json'), 'utf8'));
 const r3 = (n) => Math.round(n * 1000) / 1000;
@@ -37,7 +40,7 @@ for (const sec of timing.sections) {
 const out = { video: dir.video, total: r3(total), lead_in: timing.lead_in, tail: timing.tail, sections, shots, sentences, captions: dir.captions, transitions: dir.transitions };
 writeFileSync(path.join(data, 'timeline.json'), JSON.stringify(out));
 // Copie compacte, COMMITÉE : la page de l'épisode (lecteur « motion ») la charge. On retire seulement ce que le rendu n'utilise pas (les notes de réalisation).
-const SITE_TIMELINE = path.join(root, 'assets', 'podcast', 'la-bille-n-a-pas-de-memoire.timeline.json');
+const SITE_TIMELINE = path.join(root, 'assets', 'podcast', `${SLUG}.timeline.json`);
 const compact = { ...out, shots: out.shots.map(({ notes, ...s }) => s) };
 mkdirSync(path.dirname(SITE_TIMELINE), { recursive: true });
 writeFileSync(SITE_TIMELINE, JSON.stringify(compact));

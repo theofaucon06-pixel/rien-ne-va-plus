@@ -16,9 +16,11 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HOME = os.homedir();
+const EP = process.env.ZV_EP || ''; // épisode traité (dossier output/video/<EP>/), vide = épisode 1
+const VIDEO_DIR = path.join(ROOT, 'output/video', EP);
 
 /* ---------------------------------------------------------------- arguments */
-const A = { from: 0, to: null, workers: Math.max(2, Math.min(8, os.cpus().length - 4)), fps: null, scale: 1, out: path.join(ROOT, 'output/video/video-silent.mp4'),
+const A = { from: 0, to: null, workers: Math.max(2, Math.min(8, os.cpus().length - 4)), fps: null, scale: 1, out: path.join(VIDEO_DIR, 'video-silent.mp4'),
   'jpeg-quality': 92, format: 'jpeg', port: 8801, crf: 16, preset: 'medium', mount: [], 'frame-dir': '', serve: false,
   ffmpeg: path.join(HOME, '.local/ffmpeg-6.0/ffmpeg'), chrome: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', page: '/tools/video/composition/index.html', query: '', quiet: false, width: 1920, height: 1080, profile: '' };
 {
@@ -117,7 +119,7 @@ async function main() {
   const base = `http://127.0.0.1:${port}`;
   if (A.serve) { console.log(`serveur statique : ${base}${A.page}  (Ctrl+C pour arrêter)`); return new Promise(() => {}); }
 
-  const tl = JSON.parse(fs.readFileSync(path.join(ROOT, 'output/video/data/timeline.json'), 'utf8'));
+  const tl = JSON.parse(fs.readFileSync(path.join(VIDEO_DIR, 'data/timeline.json'), 'utf8'));
   const fps = A.fps || tl.video.fps || 30;
   const total = tl.total;
   const from = Math.max(0, A.from), to = Math.min(A.to == null ? total : A.to, total);
@@ -147,7 +149,10 @@ async function main() {
 
   // pages
   const nW = Math.max(1, Math.min(A.workers, nFrames));
-  const pageUrl = `${base}${A.page}${A.query ? (A.query[0] === '?' ? A.query : '?' + A.query) : ''}`;
+  const epQuery = [EP ? `tl=${encodeURIComponent(`/output/video/${EP}/data/timeline.json`)}` : '', process.env.ZV_SLUG ? `slug=${encodeURIComponent(process.env.ZV_SLUG)}` : ''].filter(Boolean).join('&');
+  const userQuery = A.query ? (A.query[0] === '?' ? A.query.slice(1) : A.query) : '';
+  const fullQuery = [userQuery, epQuery].filter(Boolean).join('&');
+  const pageUrl = `${base}${A.page}${fullQuery ? '?' + fullQuery : ''}`;
   const pages = [];
   for (let i = 0; i < nW; i++) {
     const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', width: VW, height: VH, newWindow: true });

@@ -31,5 +31,20 @@
       <itunes:explicit>false</itunes:explicit>
       <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire" type="text/html" language="fr"/>
     </item>
+    <item>
+      <title>La zone</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/la-zone</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/la-zone</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>Les machines à sous vues de l’intérieur : le temps sur machine, les presque-gagnés, les pertes déguisées en gains. Avec Mollie, suivie par une anthropologue à Las Vegas, et Katrina Bookman, face à un jackpot qui n’existait pas.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/02-la-zone.mp3" length="7819299" type="audio/mpeg"/>
+      <itunes:title>La zone</itunes:title>
+      <itunes:episode>2</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>489</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/la-zone" type="text/html" language="fr"/>
+    </item>
   </channel>
 </rss>

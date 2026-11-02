@@ -40,19 +40,25 @@
   /* ------------------------------------------------------------------ HUD */
   async function initHud() {
     const [TL, mod] = await Promise.all([
-      fetch('/output/video/data/timeline.json', { cache: 'no-store' }).then((r) => r.json()),
+      fetch(new URLSearchParams(location.search).get('tl') || '/output/video/data/timeline.json', { cache: 'no-store' }).then((r) => r.json()),
       import('/js/podcast-data.js').catch(() => null)
     ]);
     const need = (id) => document.fonts.load(`800 50px "${id}"`, 'AaÉéÀÔçœ0123456789 .,:;!?’«»·×÷€¢%/-');
     const logoImg = new Image(); logoImg.src = '/assets/podcast/logo-dark.svg';
     await Promise.all([need('Bricolage Grotesque'), need('JetBrains Mono'), document.fonts.ready, logoImg.decode().catch(() => null)]);
 
-    let titles = FALLBACK_TITLES;
+    // épisode : ?slug=<slug> (défaut = épisode 1) ; numéro, titre et titres de sections viennent de js/podcast-data.js
+    const SLUG = Q.get('slug') || 'la-bille-n-a-pas-de-memoire';
+    let titles = FALLBACK_TITLES, EP_NUM = 1, EP_TITLE = ['La bille n’a pas', 'de mémoire'], EP_NAME = 'La bille n’a pas de mémoire', epTitleAuto = false, EP_ONE_LINE = false;
     try {
-      const ep = mod && mod.EPISODES.find((e) => e.slug === 'la-bille-n-a-pas-de-memoire');
-      if (ep && ep.sections.length === 6) titles = ep.sections.map((s) => s.h);
+      const ep = mod && mod.EPISODES.find((e) => e.slug === SLUG);
+      if (ep) {
+        if (ep.sections && ep.sections.length >= 2) titles = ep.sections.map((s) => s.h);
+        if (Number.isFinite(ep.number)) EP_NUM = ep.number;
+        if (ep.title) { EP_NAME = ep.title; epTitleAuto = SLUG !== 'la-bille-n-a-pas-de-memoire'; }
+      }
     } catch (e) { /* titres de secours */ }
-    const EP_TITLE = ['La bille n’a pas', 'de mémoire'];
+    const NS = titles.length;   // nombre de chapitres (6 pour la saison 1)
 
     const back = document.getElementById('back'), front = document.getElementById('front');
     const meas = g(front, { visibility: 'hidden' });
@@ -70,6 +76,17 @@
       return w;
     }
     const SP = Math.max(14, mw('a a') - mw('aa'));   // espace entre mots à 100 px
+    // titre de l'épisode (hors épisode 1, dont la coupe est fixée) : coupe en 2 lignes équilibrées en largeur
+    if (epTitleAuto) {
+      const ws = EP_NAME.split(' '); let best = [EP_NAME, ''], bw = Infinity;
+      for (let i = 1; i < ws.length; i++) {
+        const a = ws.slice(0, i).join(' '), b = ws.slice(i).join(' '), m = Math.max(mw(a), mw(b));
+        if (m < bw) { bw = m; best = [a, b]; }
+      }
+      EP_TITLE = best[1] ? best : [EP_NAME];
+      // un titre court tient sur une seule ligne (dernier mot en lime) ; sinon deux lignes
+      EP_ONE_LINE = !!best[1] && (mw(best[0]) + SP + mw(best[1])) <= 960;
+    }
 
     /* ---------- fond (aplats) + ombre dure du cadre */
     rect(back, 0, 0, CW, CH, 0, INK);
@@ -81,13 +98,13 @@
     rect(front, SC.x - 10, SC.y - 10, SC.w + 20, SC.h + 20, SC.r + 10, 'none', LIME, 8);   // anneau lime extérieur
     rect(front, SC.x - 3, SC.y - 3, SC.w + 6, SC.h + 6, SC.r + 3, 'none', INK, 6);          // anneau ink intérieur : sépare la scène des plans lime
 
-    /* ---------- en-tête : logo, sticker ÉPISODE 1, titre */
+    /* ---------- en-tête : logo, sticker ÉPISODE n, titre */
     const logoH = 84, logoW = Math.round(logoH * 4438 / 920);
     sv('image', { href: '/assets/podcast/logo-dark.svg', x: 52, y: 162, width: logoW, height: logoH }, front);
 
     const stk = g(front);
     {
-      const lab = 'ÉPISODE 1', fs = 40, tw = mw(lab) * fs / 100, w = Math.round(tw + 56), h = 64;
+      const lab = `ÉPISODE ${EP_NUM}`, fs = 40, tw = mw(lab) * fs / 100, w = Math.round(tw + 56), h = 64;
       rect(stk, -w / 2 + 8, -h / 2 + 8, w, h, 14, LIME);
       rect(stk, -w / 2, -h / 2, w, h, 14, RED, INK, 6);
       text(stk, lab, 0, fs * 0.35, fs, INK, { anchor: 'middle' });
@@ -97,26 +114,29 @@
     // titre en grand : on ajuste la taille pour tenir dans 960 px
     const tFs = Math.min(100, Math.floor(960 / Math.max(...EP_TITLE.map((s) => mw(s) / 100))));
     text(front, EP_TITLE[0], 52, 352, tFs, PAPER, {});
-    text(front, EP_TITLE[1], 52, 352 + Math.round(tFs * 0.98), tFs, LIME, {});
+    if (EP_ONE_LINE) text(front, EP_TITLE[1], 52 + Math.round((mw(EP_TITLE[0]) + SP) * tFs / 100), 352, tFs, LIME, {});
+    else if (EP_TITLE[1]) text(front, EP_TITLE[1], 52, 352 + Math.round(tFs * 0.98), tFs, LIME, {});
 
     /* ---------- indicateur de chapitre : 6 pastilles de progression + titre de la section (pop au changement) */
     const sw = [0];
-    for (let k = 1; k < 6; k++) {
+    for (let k = 1; k < NS; k++) {
       const cc = TL.shots.find((s) => s.id === `s${k}-00` && s.component === 'chapter-card');
       sw.push(cc ? cc.start : (TL.sections[k] ? TL.sections[k].start - 3 : sw[k - 1] + 60));
     }
     const swEnd = TL.total - (TL.tail || 14);
-    const PW = 148, PG = 14, PX0 = 52, PY = 480, PH = 16;
+    const PG = 14, PX0 = 52, PY = 480, PH = 16, PW = Math.floor((958 - (NS - 1) * PG) / NS);   // 148 px pour 6 chapitres
     const pills = [];
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < NS; k++) {
       const x = PX0 + k * (PW + PG);
       const base = rect(front, x, PY, PW, PH, 8, POCKET, GREY, 3);
       const fill = rect(front, x, PY, 1, PH, 8, LIME);
       pills.push({ x, base, fill });
     }
     const chips = titles.map((tt, k) => {
-      const lab = tt, fs = 40, num = `${String(k + 1).padStart(2, '0')}/06`;
-      const nfs = 24, nw = Math.round(mw(num, true) * nfs / 100) + 28, tw = mw(lab) * fs / 100;
+      const lab = tt, num = `${String(k + 1).padStart(2, '0')}/${String(NS).padStart(2, '0')}`;
+      const nfs = 24, nw = Math.round(mw(num, true) * nfs / 100) + 28;
+      const fs = Math.min(40, Math.floor((976 - nw - 44 - 8) / (mw(lab) / 100)));   // 40 px, réduit seulement si le titre ne tient pas dans la largeur
+      const tw = mw(lab) * fs / 100;
       const w = Math.round(nw + tw + 44), h = 58;
       const gw = g(front);
       rect(gw, 8, 8, w, h, 14, LIME);                         // ombre dure
@@ -127,7 +147,7 @@
       return { gw, w, h };
     });
     const CHIP_X = 52, CHIP_Y = 508;
-    const curSection = (T) => { let c = 0; for (let k = 1; k < 6; k++) if (T >= sw[k]) c = k; return c; };
+    const curSection = (T) => { let c = 0; for (let k = 1; k < NS; k++) if (T >= sw[k]) c = k; return c; };
 
     /* ---------- sous-titres karaoké (groupes de 2 à 5 mots, 2 lignes max, 78–92 px) */
     const FN = /^(le|la|les|l|un|une|de|des|du|d|à|au|aux|et|ou|que|qui|en|ce|se|ne|sa|son|ses|mon|ma|mes|ta|ton|tes|tu|il|elle|je|me|te|y|on|nous|vous|ils|elles|pas|n|qu|s|c|j|m|t|a|est|sur|par|pour|dans|avec|sans|mais|donc|ni|car|si)$/i;
@@ -238,7 +258,7 @@
     rect(mq, 0, MARQUEE.y - MARQUEE.h / 2, CW, MARQUEE.h, 0, POCKET);
     rect(mq, 0, MARQUEE.y - MARQUEE.h / 2, CW, 3, 0, LIME);
     rect(mq, 0, MARQUEE.y + MARQUEE.h / 2 - 3, CW, 3, 0, LIME);
-    const MQ_FS = 26, MQ_TXT = 'ZÉRO VERT  ·  LA MAISON GAGNE TOUJOURS  ·  LA BILLE N’A PAS DE MÉMOIRE  ·  ÉPISODE 1  ·  ';
+    const MQ_FS = 26, MQ_TXT = `ZÉRO VERT  ·  LA MAISON GAGNE TOUJOURS  ·  ${EP_NAME.toUpperCase()}  ·  ÉPISODE ${EP_NUM}  ·  `;
     const mqRow = g(mq);
     const mqNodes = [0, 1, 2].map(() => text(mqRow, MQ_TXT, 0, MARQUEE.y + MQ_FS * 0.35, MQ_FS, LIME, { mono: true, spacing: 2 }));
     mqNodes.forEach((n) => n.setAttribute('style', 'white-space:pre'));
@@ -270,13 +290,13 @@
     let lastSec = -1;
     hudRender = function (T) {
       T = clamp(Number.isFinite(T) ? T : 0, 0, TL.total);
-      // sticker ÉPISODE 1 : léger balancement
+      // sticker ÉPISODE n : léger balancement
       stk.setAttribute('transform', `translate(${f2(stk.__cx)} ${f2(stk.__cy)}) rotate(${f2(4 + 1.6 * Math.sin(T * 2.4))})`);
       // chapitre
       const cur = curSection(T);
-      for (let k = 0; k < 6; k++) {
+      for (let k = 0; k < NS; k++) {
         const p = pills[k];
-        const a = sw[k], b = k < 5 ? sw[k + 1] : swEnd;
+        const a = sw[k], b = k < NS - 1 ? sw[k + 1] : swEnd;
         const frac = k < cur ? 1 : k > cur ? 0 : clamp((T - a) / Math.max(0.1, b - a));
         const w = frac <= 0 ? 0 : Math.max(PH, PW * frac);
         const popP = k === cur ? prog(T, sw[k], sw[k] + 8 / 30) : 1;
@@ -286,7 +306,7 @@
         p.fill.setAttribute('width', f2(Math.min(PW, w))); p.fill.setAttribute('y', f2(yy)); p.fill.setAttribute('height', f2(hh));
         p.base.setAttribute('y', f2(yy)); p.base.setAttribute('height', f2(hh));
       }
-      for (let k = 0; k < 6; k++) {
+      for (let k = 0; k < NS; k++) {
         const c = chips[k];
         if (k !== cur) { if (c.gw.__d !== 'none') { c.gw.__d = 'none'; c.gw.setAttribute('display', 'none'); } continue; }
         if (c.gw.__d !== 'inline') { c.gw.__d = 'inline'; c.gw.setAttribute('display', 'inline'); }
