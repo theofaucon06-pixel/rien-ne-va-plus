@@ -31,7 +31,7 @@ export const upcomingEpisodes = () => EPISODES.filter(isSoon);
 
 export const wordCount = (ep) => ep.sections.flatMap((s) => s.p).join(' ').split(/\s+/).filter(Boolean).length;
 // Spoken French runs at roughly 150 words a minute.
-export const minutes = (ep) => Math.max(1, Math.round(wordCount(ep) / 150));
+export const minutes = (ep) => (ep.audio ? Math.max(1, Math.round(ep.audio.seconds / 60)) : Math.max(1, Math.round(wordCount(ep) / 150)));
 export const hasAudio = (ep) => !!ep.audio;
 const coverPng = () => existsSync(path.join(root, 'assets', 'podcast', 'cover.png'));
 

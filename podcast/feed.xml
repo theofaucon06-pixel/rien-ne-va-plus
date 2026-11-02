@@ -16,6 +16,20 @@
     <itunes:category text="Society &amp; Culture"><itunes:category text="Documentary"/></itunes:category>
     <itunes:image href="https://rien-ne-va-plus.vercel.app/assets/podcast/cover.png"/>
     <image><url>https://rien-ne-va-plus.vercel.app/assets/podcast/cover.png</url><title>Zéro Vert</title><link>https://rien-ne-va-plus.vercel.app/podcast</link></image>
-
+    <item>
+      <title>La bille n’a pas de mémoire</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>Charles Wells à Monte-Carlo, de la banque qui saute à la fosse commune. La division qui donne 97,3 centimes, l’espérance mathématique dite simplement, la nuit des vingt-six noirs et la loi des petits nombres. Pourquoi l’avantage de la maison est une moyenne et pas un quota, et pourquoi la bille ne se souvient de rien.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/01-la-bille-n-a-pas-de-memoire.mp3" length="8107279" type="audio/mpeg"/>
+      <itunes:title>La bille n’a pas de mémoire</itunes:title>
+      <itunes:episode>1</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>494</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire" type="text/html" language="fr"/>
+    </item>
   </channel>
 </rss>

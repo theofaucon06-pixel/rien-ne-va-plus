@@ -22,7 +22,7 @@
 <link rel="stylesheet" href="/css/podcast-fonts.css">
 <link rel="stylesheet" href="/css/podcast.css">
 <link rel="stylesheet" href="/css/podcast-motion.css">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"PodcastEpisode","name":"La bille n’a pas de mémoire","description":"Charles Wells à Monte-Carlo, de la banque qui saute à la fosse commune. La division qui donne 97,3 centimes, l’espérance mathématique dite simplement, la nuit des vingt-six noirs et la loi des petits nombres. Pourquoi l’avantage de la maison est une moyenne et pas un quota, et pourquoi la bille ne se souvient de rien.","url":"https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire","datePublished":"2026-11-02","inLanguage":"fr-FR","episodeNumber":1,"timeRequired":"PT10M","partOfSeries":{"@type":"PodcastSeries","name":"Zéro Vert","url":"https://rien-ne-va-plus.vercel.app/podcast"},"author":{"@type":"Person","name":"Théo Faucon"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"PodcastEpisode","name":"La bille n’a pas de mémoire","description":"Charles Wells à Monte-Carlo, de la banque qui saute à la fosse commune. La division qui donne 97,3 centimes, l’espérance mathématique dite simplement, la nuit des vingt-six noirs et la loi des petits nombres. Pourquoi l’avantage de la maison est une moyenne et pas un quota, et pourquoi la bille ne se souvient de rien.","url":"https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire","datePublished":"2026-11-02","inLanguage":"fr-FR","episodeNumber":1,"timeRequired":"PT8M","partOfSeries":{"@type":"PodcastSeries","name":"Zéro Vert","url":"https://rien-ne-va-plus.vercel.app/podcast"},"author":{"@type":"Person","name":"Théo Faucon"},"associatedMedia":{"@type":"MediaObject","contentUrl":"https://rien-ne-va-plus.vercel.app/assets/podcast/01-la-bille-n-a-pas-de-memoire.mp3"}}</script>
 </head>
 <body class="pod pod-ep">
 <a class="pod-skip" href="#main">Aller au contenu</a>
@@ -44,9 +44,9 @@
       <h1>La bille n’a pas de mémoire</h1>
       <p class="lead">Un homme fait sauter la banque, le noir sort vingt-six fois : et c’est quand même le zéro vert qui gagne.</p>
       <ul class="metas">
-        <li>≈ 10 min</li>
+        <li>≈ 8 min</li>
         <li>Texte du 2 novembre 2026</li>
-        <li>Audio bientôt</li>
+        <li>Audio disponible</li>
       </ul>
       <p class="ep-summary">Charles Wells à Monte-Carlo, de la banque qui saute à la fosse commune. La division qui donne 97,3 centimes, l’espérance mathématique dite simplement, la nuit des vingt-six noirs et la loi des petits nombres. Pourquoi l’avantage de la maison est une moyenne et pas un quota, et pourquoi la bille ne se souvient de rien.</p>
       <ol class="toc" aria-label="Dans cet épisode">
@@ -64,19 +64,14 @@
   <div class="ep-split">
     <div class="stage-col">
       <div class="stage" data-stage aria-hidden="true"><div class="stage-view"></div><div class="stage-hud"></div></div>
-      <div class="player" data-player="speech" data-slug="la-bille-n-a-pas-de-memoire" hidden>
-      <div class="player-main">
-        <button type="button" class="play" data-act="play" aria-label="Lire l’épisode à voix haute"><span aria-hidden="true">▶</span></button>
-        <div class="player-info"><b>Lecture vocale</b><span data-status role="status" aria-live="polite">Voix de ton navigateur. Version enregistrée à venir.</span></div>
-      </div>
+      <div class="player" data-player="audio" data-slug="la-bille-n-a-pas-de-memoire">
+      <audio controls preload="none" src="/assets/podcast/01-la-bille-n-a-pas-de-memoire.mp3"></audio>
       <div class="player-row">
-        <button type="button" data-act="prev" aria-label="Paragraphe précédent">⏮</button>
-        <button type="button" data-act="next" aria-label="Paragraphe suivant">⏭</button>
-        <button type="button" data-act="stop" aria-label="Arrêter la lecture">■</button>
-        <label>Vitesse <select data-act="rate"><option value="0.85">0,85×</option><option value="1" selected>1×</option><option value="1.15">1,15×</option><option value="1.3">1,3×</option></select></label>
-        <label class="voice-pick" hidden>Voix <select data-act="voice"></select></label>
+        <button type="button" data-act="back" aria-label="Reculer de 15 secondes">−15 s</button>
+        <button type="button" data-act="fwd" aria-label="Avancer de 30 secondes">+30 s</button>
+        <label>Vitesse <select data-act="rate"><option value="0.9">0,9×</option><option value="1" selected>1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option></select></label>
+        <a href="/assets/podcast/01-la-bille-n-a-pas-de-memoire.mp3" download>Télécharger</a>
       </div>
-      <div class="progress" aria-hidden="true"><i></i></div>
     </div>
     </div>
 
