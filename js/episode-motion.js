@@ -3808,6 +3808,343 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/dealer-week.js ==== */
+// Composant `dealer-week` (épisode 6, S5 « Un croupier en pause »). Voir EP6-COMPONENTS.md.
+// Mode week  : 5 colonnes de 300 cases (une par nuit), les zéros, la pièce lime dans chaque case, « LE MÉCANISME », les gens. Cues : night, week, zeros, price, mechanism, people.
+// Mode chain : la chaîne de décision (croupier → chef de table → directeur → pause ?). Cues : question, no, c1…c4, slow.
+// Aplats, bordures, ombres dures ; aucun dégradé / flou / lueur / filter. Pas de clignotement : fondus et mouvements uniques, flèches qui pulsent à moins de 2 alternances/s.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const num = (v, d) => (isNum(v) ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const setT = (n, s) => { if (n.textContent !== s) n.textContent = s; };
+  const measure = (n) => {
+    try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ }
+    return (n.textContent || '').length * (parseFloat(n.getAttribute('font-size')) || 30) * 0.62;
+  };
+  function mkWrapped(parent, s, cx, cy, maxW, maxH, size0, fill, o) {
+    o = o || {};
+    const grp = g(parent), lh = 1.08;
+    const n1 = text(grp, s, cx, cy + size0 * 0.35, size0, fill, { anchor: 'middle', mono: o.mono });
+    let w = measure(n1);
+    if (w <= maxW) return grp;
+    const words = s.split(/\s+/);
+    if (words.length < 2) { const k = maxW / w; n1.setAttribute('font-size', f2(size0 * k)); n1.setAttribute('y', f2(cy + size0 * k * 0.35)); return grp; }
+    let best = 1, bd = 1e9;
+    for (let j = 1; j < words.length; j++) { const d = Math.abs(words.slice(0, j).join(' ').length - words.slice(j).join(' ').length); if (d < bd) { bd = d; best = j; } }
+    n1.textContent = words.slice(0, best).join(' ');
+    const n2 = text(grp, words.slice(best).join(' '), cx, 0, size0, fill, { anchor: 'middle', mono: o.mono });
+    let size = Math.min(size0, maxH / (2 * lh));
+    n1.setAttribute('font-size', f2(size)); n2.setAttribute('font-size', f2(size));
+    w = Math.max(measure(n1), measure(n2));
+    if (w > maxW) { size *= maxW / w; n1.setAttribute('font-size', f2(size)); n2.setAttribute('font-size', f2(size)); }
+    n1.setAttribute('y', f2(cy - lh * size / 2 + size * 0.35)); n2.setAttribute('y', f2(cy + lh * size / 2 + size * 0.35));
+    return grp;
+  }
+  function fitW(n, maxW) { const w = measure(n); if (w > maxW) n.setAttribute('font-size', f2((parseFloat(n.getAttribute('font-size')) || 30) * maxW / w)); return Math.min(w, maxW); }
+  // texte qui s'écrit : start-anchor, x calculé une fois sur la largeur finale
+  function mkTyper(parent, s, cx, y, size, fill, o) {
+    const n = text(parent, s, cx, y, size, fill, { mono: !!(o && o.mono) });
+    const w = fitW(n, (o && o.maxW) || 1700);
+    n.setAttribute('x', f2(cx - w / 2));
+    n.__full = s; n.__w = w;
+    return n;
+  }
+  const typeTo = (n, k) => { const s = n.__full.slice(0, Math.max(0, Math.min(n.__full.length, Math.floor(k * n.__full.length + 1e-6)))); setT(n, s); };
+
+  const WEEK_CUES = ['night', 'week', 'zeros', 'price', 'mechanism', 'people'];
+  const CHAIN_CUES = ['question', 'no', 'c1', 'c2', 'c3', 'c4', 'slow'];
+
+  /* =========================================================== */
+  /*  MODE week                                                   */
+  /* =========================================================== */
+  const COLS = 15, GY = 230;
+
+  function initWeek(root, st, p) {
+    const T = st.T, first = st.first;
+    const nights = Math.round(clamp(num(p.nights, 5), 1, 7));
+    const perNight = Math.round(clamp(num(p.per_night, 300), 15, 600));
+    const rows = Math.ceil(perNight / COLS);
+    const total = nights * perNight;
+    const zerosN = Math.round(clamp(num(p.zeros, 40), 0, total));
+    const GAP = 40;
+    const colW = Math.min(285, (1584 - (nights - 1) * GAP) / nights);
+    const pitch = Math.min(colW / COLS, 380 / rows, 19);
+    const cell = Math.max(4, pitch - 3);
+    const gridW = COLS * pitch - 3;
+    const x0 = (1920 - (nights * gridW + (nights - 1) * GAP)) / 2;
+    Object.assign(st, { nights, perNight, rows, total, pitch, cell, gridW, x0 });
+    st.tNight = first('night'); st.tWeek = first('week'); st.tZeros = first('zeros'); st.tPrice = first('price'); st.tMech = first('mechanism'); st.tPeople = first('people');
+    st.noFill = st.tNight == null && st.tWeek == null;                 // aucun cue de remplissage : repos = semaine complète
+    st.firstWeekCol = st.tNight != null ? 1 : 0;
+    const title = str(p.title, 'CROUPIER'), mech = str(p.mechanism, 'LE MÉCANISME'), odds = str(p.odds, '1 SUR 37');
+    st.zerosN = zerosN;
+
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    // titre
+    st.title = text(root, title, 960, 100, 72, C.paper, { anchor: 'middle' });
+    fitW(st.title, 1000);
+    const tw = measure(st.title);
+    st.titleW = tw;
+    st.strike = line(root, 960 - tw / 2 - 14, 74, 960 - tw / 2 - 14, 74, C.red, 12);
+    st.mechT = mkTyper(root, mech, 960, 162, 50, C.lime, { maxW: 900 });
+    // grille : cases vides (un seul tracé), cases jouées / pièces / gens par colonne
+    let dEmpty = '';
+    const rng = ZV.rng(Math.round(num(p.seed, 6)));
+    st.cols = [];
+    for (let c = 0; c < nights; c++) {
+      const cx = x0 + c * (gridW + GAP);
+      const col = { cx, played: '', off: [0], coin: '', coff: [0], pc: '', pp: '' };
+      for (let k = 0; k < perNight; k++) {
+        const x = cx + (k % COLS) * pitch, y = GY + Math.floor(k / COLS) * pitch;
+        dEmpty += `M${f2(x)} ${f2(y)}h${f2(cell)}v${f2(cell)}h${f2(-cell)}z`;
+        col.played += `M${f2(x)} ${f2(y)}h${f2(cell)}v${f2(cell)}h${f2(-cell)}z`;
+        col.off.push(col.played.length);
+        const ct = Math.max(2, Math.min(6, cell * 0.38));
+        col.coin += `M${f2(x + cell - ct)} ${f2(y)}h${f2(ct)}v${f2(ct)}z`;
+        col.coff.push(col.coin.length);
+        if (k % 25 === 0) {
+          const mx = x + cell / 2, my = y + cell / 2, u = cell / 16;
+          col.pc += `M${f2(x)} ${f2(y)}h${f2(cell)}v${f2(cell)}h${f2(-cell)}z`;
+          col.pp += `M${f2(mx - 3.2 * u)} ${f2(my - 3.6 * u)}a${f2(3.2 * u)} ${f2(3.2 * u)} 0 1 0 ${f2(6.4 * u)} 0a${f2(3.2 * u)} ${f2(3.2 * u)} 0 1 0 ${f2(-6.4 * u)} 0z`;
+          col.pp += `M${f2(mx - 6.4 * u)} ${f2(my + 6.6 * u)}Q${f2(mx - 6.4 * u)} ${f2(my + 0.6 * u)} ${f2(mx)} ${f2(my + 0.6 * u)}Q${f2(mx + 6.4 * u)} ${f2(my + 0.6 * u)} ${f2(mx + 6.4 * u)} ${f2(my + 6.6 * u)}z`;
+        }
+      }
+      st.cols.push(col);
+    }
+    path(root, dEmpty, 'none', C.pocket, 2);
+    // en-têtes
+    const nl = str(p.night_label, 'NUIT');
+    for (let c = 0; c < nights; c++) fitW(text(root, `${nl} ${c + 1}`, st.cols[c].cx + gridW / 2, 200, 28, C.paper, { anchor: 'middle', mono: true }), gridW);
+    st.cols.forEach((col) => {
+      col.played_n = path(root, '', C.paper); col.coin_n = path(root, '', C.lime);
+      col.pc_n = path(root, col.pc, C.ink); col.pp_n = path(root, col.pp, C.paper);
+      [col.pc_n, col.pp_n].forEach((n) => setA(n, 'visibility', 'hidden'));
+    });
+    // zéros : exactement zerosN cases réparties sur l'ensemble des tours (strates + rng)
+    const idx = [], seg = total / Math.max(1, zerosN);
+    for (let z = 0; z < zerosN; z++) { const a = Math.floor(z * seg), b = Math.max(a + 1, Math.floor((z + 1) * seg)); idx.push(Math.min(total - 1, a + Math.floor(rng() * (b - a)))); }
+    st.zeros = idx.map((gi) => {
+      const c = Math.floor(gi / perNight), k = gi % perNight;
+      const cx = st.cols[c].cx + (k % COLS) * pitch + cell / 2, cy = GY + Math.floor(k / COLS) * pitch + cell / 2;
+      const n = g(root);
+      rect(n, -cell / 2, -cell / 2, cell, cell, 1, C.lime);
+      text(n, '0', 0, cell * 0.22, Math.max(6, cell * 0.62), C.ink, { anchor: 'middle', mono: true });
+      put(n, cx, cy, 0, 0, 0, 0);
+      return { n, cx, cy, tz: 0 };
+    });
+    if (st.zeros.length) {
+      const xs = st.zeros.map((z) => z.cx), mn = Math.min.apply(null, xs), mx = Math.max.apply(null, xs);
+      st.zeros.forEach((z) => { z.tz = mx > mn ? (z.cx - mn) / (mx - mn) * 1.3 : 0; });
+    }
+    // compteur
+    st.cnt = g(root);
+    st.cNum = text(st.cnt, '0', 0, 0, 120, C.paper, { anchor: 'end' });
+    st.cUnit = text(st.cnt, 'TOURS / NUIT', 36, 0, 34, C.paper, { mono: true });
+    // stickers et légendes
+    st.sZero = g(root);
+    ZV.sticker(st.sZero, 560, 78, C.lime, `${odds} · ≈ ${zerosN} PAR SEMAINE`, 28, C.ink, { sh: 9, mono: true });
+    fitW(st.sZero.lastChild, 500);
+    st.leg1 = mkTyper(root, str(p.price_text, 'ET DANS LE PRIX DE CHAQUE MISE'), 960, 648, 30, C.lime, { mono: true, maxW: 1500 });
+    st.peopleY = st.tMech != null ? 648 : 156;
+    st.leg2 = mkTyper(root, str(p.people_text, 'ON COMPTE LES TOURS POUR NE PAS COMPTER LES GENS'), 960, st.peopleY, 30, C.paper, { mono: true, maxW: 1500 });
+  }
+
+  function updWeek(st, t) {
+    const { nights, perNight, tNight, tWeek } = st;
+    /* remplissage */
+    const filled = [];
+    let sum = 0, lastEnd = null;
+    for (let c = 0; c < nights; c++) {
+      let n;
+      if (st.noFill) n = perNight;
+      else if (c === 0 && tNight != null) { n = Math.floor(perNight * Math.pow(prog(t, tNight, tNight + 2.5), 2.1) + 1e-9); if (t >= tNight + 2.5) n = perNight; }
+      else if (tWeek != null && c >= st.firstWeekCol) {
+        const s0 = tWeek + (c - st.firstWeekCol) * 0.45, d = 1.3, q = prog(t, s0, s0 + d);
+        n = Math.floor(perNight * Math.pow(q, 2.1) + 1e-9); if (q >= 1) n = perNight;
+        lastEnd = s0 + d;
+      } else n = 0;
+      filled.push(n); sum += n;
+    }
+    st.cols.forEach((col, c) => {
+      const n = filled[c];
+      vis(col.played_n, n > 0); setA(col.played_n, 'd', col.played.slice(0, col.off[n]));
+    });
+    /* coins lime (dans le prix de chaque mise) : vague gauche → droite */
+    const tP = st.tPrice;
+    st.cols.forEach((col, c) => {
+      let k = 0;
+      if (tP != null) k = Math.min(filled[c], Math.floor(perNight * prog(t, tP + c * 0.9 / nights, tP + c * 0.9 / nights + 0.5)));
+      vis(col.coin_n, k > 0); setA(col.coin_n, 'd', col.coin.slice(0, col.coff[k]));
+    });
+    /* gens : une case sur 25 devient une silhouette pendant 1,5 s */
+    const tPe = st.tPeople;
+    const pe = tPe == null ? 0 : Math.min(prog(t - tPe, 0, 0.25), 1 - prog(t - tPe, 1.25, 1.5));
+    st.cols.forEach((col, c) => {
+      const on = pe > 0.001 && filled[c] >= perNight;
+      vis(col.pc_n, on); vis(col.pp_n, on);
+      if (on) { setA(col.pc_n, 'opacity', f2(pe)); setA(col.pp_n, 'opacity', f2(pe)); }
+    });
+    /* zéros en vague */
+    const tZ = st.tZeros;
+    st.zeros.forEach((z) => {
+      const q = tZ == null ? 0 : E.back(prog(t - tZ - z.tz, 0, 0.3));
+      const s = 0.55 + 0.45 * q + (q > 0 ? 0 : 0);
+      put(z.n, z.cx, z.cy, 0, tZ == null || t < tZ + z.tz ? 0 : s, tZ == null || t < tZ + z.tz ? 0 : s, tZ != null && t >= tZ + z.tz ? 1 : 0);
+    });
+    const zs = tZ == null ? 0 : E.back(prog(t, tZ + 1.35, tZ + 1.7));
+    put(st.sZero, 1500, 735, -2, zs, zs, zs > 0.001 ? 1 : 0);
+
+    /* compteur */
+    const week = st.noFill || (tWeek != null && t >= tWeek);
+    const show = sum > 0;
+    let cs = 1;
+    if (tWeek != null) {
+      const endW = Math.max(lastEnd == null ? tWeek : lastEnd, tWeek);
+      cs = 1 + 0.08 * Math.sin(Math.PI * clamp(1 - (t - endW) / 0.25)) * (t >= endW && t < endW + 0.25 ? 1 : 0);
+    }
+    setT(st.cNum, ZV.fr(sum)); setT(st.cUnit, week ? 'TOURS / SEMAINE' : 'TOURS / NUIT');
+    setA(st.cNum, 'x', 0); setA(st.cUnit, 'x', 34);
+    setA(st.cnt, 'transform', `translate(760 775) translate(0 -40) scale(${f2(cs)}) translate(0 40)`);
+    vis(st.cnt, show);
+
+    /* légendes */
+    const lp1 = tP == null ? 0 : prog(t, tP + 0.3, tP + 1.3);
+    const hide1 = tPe != null && st.peopleY === 648 ? prog(t, tPe, tPe + 0.15) : 0;
+    typeTo(st.leg1, lp1); vis(st.leg1, lp1 > 0 && hide1 < 1);
+    setA(st.leg1, 'opacity', f2(1 - hide1));
+    typeTo(st.leg2, tPe == null ? 0 : prog(t, tPe + 0.25, tPe + 1.2)); vis(st.leg2, tPe != null && t >= tPe + 0.25);
+
+    /* le mécanisme */
+    const tM = st.tMech;
+    const sp = tM == null ? 0 : E.out2(prog(t, tM, tM + 0.3));
+    vis(st.strike, sp > 0.001);
+    setA(st.strike, 'x2', f2(960 - st.titleW / 2 - 14 + (st.titleW + 28) * sp));
+    typeTo(st.mechT, tM == null ? 0 : prog(t, tM + 0.35, tM + 1.0)); vis(st.mechT, tM != null && t >= tM + 0.35);
+  }
+
+  /* =========================================================== */
+  /*  MODE chain                                                  */
+  /* =========================================================== */
+  const BY = 380, BH = 140;
+  function initChain(root, st, p) {
+    const T = st.T, first = st.first;
+    const steps = (Array.isArray(p.steps) && p.steps.length ? p.steps.map((x) => str(x, '')).filter(Boolean) : ['LE CROUPIER', 'LE CHEF DE TABLE', 'LE DIRECTEUR', 'UNE PAUSE ?']).slice(0, 5);
+    const n = steps.length;
+    const question = str(p.question, 'PEUT-IL ARRÊTER QUELQU’UN ?'), answer = str(p.answer, 'NON');
+    st.none = !CHAIN_CUES.some((k) => T[k]) && !T.c5;
+    st.tQ = first('question'); st.tNo = first('no'); st.tSlow = first('slow');
+    st.n = n;
+    st.tC = steps.map((s, i) => first('c' + (i + 1)));
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    st.q = mkTyper(root, question, 960, 120 + 22, 64, C.paper, { maxW: 1400 });
+    const qw = st.q.__w, qRight = 960 + qw / 2;
+    // chaîne
+    const widths = steps.map((s, i) => (i === n - 1 && n > 1 ? 250 : 300));
+    const sumW = widths.reduce((a, b) => a + b, 0);
+    const gap = n > 1 ? Math.max(110, Math.min(200, (1680 - sumW) / (n - 1))) : 0;
+    let x = (1920 - (sumW + gap * (n - 1))) / 2;
+    st.boxes = steps.map((s, i) => {
+      const w = widths[i], last = i === n - 1 && n > 1, h = last ? 120 : BH, cy = BY + BH / 2;
+      const b = { x, w, h, cy, g: g(root) };
+      const dashed = last;
+      if (!dashed) {
+        rect(b.g, -w / 2 + 10, -h / 2 + 10, w, h, 16, C.lime);
+        rect(b.g, -w / 2, -h / 2, w, h, 16, C.paper, C.ink, 8);
+        mkWrapped(b.g, s, 0, 0, w - 44, h - 34, 40, C.ink, {});
+      } else {
+        rect(b.g, -w / 2, -h / 2, w, h, 16, C.pocket, C.lime, 6, { 'stroke-dasharray': '18 12' });
+        mkWrapped(b.g, s, 0, 0, w - 44, h - 30, 36, C.lime, {});
+      }
+      x += w + gap;
+      return b;
+    });
+    st.arrows = [];
+    for (let i = 1; i < n; i++) {
+      const a = st.boxes[i - 1], b = st.boxes[i];
+      const ax = a.x + a.w + 16, bx = b.x - 16, y = BY + BH / 2;
+      const gr = g(root);
+      const shaft = line(gr, ax, y, ax, y, C.lime, 14);
+      const head = path(gr, 'M0 -24 L38 0 L0 24Z', C.lime, C.lime, 6);
+      st.arrows.push({ gr, shaft, head, ax, bx, y, dur: [0.27, 0.47, 0.8, 1.2][Math.min(i - 1, 3)] });
+    }
+    // tampon « NON »
+    st.no = g(root);
+    const sw = 250;
+    rect(st.no, -sw / 2 + 10, -66 + 10, sw, 132, 14, C.paper);
+    rect(st.no, -sw / 2, -66, sw, 132, 14, C.red, C.ink, 8);
+    fitW(text(st.no, answer, 0, 34, 96, C.ink, { anchor: 'middle' }), sw - 40);
+    st.noX = Math.min(1920 - 60 - sw / 2, qRight + 70 + sw / 2);
+    // horloge plate
+    st.clock = g(root);
+    circle(st.clock, 8, 8, 84, C.lime);
+    circle(st.clock, 0, 0, 84, C.paper, C.ink, 8);
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; line(st.clock, Math.sin(a) * 62, -Math.cos(a) * 62, Math.sin(a) * 72, -Math.cos(a) * 72, C.ink, i % 3 ? 3 : 6); }
+    st.hH = line(st.clock, 0, 0, 0, -40, C.ink, 9); st.hM = line(st.clock, 0, 0, 0, -58, C.ink, 6);
+    circle(st.clock, 0, 0, 9, C.red, C.ink, 3);
+    st.slowT = mkTyper(root, str(p.slow_text, 'ÇA PREND DU TEMPS'), 960, 590, 30, C.paper, { mono: true, maxW: 1200 });
+  }
+
+  function updChain(st, t) {
+    const none = st.none;
+    const tQ = st.tQ, tNo = st.tNo, tS = st.tSlow;
+    typeTo(st.q, none ? 1 : tQ == null ? 0 : prog(t, tQ, tQ + 0.9)); vis(st.q, none || (tQ != null && t >= tQ));
+    // tampon : un seul claquement
+    let ns = 0, rot = 8, ox = 0, oy = 0;
+    if (none) ns = 1;
+    else if (tNo != null && t >= tNo) { const q = prog(t, tNo, tNo + 0.14); ns = lerp(2.0, 1, E.in2(q)); const sh = shakeAt(t, tNo + 0.14, 7, 0.3); ox = sh[0]; oy = sh[1]; }
+    put(st.no, st.noX + ox, 112 + oy, rot, ns, ns, ns > 0.001 ? 1 : 0);
+    // boîtes et flèches
+    const pulse = tS != null && t >= tS ? 0.7 + 0.3 * Math.sin(2 * Math.PI * 0.85 * (t - tS) + Math.PI / 2) : 1;
+    st.boxes.forEach((b, i) => {
+      const tc = none ? -99 : st.tC[i];
+      const q = tc == null ? 0 : E.back(prog(t, tc, tc + 0.3));
+      put(b.g, b.x + b.w / 2, b.cy, 0, q, q, tc != null && t >= tc ? 1 : 0);
+      if (i > 0) {
+        const a = st.arrows[i - 1];
+        const pa = tc == null ? 0 : E.out2(prog(t, tc, tc + a.dur));
+        const xe = lerp(a.ax, a.bx, pa), headOn = pa > 0.02;
+        vis(a.gr, tc != null && t >= tc);
+        setA(a.shaft, 'x2', f2(Math.max(a.ax, xe - 20)));
+        vis(a.head, headOn);
+        setA(a.head, 'transform', `translate(${f2(xe - 38)} ${a.y})`);
+        setA(a.gr, 'opacity', f2(pa >= 1 ? pulse : 1));
+      }
+    });
+    // horloge + « ça prend du temps »
+    const cq = tS == null ? 0 : E.back(prog(t, tS, tS + 0.35));
+    put(st.clock, 960, 250, 0, cq, cq, cq > 0.001 ? 1 : 0);
+    const e = tS == null ? 0 : Math.max(0, t - tS);
+    setA(st.hM, 'transform', `rotate(${f2(e * 110)})`); setA(st.hH, 'transform', `rotate(${f2(e * 110 / 12 + 60)})`);
+    typeTo(st.slowT, tS == null ? 0 : prog(t, tS + 0.3, tS + 1.0)); vis(st.slowT, tS != null && t >= tS + 0.3);
+  }
+
+  ZV.define('dealer-week', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const T = {};
+      beats.forEach((b) => { if (b && b.do === 'cue' && typeof b.name === 'string' && isNum(b.t)) (T[b.name] || (T[b.name] = [])).push(b.t); });
+      Object.keys(T).forEach((k) => T[k].sort((a, c) => a - c));
+      const first = (n) => (T[n] ? T[n][0] : null);
+      const hasW = WEEK_CUES.some((n) => T[n]), hasC = CHAIN_CUES.some((n) => T[n]);
+      const mode = p.mode === 'chain' ? 'chain' : p.mode === 'week' ? 'week' : (hasC && !hasW ? 'chain' : 'week');
+      const st = { mode, T, first };
+      try { if (mode === 'chain') initChain(root, st, p); else initWeek(root, st, p); } catch (e) { st.err = e; }
+      return st;
+    },
+    update(st, t) {
+      if (!st || st.err) return;
+      t = isNum(t) ? t : 0;
+      try { if (st.mode === 'chain') updChain(st, t); else updWeek(st, t); } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/disguise-loop.js ==== */
 // Composant `disguise-loop` (épisode 5) : « On le reconnaît. On le sort. » Voir EP5-COMPONENTS.md.
 // Fond paper. Une entrée de casino générique, un œil plat, une silhouette SANS visage (déguisements = formes plates), deux mains qui poussent dehors.
@@ -5407,6 +5744,979 @@
         const v = lerp(from, to, E.out2(prog(t, ct.t0 + 0.08, ct.t0 + Math.min(1.0, Math.max(0.5, st.dur - ct.t0 - 0.2)))));
         ct.val.textContent = ZV.fr(v) + (cn.suffix || '');
       }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/floor-plan.js ==== */
+// Composant `floor-plan` (épisode 6) : le plan du casino vu de dessus, façon dessin d'architecte, et la liste des 13 principes. Voir EP6-COMPONENTS.md.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter. Aucun nom réel : un lieu générique.
+// Cues : draw, no-windows, no-clocks, low-ceiling, maze, sightlines, exit, others, you, carpet, mirrors, zero.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, rng } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
+  const tr = (n, x, y, r, s) => setA(n, 'transform', `translate(${f2(x)} ${f2(y)})` + (r ? ` rotate(${f2(r)})` : '') + (s !== undefined && s !== 1 ? ` scale(${f2(Math.max(s, 0.0001))})` : ''));
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  function T(parent, s, x, y, size, fill, o) {
+    o = o || {};
+    const est = (sz) => (o.mono ? mw(s, sz) : bw(s, sz));
+    if (o.maxW && est(size) > o.maxW) size = size * o.maxW / est(size);
+    const n = text(parent, s, x, y, size, fill, { mono: o.mono, anchor: o.anchor, weight: o.weight });
+    n.setAttribute('textLength', f2(est(size)));
+    n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    n.__size = size; n.__w = est(size);
+    return n;
+  }
+  // sticker plat centré sur (0,0)
+  function stk(parent, label, size, fill, textFill, h) {
+    h = h || Math.round(size * 1.7);
+    const w = Math.round(bw(label, size) + 56);
+    const grp = g(parent);
+    rect(grp, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, 14, fill, C.ink, 6);
+    T(grp, label, 0, size * 0.35, size, textFill, { anchor: 'middle' });
+    grp.__w = w; grp.__h = h;
+    return grp;
+  }
+  // bulle de BD paper bordée ink : lignes centrées, queue pointée vers (tx, ty) (coordonnées relatives au centre de la bulle)
+  function bubble(parent, lines, size, tx, ty) {
+    const w = Math.round(Math.max(...lines.map((l) => bw(l, size))) + 70), h = Math.round(lines.length * size * 1.22 + 44);
+    const grp = g(parent);
+    const dx = clamp(tx * 0.4, -w / 2 + 50, w / 2 - 50), by = h / 2;
+    const tail = `M${f2(dx - 36)} ${by - 4} L${f2(tx)} ${f2(ty)} L${f2(dx + 36)} ${by - 4} Z`;
+    path(grp, tail, C.ink, C.ink, 6).setAttribute('transform', 'translate(10 10)');
+    rect(grp, -w / 2 + 10, -h / 2 + 10, w, h, 22, C.ink);
+    path(grp, tail, C.paper, C.ink, 6);
+    rect(grp, -w / 2, -h / 2, w, h, 22, C.paper, C.ink, 6);
+    rect(grp, dx - 31, by - 9, 65, 13, 0, C.paper);
+    lines.forEach((l, i) => T(grp, l, 0, -h / 2 + 22 + size * 0.95 + i * size * 1.22, size, C.ink, { anchor: 'middle' }));
+    grp.__w = w; grp.__h = h;
+    return grp;
+  }
+  const popT = (n, x, y, rot, p) => { if (p <= 0) { vis(n, false); return; } const s = Math.max(0.0001, E.back(clamp(p))); vis(n, true); tr(n, x, y, rot, s); };
+
+  /* ---------- géométrie du plan (repère local 1120 × 730) ---------- */
+  const PW = 1120, PHT = 730;
+  const ISL = [
+    [80, 90, 260, 90], [400, 90, 200, 90], [680, 90, 160, 90],
+    [80, 260, 110, 170], [250, 260, 130, 90], [740, 260, 120, 170], [930, 230, 110, 200],
+    [240, 480, 160, 80], [480, 550, 220, 90], [780, 540, 150, 80]
+  ];
+  const CIR = { x: 560, y: 365, r: 110 };
+  const WINS = [[360, 20, 0], [620, 20, 0], [20, 200, 90], [20, 420, 90], [640, 710, 0], [1100, 330, 90]];
+  const CLKS = [[200, 52], [520, 52], [760, 52]];
+  const ENTR = [150, 710], EXITP = [950, 20];
+  const MAZE = [[150, 710], [150, 630], [440, 630], [440, 415], [220, 415], [220, 220], [900, 220], [900, 505], [600, 505]];
+  const ROUTE = [[600, 505], [1070, 505], [1070, 150], [950, 150], [950, 20]];
+  const MIRR = [[270, 462, 100, 16, 'h', 470], [722, 300, 16, 100, 'v', 730], [450, 184, 100, 16, 'h', 192], [934, 548, 16, 64, 'v', 942]];
+  const NAMED = ['no-windows', 'no-clocks', 'low-ceiling', 'maze', 'sightlines', 'exit'];
+
+  function poly(pts) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    return { pts, cum, len: cum[cum.length - 1], d: 'M' + pts.map((p) => p[0] + ' ' + p[1]).join(' L') };
+  }
+  function at(pl, s) {
+    s = clamp(s, 0, pl.len);
+    for (let i = 1; i < pl.pts.length; i++) if (s <= pl.cum[i] + 1e-6) { const k = (s - pl.cum[i - 1]) / Math.max(1e-6, pl.cum[i] - pl.cum[i - 1]); return [pl.pts[i - 1][0] + (pl.pts[i][0] - pl.pts[i - 1][0]) * k, pl.pts[i - 1][1] + (pl.pts[i][1] - pl.pts[i - 1][1]) * k]; }
+    return pl.pts[pl.pts.length - 1];
+  }
+  // pointillés (a, b) révélés sur la longueur d (chaîne mise en cache)
+  function dashes(node, d, a, b) {
+    d = Math.round(d);
+    if (node.__d === d) return;
+    node.__d = d;
+    if (d <= 0) { vis(node, false); return; }
+    const arr = []; let pos = 0;
+    while (pos < d) { const da = Math.min(a, d - pos); arr.push(da); pos += da; if (pos >= d) break; arr.push(b); pos += b; }
+    if (arr.length % 2) arr.push(5000);
+    else arr[arr.length - 1] = 5000;
+    node.setAttribute('stroke-dasharray', arr.join(' '));
+    vis(node, true);
+  }
+  const solid = (node, len, d) => {
+    d = Math.round(d * 2) / 2;
+    if (node.__d === d) return;
+    node.__d = d;
+    node.setAttribute('stroke-dasharray', `${f2(len)} ${f2(len + 10)}`);
+    node.setAttribute('stroke-dashoffset', f2(len - d));
+    vis(node, d > 0);
+  };
+
+  ZV.define('floor-plan', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cu = (n) => { const a = beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((x, y) => x - y); return a.length ? a[0] : null; };
+      const c = {};
+      ['draw', 'no-windows', 'no-clocks', 'low-ceiling', 'maze', 'sightlines', 'exit', 'others', 'you', 'carpet', 'mirrors', 'zero'].forEach((n) => { c[n] = cu(n); });
+      const principles = Array.isArray(P.principles) && P.principles.length ? P.principles.slice(0, 10).map(String) : ['PAS DE FENÊTRES', "PAS D'HORLOGES", 'PLAFONDS BAS', 'ALLÉES EN LABYRINTHE', 'MACHINES VISIBLES DE PARTOUT', 'SORTIE JAMAIS EN LIGNE DROITE'];
+      const unnamed = clamp(Math.round(num(P.unnamed, 7)), 0, 10);
+      const title = str(P.title, '13 PRINCIPES'), source = str(P.source, "D'APRÈS BILL FRIEDMAN, 2000"), youLab = str(P.you, 'TOI');
+      const hasList = P.list !== false;
+      const nRows = principles.length + unnamed;
+      const px = hasList ? 100 : 400, py = 70;
+      const st = { dur, c, hasList, nRows, nNamed: principles.length, px, py };
+      const uid = 'fp' + (++UID);
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+      const clip = sv('clipPath', { id: uid + 'c' }, defs);
+      rect(clip, 25, 25, PW - 50, PHT - 45, 0, '#000');
+      const pg = st.pg = g(root, { transform: `translate(${px} ${py})` });
+
+      /* ---- machines : positions calculées une fois ---- */
+      const mach = [];                                                           // [x, y, island, color]
+      const islG = [];
+      let col = 0;
+      /* moquette (au fond) */
+      st.carpetG = g(pg);
+      /* îlots */
+      ISL.forEach(([x, y, w, h], i) => {
+        const grp = g(pg), cx = x + w / 2, cy = y + h / 2;
+        rect(grp, -w / 2 + 6, -h / 2 + 6, w, h, 18, C.ink);
+        rect(grp, -w / 2, -h / 2, w, h, 18, C.paper, C.ink, 6);
+        const horiz = w >= h, Ls = horiz ? w : h, Ss = horiz ? h : w;
+        const cols = Ss >= 75 ? 2 : 1, per = cols === 1 ? clamp(Math.round(Ls / 45), 3, 6) : clamp(Math.round(Ls / 60), 2, 3);
+        for (let a = 0; a < cols; a++) for (let k = 0; k < per; k++) {
+          const u = -Ls / 2 + 30 + (Ls - 60) * (per === 1 ? 0.5 : k / (per - 1));
+          const v = cols === 1 ? 0 : (a === 0 ? -1 : 1) * 21;
+          const mx = horiz ? u : v, my = horiz ? v : u, red = (col++ % 2) === 0;
+          if (red) rect(grp, mx - 11, my - 11, 22, 22, 2, C.red, C.ink, 3); else rect(grp, mx - 11, my - 11, 22, 22, 2, C.ink, C.ink, 3);
+          mach.push([cx + mx, cy + my]);
+        }
+        grp.__c = [cx, cy];
+        islG.push(grp);
+      });
+      {
+        const grp = g(pg);
+        st.cirFill = circle(grp, 0, 0, CIR.r, C.paper, C.ink, 6);
+        st.cirRing = circle(grp, 0, 0, 62, 'none', C.ink, 4);
+        st.cirRing.setAttribute('stroke-dasharray', '10 10');
+        st.zero = T(grp, '0', 0, 56, 160, C.ink, { anchor: 'middle' });
+        grp.__c = [CIR.x, CIR.y];
+        st.cirG = grp;
+        // dents du cylindre autour du cercle (37 cases)
+        st.cyl = [];
+        const cg = g(pg);
+        for (let k = 0; k < 37; k++) {
+          const a = k / 37 * Math.PI * 2, s = Math.sin(a), co = -Math.cos(a);
+          st.cyl.push(line(cg, CIR.x + s * 117, CIR.y + co * 117, CIR.x + s * 125, CIR.y + co * 125, C.ink, 5, { 'stroke-linecap': 'butt' }));
+        }
+      }
+      st.islG = islG;
+
+      /* ---- moquette : chevrons sur la grille de 40 px, hors îlots ---- */
+      st.chev = [];
+      for (let gy = 0; gy < 17; gy++) for (let gx = 0; gx < 27; gx++) {
+        const cx = 40 + gx * 40, cy = 40 + gy * 40;
+        if (ISL.some(([x, y, w, h]) => cx > x - 16 && cx < x + w + 16 && cy > y - 16 && cy < y + h + 16)) continue;
+        if (Math.hypot(cx - CIR.x, cy - CIR.y) < CIR.r + 20) continue;
+        if (cx < 32 || cx > PW - 32 || cy < 32 || cy > PHT - 40) continue;
+        let best = 1e9, ang = 0;
+        for (const m of mach) { const d = Math.hypot(m[0] - cx, m[1] - cy); if (d < best) { best = d; ang = Math.atan2(m[1] - cy, m[0] - cx) * 180 / Math.PI; } }
+        const n = path(st.carpetG, 'M-5 -8 L5 0 L-5 8', 'none', C.ink, 3.5);
+        st.chev.push({ n, cx, cy, ang, dl: cx / PW * 0.5 });
+      }
+      st.carpetG.setAttribute('opacity', '0.55');
+
+      /* ---- tracés ---- */
+      const mz = st.mz = poly(MAZE);
+      const atEntrance = c.exit != null && c.you != null && c.exit < c.you;       // TOI n'a pas encore marché : il est à l'entrée
+      st.sp = atEntrance ? [150, 698] : [600, 505];
+      const rt = st.rt = poly(atEntrance ? MAZE.concat(ROUTE.slice(1)) : ROUTE);
+      st.ghost = MIRR.map((m) => {
+        const pts = MAZE.map(([x, y]) => (m[4] === 'h' ? [x, 2 * m[5] - y] : [2 * m[5] - x, y]));
+        const gg = g(pg, { 'clip-path': `url(#${uid}c)` });
+        const n = path(gg, poly(pts).d, 'none', C.pocket, 6);
+        n.setAttribute('stroke-dasharray', '1 9999'); n.setAttribute('opacity', '0.55');
+        return { g: gg, n, len: poly(pts).len };
+      });
+      st.mzN = path(pg, mz.d, 'none', C.ink, 8, { 'stroke-linecap': 'butt', 'stroke-linejoin': 'miter' });
+      st.rtN = path(pg, rt.d, 'none', C.ink, 9, { 'stroke-linecap': 'butt', 'stroke-linejoin': 'miter' });
+      // rayons : de l'entrée vers 14 machines
+      {
+        const sorted = mach.map((m) => ({ m, a: Math.atan2(m[1] - ENTR[1], m[0] - ENTR[0]) })).sort((p, q) => p.a - q.a);
+        st.rays = [];
+        for (let k = 0; k < 14; k++) {
+          const m = sorted[Math.round(k * (sorted.length - 1) / 13)].m;
+          st.rays.push({ n: line(pg, ENTR[0], ENTR[1] - 8, m[0], m[1], C.red, 4, { 'stroke-linecap': 'butt' }), x: m[0], y: m[1] });
+        }
+      }
+      st.straight = line(pg, st.sp[0], st.sp[1], EXITP[0], EXITP[1] + 6, C.red, 5, { 'stroke-linecap': 'butt' });
+      st.straight.setAttribute('stroke-dasharray', '14 10');
+      st.xg = g(pg);
+      line(st.xg, -22, -22, 22, 22, C.red, 8); line(st.xg, 22, -22, -22, 22, C.red, 8);
+      st.sTag = g(pg);
+      {
+        const lab = 'EN LIGNE DROITE', w = Math.round(mw(lab, 22) + 30);
+        rect(st.sTag, -w / 2 + 5, -17 + 5, w, 34, 6, C.ink);
+        rect(st.sTag, -w / 2, -17, w, 34, 6, C.red, C.ink, 4);
+        T(st.sTag, lab, 0, 8, 22, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+      }
+
+      /* ---- murs, fenêtres, horloges, ouvertures ---- */
+      st.walls = [
+        path(pg, 'M200 710 L1100 710 L1100 20 L1000 20', 'none', C.ink, 10, { 'stroke-linecap': 'square', 'stroke-linejoin': 'miter', pathLength: 1, 'stroke-dasharray': '1 1' }),
+        path(pg, 'M900 20 L20 20 L20 710 L100 710', 'none', C.ink, 10, { 'stroke-linecap': 'square', 'stroke-linejoin': 'miter', pathLength: 1, 'stroke-dasharray': '1 1' })
+      ];
+      st.furn = g(pg);
+      st.wins = WINS.map(([x, y, r]) => {
+        const grp = g(st.furn, { transform: `translate(${x} ${y}) rotate(${r})` });
+        rect(grp, -45, -8, 90, 16, 0, C.paper);
+        line(grp, -45, -8, 45, -8, C.ink, 2.5, { 'stroke-linecap': 'butt' }); line(grp, -45, 8, 45, 8, C.ink, 2.5, { 'stroke-linecap': 'butt' });
+        line(grp, -45, -8, -45, 8, C.ink, 2.5, { 'stroke-linecap': 'butt' }); line(grp, 45, -8, 45, 8, C.ink, 2.5, { 'stroke-linecap': 'butt' });
+        const plug = g(grp); rect(plug, -45, -8, 90, 16, 0, C.ink);
+        plug.__r = r;
+        return { g: grp, plug };
+      });
+      st.clks = CLKS.map(([x, y]) => {
+        const grp = g(st.furn, { transform: `translate(${x} ${y})` });
+        circle(grp, 0, 0, 18, C.paper, C.ink, 4);
+        line(grp, 0, 0, 0, -11, C.ink, 3); line(grp, 0, 0, 8, 4, C.ink, 3);
+        const xx = g(grp); line(xx, -17, -17, 17, 17, C.red, 5); line(xx, 17, -17, -17, 17, C.red, 5);
+        const l1 = xx.childNodes[0], l2 = xx.childNodes[1];
+        return { g: grp, x1: l1, x2: l2 };
+      });
+      st.labE = T(st.furn, 'ENTRÉE', ENTR[0], 758, 22, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+      path(st.furn, `M${ENTR[0] - 12} 738 L${ENTR[0] + 12} 738 L${ENTR[0]} 721 Z`, C.ink, C.ink, 3);
+      st.labS = T(st.furn, 'SORTIE', EXITP[0], 8, 22, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+
+      /* ---- miroirs ---- */
+      st.mirrors = MIRR.map(([x, y, w, h, o]) => {
+        const grp = g(pg), cx = x + w / 2, cy = y + h / 2;
+        rect(grp, -w / 2 + 5, -h / 2 + 5, w, h, 3, C.ink);
+        rect(grp, -w / 2, -h / 2, w, h, 3, C.paper, C.ink, 4);
+        if (o === 'h') { line(grp, -w / 2 + 14, 4, -w / 2 + 34, -4, C.ink, 3); line(grp, -w / 2 + 40, 4, -w / 2 + 60, -4, C.ink, 3); }
+        else { line(grp, -3, -h / 2 + 10, 3, -h / 2 + 24, C.ink, 3); line(grp, -3, -h / 2 + 30, 3, -h / 2 + 44, C.ink, 3); }
+        grp.__c = [cx, cy];
+        return grp;
+      });
+
+      /* ---- TOI ---- */
+      st.toi = g(pg);
+      circle(st.toi, 0, 0, 18, C.lime, C.ink, 5);
+      {
+        const tl = text(st.toi, youLab, 28, 8, 22, C.ink, { mono: true, weight: 800 });
+        tl.setAttribute('stroke', C.paper); tl.setAttribute('stroke-width', 7); tl.setAttribute('paint-order', 'stroke'); tl.setAttribute('stroke-linejoin', 'round');
+      }
+
+      /* ---- autocollants, bulles, légendes (superposés, gérés en créneaux) ---- */
+      st.ovs = [];
+      const oAdd = (node, x, y, rot, t0, slot, life) => { node.setAttribute('visibility', 'hidden'); if (t0 != null) st.ovs.push({ n: node, x, y, rot, t0, slot, life }); };
+      const sLow = stk(pg, 'PLAFOND BAS', 46, C.red, C.ink, 72);
+      oAdd(sLow, 560, 365, -6, c['low-ceiling'], 'S', 3.0);
+      const sLost = stk(pg, 'PERDU ?', 56, C.paper, C.ink, 84);
+      oAdd(sLost, 760, 410, -4, c.you != null ? c.you + 3.2 : null, 'S');
+      const bNon = bubble(pg, ["NON. TU ES EXACTEMENT", "LÀ OÙ JE T'AI MIS."], 40, 62, 150);
+      oAdd(bNon, 538, 325, 0, c.you != null ? c.you + 4.4 : null, 'S', 4.5);
+      const bMir = bubble(pg, ['JE CROIS QUE JE SUIS', 'DÉJÀ PASSÉ ICI.'], 40, 62, 150);
+      oAdd(bMir, 538, 325, 0, c.mirrors != null ? c.mirrors + 2.0 : null, 'S', 2.6);
+      const sMir = stk(pg, 'LES MIROIRS SONT LÀ POUR ÇA', 40, C.paper, C.ink, 66);
+      oAdd(sMir, 560, 365, -2, c.mirrors != null ? c.mirrors + 4.6 : null, 'S');
+      const sZero = stk(pg, 'LE ZÉRO EST DANS LE PLAN', 42, C.paper, C.ink, 68);
+      oAdd(sZero, 560, 44, -2, c.zero != null ? c.zero + 0.6 : null, 'S');
+      const mkLeg = (lab) => { const grp = g(pg); const w = Math.round(mw(lab, 26) + 40); rect(grp, -w / 2, -18, w, 36, 4, C.ink); T(grp, lab, 0, 9, 26, C.paper, { mono: true, anchor: 'middle', weight: 800 }); return grp; };
+      oAdd(mkLeg("VISIBLES DÈS L'ENTRÉE"), 560, 745, 0, c.sightlines != null ? c.sightlines + 0.5 : null, 'L');
+      oAdd(mkLeg('LES MOTIFS POINTENT VERS LES MACHINES'), 560, 745, 0, c.carpet != null ? c.carpet + 1.0 : null, 'L');
+      st.ovs.sort((a, b) => a.t0 - b.t0);
+      st.ovs.forEach((o, i) => { o.out = o.life ? o.t0 + o.life : null; for (let j = i + 1; j < st.ovs.length; j++) if (st.ovs[j].slot === o.slot && st.ovs[j].t0 > o.t0) { o.out = o.out == null ? st.ovs[j].t0 : Math.min(o.out, st.ovs[j].t0); break; } });
+
+      /* ---- liste des principes ---- */
+      st.list = g(root);
+      if (hasList) {
+        const L = st.list, LX = 1270;
+        {
+          const w = Math.round(bw(title, 52) + 70);
+          rect(L, LX + 8, 90 + 8, w, 70, 12, C.lime);
+          rect(L, LX, 90, w, 70, 12, C.ink, C.ink, 4);
+          T(L, title, LX + w / 2, 90 + 52, 52, C.lime, { anchor: 'middle' });
+        }
+        const pitch = Math.min(40, 520 / Math.max(1, nRows));
+        st.rows = [];
+        for (let i = 0; i < nRows; i++) {
+          const y = 190 + i * pitch, named = i < principles.length, r = { i, named };
+          const rg = g(L);
+          line(rg, LX, y + pitch - 1, 1820, y + pitch - 1, '#CFC9B8', 2);
+          if (named) {
+            const lw = mw(principles[i], 26) + 16;
+            r.hl = rect(rg, LX + 38, y + 4, Math.min(lw, 500), pitch - 8, 4, C.lime);
+            T(rg, principles[i], LX + 46, y + pitch * 0.7, 26, C.ink, { mono: true, weight: 800, maxW: 490 });
+          } else rect(rg, LX + 46, y + pitch / 2 - 7, 260, 14, 0, C.pocket);
+          rect(rg, LX + 2, y + pitch / 2 - 13, 26, 26, 3, C.paper, C.ink, 4);
+          const ck = g(rg);
+          const d = `M${LX + 7} ${y + pitch / 2} L${LX + 14} ${y + pitch / 2 + 8} L${LX + 25} ${y + pitch / 2 - 12}`;
+          path(ck, d, 'none', C.ink, 11, { 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+          r.ck = path(ck, d, 'none', C.lime, 6, { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', pathLength: 1, 'stroke-dasharray': '1 1' });
+          r.ckg = ck; r.y = y;
+          st.rows.push(r);
+        }
+        st.count = g(L);
+        T(st.count, `${nRows} / ${nRows}`, LX, 756, 42, C.ink, { mono: true, weight: 800 });
+        T(L, source, LX, 800 - 8, 22, C.ink, { mono: true, weight: 800, maxW: 540 });
+      }
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { c } = st;
+        const has = (x) => x != null && t >= x;
+        const pr = (t0, d) => (t0 == null ? 0 : prog(t, t0, t0 + d));
+
+        /* ---- dessin initial : sans cue `draw`, le plan est déjà fait ---- */
+        const td = c.draw;
+        const wallP = td == null ? 1 : pr(td, 1.0);
+        for (const w of st.walls) { vis(w, wallP > 0); setA(w, 'stroke-dashoffset', f2(1 - wallP)); }
+        const fP = td == null ? 1 : pr(td + 1.0, 0.25);
+        op(st.furn, fP);
+        st.islG.forEach((grp, i) => {
+          const p = td == null ? 1 : pr(td + 1.0 + i * 0.12, 0.32);
+          if (p <= 0) { vis(grp, false); return; }
+          vis(grp, true); tr(grp, grp.__c[0], grp.__c[1], 0, E.back(p));
+        });
+        {
+          const p = td == null ? 1 : pr(td + 1.0 + 10 * 0.12, 0.32);
+          const zp = c.zero == null ? 0 : pr(c.zero, 0.45);
+          if (p <= 0) vis(st.cirG, false);
+          else { vis(st.cirG, true); tr(st.cirG, st.cirG.__c[0], st.cirG.__c[1], 0, E.back(p)); }
+          setA(st.cirFill, 'fill', zp > 0.001 ? C.lime : C.paper);
+          op(st.cirRing, 1 - clamp(zp * 3));
+          const zs = zp > 0 ? Math.max(0.0001, E.back(zp)) : 0;
+          setA(st.zero, 'transform', `scale(${f2(zs || 0.0001)})`);
+          vis(st.zero, zp > 0.001);
+          st.cyl.forEach((l, k) => op(l, c.zero == null ? 0 : pr(c.zero + 0.3 + k * 0.015, 0.1)));
+        }
+        const pgOn = td == null || t >= td;
+        vis(st.pg, pgOn);
+
+        /* ---- fenêtres bouchées ---- */
+        st.wins.forEach((w, i) => { const p = c['no-windows'] == null ? 0 : E.out2(pr(c['no-windows'] + i * (4 / 30), 0.12)); setA(w.plug, 'transform', `scale(${f2(Math.max(p, 0.0001))} 1)`); vis(w.plug, p > 0); });
+        /* ---- horloges barrées puis retirées ---- */
+        st.clks.forEach((k, i) => {
+          const t0 = c['no-clocks'];
+          const p = t0 == null ? 0 : pr(t0 + i * 0.12, 0.2);
+          const gone = t0 == null ? 0 : pr(t0 + 0.75 + i * 0.1, 0.2);
+          op(k.g, 1 - gone);
+          vis(k.x1.parentNode, p > 0);
+          setA(k.x1, 'stroke-dasharray', `${f2(48 * p)} 100`); setA(k.x2, 'stroke-dasharray', `${f2(48 * clamp(p * 1.4 - 0.4))} 100`);
+        });
+
+        /* ---- moquette ---- */
+        const t0c = c.carpet;
+        st.chev.forEach((ch) => {
+          const a = t0c == null ? 0 : pr(t0c + ch.dl, 0.15);
+          if (a <= 0) { vis(ch.n, false); ch.n.__k = null; return; }
+          let an = ch.ang; an = an > 180 ? an - 360 : an;
+          const r = E.io2(pr(t0c + 0.9, 20 / 30));
+          const key = Math.round(r * 200) + ':' + Math.round(a * 4);
+          if (ch.n.__k === key) return;
+          ch.n.__k = key;
+          vis(ch.n, true);
+          ch.n.setAttribute('transform', `translate(${ch.cx} ${ch.cy}) rotate(${f2(an * r)}) scale(${f2(0.4 + 0.6 * a)})`);
+        });
+
+        /* ---- chemin, rayons, sortie ---- */
+        dashes(st.mzN, c.maze == null ? 0 : st.mz.len * E.io2(pr(c.maze, 2.0)), 18, 12);
+        st.rays.forEach((r, k) => {
+          const p = c.sightlines == null ? 0 : E.out2(pr(c.sightlines + k * (12 / 30 / 14), 0.2));
+          vis(r.n, p > 0);
+          setA(r.n, 'x2', f2(150 + (r.x - 150) * p)); setA(r.n, 'y2', f2(702 + (r.y - 702) * p));
+        });
+        {
+          const te = c.exit;
+          const sp = te == null ? 0 : E.out2(pr(te, 0.55));
+          vis(st.straight, sp > 0);
+          setA(st.straight, 'x2', f2(st.sp[0] + (EXITP[0] - st.sp[0]) * sp)); setA(st.straight, 'y2', f2(st.sp[1] + (EXITP[1] + 6 - st.sp[1]) * sp));
+          const mx = (st.sp[0] + EXITP[0]) / 2, my = (st.sp[1] + EXITP[1]) / 2;
+          const tp = te == null ? 0 : pr(te + 0.45, 0.3);
+          popT(st.sTag, 790, 472, -3, tp);
+          const xp = te == null ? 0 : pr(te + 0.85, 0.2);
+          popT(st.xg, mx, my - 26, 0, xp);
+          solid(st.rtN, st.rt.len, te == null ? 0 : st.rt.len * E.io2(pr(te + 1.2, 1.6)));
+        }
+
+        /* ---- miroirs et copies fantômes ---- */
+        st.mirrors.forEach((m, i) => { const p = c.mirrors == null ? 0 : pr(c.mirrors + i * 0.15, 0.3); if (p <= 0) vis(m, false); else { vis(m, true); tr(m, m.__c[0], m.__c[1], 0, E.back(p)); } });
+        st.ghost.forEach((gh, i) => dashes(gh.n, c.mirrors == null ? 0 : st.mz.len * E.io2(pr(c.mirrors + 0.9 + i * 0.35, 1.0)), 8, 10));
+
+        /* ---- TOI ---- */
+        {
+          const ty = c.you, endPt = MAZE[MAZE.length - 1];
+          const firsts = [ty, c.exit, c.mirrors].filter((x) => x != null);
+          const tv = firsts.length ? Math.min(...firsts) : null;
+          if (tv == null || t < tv) vis(st.toi, false);
+          else {
+            let pos = endPt;
+            if (ty != null) pos = at(st.mz, st.mz.len * clamp((t - ty) / 3));
+            vis(st.toi, true); setA(st.toi, 'opacity', f2(clamp((t - tv) / 0.2)));
+            tr(st.toi, pos[0], pos[1], 0, 1);
+          }
+        }
+
+        /* ---- stickers / bulles / légendes : un seul à la fois par créneau ---- */
+        for (const o of st.ovs) {
+          const pin = pr(o.t0, 0.28), pout = o.out == null ? 0 : pr(o.out, 0.2);
+          if (pin <= 0 || pout >= 1) { vis(o.n, false); continue; }
+          vis(o.n, true);
+          tr(o.n, o.x, o.y, o.rot, Math.max(0.0001, E.back(pin)));
+          setA(o.n, 'opacity', f2(clamp(pin * 5) * (1 - pout)));
+        }
+
+        /* ---- liste ---- */
+        if (st.hasList) {
+          const lp = td == null ? 1 : pr(td, 0.4);
+          op(st.list, lp); setA(st.list, 'transform', `translate(${f2(40 * (1 - E.out3(lp)))} 0)`);
+          const tOth = c.others;
+          st.rows.forEach((r) => {
+            let tc = null;
+            if (r.named) { const nm = r.i < NAMED.length ? NAMED[r.i] : null; tc = nm ? c[nm] : null; }
+            else if (tOth != null) tc = tOth + (r.i - st.nNamed) * 0.1;
+            const p = tc == null ? 0 : pr(tc, 0.22);
+            setA(r.ck, 'stroke-dashoffset', f2(1 - E.out2(p)));
+            vis(r.ckg, p > 0);
+            if (r.hl) op(r.hl, p > 0 ? 1 : 0);
+          });
+          const cp = tOth == null ? 0 : pr(tOth + (st.nRows - st.nNamed) * 0.1 + 0.1, 0.25);
+          if (cp <= 0) vis(st.count, false);
+          else { vis(st.count, true); const s = 1.08 - 0.08 * E.out3(cp); setA(st.count, 'transform', `translate(1270 756) scale(${f2(s)}) translate(-1270 -756)`); setA(st.count, 'opacity', f2(clamp(cp * 4))); }
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/head-counter.js ==== */
+// Composant `head-counter` (épisode 6, S4 « Des jetons qui ne pèsent rien ») : ce que les objets font à tes comptes. Voir EP6-COMPONENTS.md.
+// Mode weigh : un billet qui pèse (plié, hésitant, posé sur une balance) face à un jeton qui glisse sans poids. Cues : bill, fold, weight, slide, clack, back, again, untag.
+// Mode head  : la tête, l'écran de comptes qui se brouille. Cues : cash, chips, glass-1, glass-2, seat, no-clock, memory, ball.
+// Aplats, bordures, ombres dures ; aucun dégradé / flou / lueur / filter. « Flou » = chiffres doublés décalés. Rien ne clignote (un seul fondu ou mouvement par étape).
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const num = (v, d) => (isNum(v) ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const setT = (n, s) => { if (n.textContent !== s) n.textContent = s; };
+  const measure = (n) => {
+    try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ }
+    return (n.textContent || '').length * (parseFloat(n.getAttribute('font-size')) || 30) * 0.62;
+  };
+  // texte centré sur (cx,cy) dans une boîte maxW × maxH : 1 ligne si possible, sinon 2 lignes équilibrées, sinon police réduite
+  function mkWrapped(parent, s, cx, cy, maxW, maxH, size0, fill, o) {
+    o = o || {};
+    const grp = g(parent), lh = 1.08;
+    const n1 = text(grp, s, cx, cy + size0 * 0.35, size0, fill, { anchor: 'middle', mono: o.mono });
+    let w = measure(n1);
+    if (w <= maxW) return grp;
+    const words = s.split(/\s+/);
+    if (words.length < 2) { const k = maxW / w; n1.setAttribute('font-size', f2(size0 * k)); n1.setAttribute('y', f2(cy + size0 * k * 0.35)); return grp; }
+    let best = 1, bd = 1e9;
+    for (let j = 1; j < words.length; j++) { const d = Math.abs(words.slice(0, j).join(' ').length - words.slice(j).join(' ').length); if (d < bd) { bd = d; best = j; } }
+    n1.textContent = words.slice(0, best).join(' ');
+    const n2 = text(grp, words.slice(best).join(' '), cx, 0, size0, fill, { anchor: 'middle', mono: o.mono });
+    let size = Math.min(size0, maxH / (2 * lh));
+    n1.setAttribute('font-size', f2(size)); n2.setAttribute('font-size', f2(size));
+    w = Math.max(measure(n1), measure(n2));
+    if (w > maxW) { size *= maxW / w; n1.setAttribute('font-size', f2(size)); n2.setAttribute('font-size', f2(size)); }
+    n1.setAttribute('y', f2(cy - lh * size / 2 + size * 0.35)); n2.setAttribute('y', f2(cy + lh * size / 2 + size * 0.35));
+    return grp;
+  }
+  function fitW(n, maxW) { const w = measure(n); if (w > maxW) n.setAttribute('font-size', f2((parseFloat(n.getAttribute('font-size')) || 30) * maxW / w)); return Math.min(w, maxW); }
+  const mix = (a, b, k) => { const h = (s, i) => parseInt(s.slice(1 + i * 2, 3 + i * 2), 16); let r = '#'; for (let i = 0; i < 3; i++) r += ('0' + Math.round(h(a, i) + (h(b, i) - h(a, i)) * k).toString(16)).slice(-2); return r; };
+  let UID = 0;
+
+  const WEIGH_CUES = ['bill', 'fold', 'weight', 'slide', 'clack', 'back', 'again', 'untag'];
+  const HEAD_CUES = ['cash', 'chips', 'glass-1', 'glass-2', 'seat', 'no-clock', 'memory', 'ball'];
+
+  /* =========================================================== */
+  /*  MODE weigh                                                  */
+  /* =========================================================== */
+  const A_X = 1170, B_X = 1716, CHIP_Y = 440;     // jeton : repos / contre le bord
+  const DISH_Y = 620, BILL_REST_Y = DISH_Y - 130, HOVER_Y = 300;
+
+  function billFace(par, part, label, uid) {
+    const grp = g(par);
+    let fillN = null;
+    if (part === 'all') fillN = rect(grp, -260, -130, 520, 260, 14, C.paper, C.ink, 8);
+    else if (part === 'L') {
+      fillN = path(grp, 'M0 -130 L-246 -130 Q-260 -130 -260 -116 L-260 116 Q-260 130 -246 130 L0 130 Z', C.paper);
+      path(grp, 'M0 -130 L-246 -130 Q-260 -130 -260 -116 L-260 116 Q-260 130 -246 130 L0 130', 'none', C.ink, 8);
+    } else {
+      fillN = path(grp, 'M0 -130 L246 -130 Q260 -130 260 -116 L260 116 Q260 130 246 130 L0 130 Z', C.paper);
+      path(grp, 'M0 -130 L246 -130 Q260 -130 260 -116 L260 116 Q260 130 246 130 L0 130', 'none', C.ink, 8);
+    }
+    const cg = g(grp);
+    if (part !== 'all') {
+      const defs = sv('defs', null, grp), cp = sv('clipPath', { id: uid + part }, defs);
+      sv('rect', part === 'L' ? { x: -270, y: -140, width: 270, height: 280 } : { x: 0, y: -140, width: 270, height: 280 }, cp);
+      cg.setAttribute('clip-path', `url(#${uid + part})`);
+    }
+    rect(cg, -256, -126, 52, 252, 0, C.lime);
+    line(cg, -188, -104, 238, -104, C.ink, 4); line(cg, -188, 104, 238, 104, C.ink, 4);
+    fitW(text(cg, label, -58, 42, 120, C.ink, { anchor: 'middle' }), 262);
+    // rosace géométrique plate (aucun motif de vrai billet)
+    let d = '';
+    for (let i = 0; i < 24; i++) { const a = i * Math.PI / 12, r = i % 2 ? 40 : 64; d += (i ? 'L' : 'M') + f2(170 + Math.sin(a) * r) + ' ' + f2(Math.cos(a) * r); }
+    circle(cg, 170, 0, 76, 'none', C.ink, 5);
+    path(cg, d + 'Z', C.lime, C.ink, 4);
+    circle(cg, 170, 0, 18, C.ink);
+    return fillN;
+  }
+
+  function initWeigh(root, st, p) {
+    const T = st.T, first = st.first;
+    const uid = 'hcb' + (++UID);
+    const label = str(p.bill, '50 €'), chipTxt = str(p.chip, '1 €');
+    const tagsIn = Array.isArray(p.tags) && p.tags.length ? p.tags.map((x) => str(x, '')).filter(Boolean).slice(0, 2) : ['LES COURSES', 'UN BOUT DE LOYER'];
+    const gameTxt = str(p.game, 'UN JEU');
+    const none = !WEIGH_CUES.some((n) => T[n]);
+    const fo = (names) => { let r = null; names.forEach((n) => { const v = first(n); if (v != null && (r == null || v < r)) r = v; }); return r; };
+    st.tBill = none ? -99 : (fo(['bill', 'fold', 'weight', 'untag']) != null ? fo(['bill', 'fold', 'weight', 'untag']) : -99);
+    st.tChip = none ? -99 : (fo(['slide', 'clack', 'back', 'again', 'untag']) != null ? fo(['slide', 'clack', 'back', 'again', 'untag']) : -99);
+    st.tFold = first('fold'); st.tWeight = first('weight'); st.tUntag = first('untag');
+    st.clacks = (T.clack || []).slice();
+    // déplacements du jeton
+    const mv = [];
+    (T.slide || []).forEach((t) => mv.push({ t, to: B_X, kind: 'go' }));
+    (T.again || []).forEach((t) => mv.push({ t, to: B_X, kind: 'go' }));
+    (T.back || []).forEach((t) => mv.push({ t, to: A_X, kind: 'back' }));
+    mv.sort((a, b) => a.t - b.t);
+    mv.forEach((m, i) => {
+      if (m.kind === 'go') { const nc = st.clacks.find((c) => c > m.t + 0.2); m.d = nc != null ? clamp(nc - m.t, 0.25, 2.2) : 0.6; } else m.d = 0.7;
+      m.ease = m.kind === 'go' ? E.in2 : E.io2;
+      m.from = A_X;
+      if (i > 0) { const q = mv[i - 1]; m.from = lerp(q.from, q.to, q.ease(prog(m.t, q.t, q.t + q.d))); }
+    });
+    st.moves = mv;
+
+    rect(root, 0, 0, 1920, 1080, 0, C.paper);
+    /* ---- gauche : balance + billet ---- */
+    st.lg = g(root);
+    rect(st.lg, 450, 640, 60, 150, 0, C.ink);                                 // colonne
+    path(st.lg, 'M 340 812 L 620 812 L 590 780 L 370 780 Z', C.ink, C.ink, 6);   // pied
+    st.dish = g(st.lg);
+    path(st.dish, 'M -330 0 L 330 0 L 270 40 L -270 40 Z', C.ink, C.ink, 6);
+    rect(st.dish, -330, -6, 660, 10, 3, C.lime, C.ink, 4);
+    st.bill = g(st.lg);
+    st.bSh = rect(st.bill, -250, -120, 520, 260, 14, C.ink);
+    st.flat = g(st.bill); billFace(st.flat, 'all', label, uid);
+    st.fold = g(st.bill);
+    st.fL = g(st.fold); billFace(st.fL, 'L', label, uid);
+    st.fR = g(st.fold); st.rFill = billFace(st.fR, 'R', label, uid);
+    st.crease = line(st.fold, 0, -126, 0, 126, C.ink, 4);
+    // étiquettes Dymo (ficelles + rubans ink)
+    st.tags = tagsIn.map((s, i) => {
+      const sg = i === 0 ? -1 : 1;
+      const str1 = line(st.lg, 0, 0, 0, 0, C.ink, 4);
+      const tg = g(st.lg);
+      const tx = text(tg, s, 0, 0, 26, C.paper, { anchor: 'middle', mono: true });
+      const w = fitW(tx, 300) + 40;
+      rect(tg, -w / 2 + 6, -10 + 6, w, 62, 6, C.ink);
+      const rr = rect(tg, -w / 2, -10, w, 62, 6, C.ink, C.ink, 4);
+      rect(tg, -w / 2 + 6, -4, w - 12, 50, 3, 'none', C.paper, 2);
+      circle(tg, 0, -1, 5, C.lime, C.paper, 2);
+      tg.appendChild(tx); tx.setAttribute('y', 38);
+      return { sg, str1, tg, rr };
+    });
+    // stickers
+    st.sHes = g(st.lg); ZV.sticker(st.sHes, 380, 84, C.lime, 'TU HÉSITES', 50, C.ink, { sh: 8 });
+    st.sWei = g(st.lg); ZV.sticker(st.sWei, 470, 84, C.ink, 'IL A UN POIDS', 50, C.paper, { sh: 8 });
+
+    /* ---- droite : jeton ---- */
+    line(root, 960, 0, 960, 1080, C.ink, 6);
+    st.rg = g(root);
+    rect(st.rg, 990, 560, 940, 160, 0, C.ink);
+    line(st.rg, 1010, 640, 1900, 640, C.lime, 4, { 'stroke-dasharray': '22 18' });
+    rect(st.rg, 1836, 380, 34, 340, 4, C.red, C.ink, 6);
+    st.chip = g(st.rg);
+    circle(st.chip, 10, 10, 120, C.ink);
+    circle(st.chip, 0, 0, 120, C.white, C.ink, 8);
+    for (let k = 0; k < 8; k++) { const n = g(st.chip, { transform: `rotate(${k * 45})` }); rect(n, -16, -116, 32, 38, 4, C.lime, C.ink, 4); }
+    circle(st.chip, 0, 0, 74, C.white, C.ink, 5);
+    text(st.chip, chipTxt, 0, 22, 64, C.ink, { anchor: 'middle', mono: true });
+    st.spark = [-130, -90, -50].map((a) => ({ a: a * Math.PI / 180, n: line(st.rg, 0, 0, 0, 0, C.ink, 9) }));
+    st.sGame = g(st.rg); ZV.sticker(st.sGame, 300, 88, C.lime, gameTxt, 54, C.ink, { sh: 9 });
+  }
+
+  function updWeigh(st, t) {
+    const tw = st.tWeight, tf = st.tFold, tU = st.tUntag;
+    /* billet : plié (accordéon par moitiés) */
+    let f = 0;
+    if (tf != null) {
+      const e = t - tf;
+      if (e > 0) f = e < 0.33 ? E.io2(e / 0.33) : e < 0.9 ? 1 : e < 1.25 ? lerp(1, 0.4, E.io2((e - 0.9) / 0.35)) : e < 1.5 ? 0.4 : e < 1.8 ? lerp(0.4, 1, E.io2((e - 1.5) / 0.3)) : 1;
+    }
+    if (tw != null) f *= 1 - E.io2(prog(t, tw, tw + 0.25));
+    const s = 1 - 0.5 * f;
+    const folded = f > 0.002;
+    vis(st.flat, !folded); vis(st.fold, folded);
+    if (folded) {
+      setA(st.fL, 'transform', `scale(${f2(s)} 1)`); setA(st.fR, 'transform', `scale(${f2(s)} 1)`);
+      setA(st.rFill, 'fill', mix(C.paper, '#D6D0BF', Math.min(1, f)));
+    }
+    setA(st.bSh, 'x', f2(-260 * s + 10)); setA(st.bSh, 'width', f2(520 * s));
+
+    /* billet : position */
+    const en = prog(t, st.tBill, st.tBill + 0.55);
+    const bob = (x) => 3 * Math.sin(x * 2.1);
+    const hover = (x) => lerp(-250, HOVER_Y, E.back(prog(x, st.tBill, st.tBill + 0.55))) + bob(Math.min(x, tw == null ? 1e9 : tw));
+    let cy = hover(t), rot = lerp(-9, 0, E.out3(en));
+    let dep = 0, tImp = null;
+    if (tw != null) {
+      tImp = tw + 0.3;
+      if (t >= tw) {
+        const q = prog(t, tw, tImp);
+        cy = lerp(hover(tw), BILL_REST_Y, E.in2(q)); rot = lerp(rot, 0, q);
+        if (t > tImp) { const tau = t - tImp; dep = 60 * (1 - Math.exp(-6 * tau) * Math.cos(16 * tau)); cy = BILL_REST_Y + dep; rot = 0; }
+      }
+    }
+    const bOn = t >= st.tBill;
+    const sh = tImp != null ? shakeAt(t, tImp, 8, 0.4) : [0, 0];
+    setA(st.lg, 'transform', `translate(${f2(sh[0])} ${f2(sh[1])})`);
+    put(st.bill, 480, cy, rot, 1, 1, bOn ? 1 : 0);
+    setA(st.dish, 'transform', `translate(480 ${f2(DISH_Y + dep)})`);
+
+    /* étiquettes */
+    const r = rot * Math.PI / 180;
+    st.tags.forEach((tag, i) => {
+      const lx = tag.sg * 130 * s, ly = 130;
+      const ax = 480 + Math.cos(r) * lx - Math.sin(r) * ly, ay = cy + Math.sin(r) * lx + Math.cos(r) * ly;
+      let tx = 480 + tag.sg * 138 + 3 * Math.sin(t * 2.2 + i * 1.9), ty = ay + 38, tr = 0, on = bOn;
+      let e = 0;
+      if (tU != null) e = t - (tU + i * 0.14);
+      if (e > 0) { tx += tag.sg * 90 * e; ty += 0.5 * 2700 * e * e; tr = tag.sg * 170 * e; if (e > 1.3) on = false; }
+      vis(tag.tg, on); vis(tag.str1, on);
+      if (!on) return;
+      setA(tag.tg, 'transform', `translate(${f2(tx)} ${f2(ty)}) rotate(${f2(tr)})`);
+      if (e > 0) { setA(tag.str1, 'x1', f2(tx)); setA(tag.str1, 'y1', f2(ty + 3)); setA(tag.str1, 'x2', f2(tx - Math.sin(tr * Math.PI / 180) * -26)); setA(tag.str1, 'y2', f2(ty - 26)); }
+      else { setA(tag.str1, 'x1', f2(ax)); setA(tag.str1, 'y1', f2(ay)); setA(tag.str1, 'x2', f2(tx)); setA(tag.str1, 'y2', f2(ty + 3)); }
+    });
+
+    /* stickers de la scène gauche */
+    let hs = 0;
+    if (tf != null) hs = E.back(prog(t, tf + 1.25, tf + 1.5));
+    if (tw != null && t >= tw) hs = Math.min(hs, 1 - prog(t, tw, tw + 0.15));
+    put(st.sHes, 480, 108, -3, hs, hs, hs > 0.001 ? 1 : 0);
+    const ws = tw != null ? E.back(prog(t, tw + 0.35, tw + 0.65)) : 0;
+    put(st.sWei, 480, 108, -2, ws, ws, ws > 0.001 ? 1 : 0);
+
+    /* jeton */
+    const cp = E.back(prog(t, st.tChip, st.tChip + 0.35));
+    let x = A_X, lastKind = null;
+    for (let i = 0; i < st.moves.length; i++) {
+      const m = st.moves[i];
+      if (t < m.t) break;
+      x = lerp(m.from, m.to, m.ease(prog(t, m.t, m.t + m.d))); lastKind = m;
+    }
+    if (lastKind && lastKind.to === B_X && t >= lastKind.t + lastKind.d) {
+      for (let i = 0; i < st.clacks.length; i++) { const c = st.clacks[i]; if (t >= c && t < c + 0.22) x -= 12 * Math.sin(Math.PI * (t - c) / 0.22); }
+    }
+    put(st.chip, x, CHIP_Y, 0, cp, cp, t >= st.tChip ? 1 : 0);
+    // éclat plat de 3 traits au claquement
+    let lc = null;
+    for (let i = 0; i < st.clacks.length; i++) if (st.clacks[i] <= t) lc = st.clacks[i];
+    const ce = lc == null ? 9 : t - lc;
+    st.spark.forEach((sp) => {
+      const q = ce / 0.3;
+      if (q >= 1) { vis(sp.n, false); return; }
+      const ro = 14 + 56 * E.out2(q), ri = 10 + 52 * E.in2(q);
+      vis(sp.n, true);
+      setA(sp.n, 'x1', f2(1851 + Math.cos(sp.a) * ri)); setA(sp.n, 'y1', f2(376 + Math.sin(sp.a) * ri));
+      setA(sp.n, 'x2', f2(1851 + Math.cos(sp.a) * ro)); setA(sp.n, 'y2', f2(376 + Math.sin(sp.a) * ro));
+    });
+    // étiquette « UN JEU » sur le jeton (après la chute des étiquettes du billet)
+    const gp = tU != null ? E.back(prog(t, tU + 0.55, tU + 0.85)) : 0;
+    put(st.sGame, x, CHIP_Y - 172, -4, gp, gp, gp > 0.001 ? 1 : 0);
+  }
+
+  /* =========================================================== */
+  /*  MODE head                                                   */
+  /* =========================================================== */
+  const HEAD_D = 'M 120 800 C 120 725 190 695 300 672 C 330 665 345 650 346 625 C 230 590 170 480 170 366 C 176 190 322 70 500 70 C 690 70 828 188 836 338 C 840 410 826 456 808 492 C 798 514 792 536 790 566 C 788 600 774 628 748 646 C 770 664 846 684 868 710 L 868 800 Z';
+  const SCR = { x: 500, y: 340 };
+  const CW = 43.2;                                // largeur d'un caractère Mono 72 px
+  const ROW_Y = (i) => 180 + 135 * i;
+  const OBJ_X = 1065, LEG_X = 1170;
+  const LINE_END = { chips: 412, glass: 424, seat: 436, noclock: 280 };
+
+  function mkGlass(par) {
+    const o = g(par);
+    path(o, 'M -36 -52 L 36 -52 L 28 52 L -28 52 Z', C.paper, C.ink, 5);
+    path(o, 'M -32.6 -8 L 32.6 -8 L 28 52 L -28 52 Z', C.lime, C.ink, 4);
+    rect(o, -2, -26, 26, 26, 4, C.paper, C.ink, 4).setAttribute('transform', 'rotate(14 11 -13)');
+    rect(o, -40, -58, 80, 10, 4, C.paper, C.ink, 4);
+    return o;
+  }
+  function mkNoClock(par) {
+    const o = g(par);
+    circle(o, 0, 0, 52, C.paper, C.ink, 5);
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; line(o, Math.sin(a) * 40, -Math.cos(a) * 40, Math.sin(a) * 47, -Math.cos(a) * 47, C.ink, i % 3 ? 3 : 5); }
+    line(o, 0, 0, 22, 12, C.ink, 6); line(o, 0, 0, -6, -32, C.ink, 5);
+    line(o, -50, -50, 50, 50, C.red, 12); line(o, 50, -50, -50, 50, C.red, 12);
+    return o;
+  }
+  function mkPic(par, name, scale) {
+    let o;
+    try { if (ZV.PICTO && ZV.PICTO.mk) { const pk = ZV.PICTO.mk(par, name, { bg: 'ink', color: 'white', text: '€' }); pk.root.setAttribute('transform', `scale(${scale})`); return pk.root; } } catch (e) { /* repli */ }
+    o = g(par);
+    if (name === 'chip') { circle(o, 0, 0, 58, C.white, C.ink, 5); circle(o, 0, 0, 34, C.white, C.ink, 4); } else { rect(o, -30, -64, 60, 60, 8, C.white, C.ink, 4); rect(o, -38, -4, 76, 18, 6, C.red, C.ink, 4); rect(o, -30, 14, 10, 50, 2, C.pocket); rect(o, 20, 14, 10, 50, 2, C.pocket); }
+    return o;
+  }
+
+  function initHead(root, st, p) {
+    const T = st.T, first = st.first;
+    const amount = str(String(p.amount !== undefined ? p.amount : '100'), '100'), unit = str(p.unit, '€'), chipsUnit = str(p.chips_unit, 'JETONS');
+    const question = str(p.question, '?? H ??');
+    const need = str(p.need, 'TOUT CE DONT TU AURAIS BESOIN POUR DÉCIDER DE PARTIR');
+    const erase = str(p.erase, 'LE BÂTIMENT EFFACE LA TIENNE');
+    const bill = str(p.ball_text, 'LA BILLE N’A PAS DE MÉMOIRE');
+    const none = !HEAD_CUES.some((n) => T[n]);
+    st.amount = amount; st.unit = unit; st.chipsUnit = chipsUnit; st.question = question;
+    const fo = (names) => { let r = null; names.forEach((n) => { const v = first(n); if (v != null && (r == null || v < r)) r = v; }); return r; };
+    st.tOn = none ? -99 : fo(['cash', 'chips', 'glass-1', 'glass-2', 'seat', 'no-clock', 'memory']);
+    st.tCh = first('chips'); st.tG1 = first('glass-1'); st.tG2 = first('glass-2'); st.tSeat = first('seat'); st.tNC = first('no-clock'); st.tMem = first('memory'); st.tBall = first('ball');
+
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    /* ---- silhouette (aucun trait de visage : contour seul) ---- */
+    path(root, HEAD_D, C.pocket, C.paper, 6);
+    st.pad = g(root);
+    rect(st.pad, 100, 790, 800, 30, 8, C.grey, C.paper, 5);
+    /* ---- écran ---- */
+    st.scr = g(root);
+    st.scrR = rect(st.scr, -260, -150, 520, 300, 20, C.ink, C.paper, 8);
+    st.sc = g(st.scr);
+    text(st.sc, 'L’HEURE', -228, -52, 26, C.ink, { mono: true });
+    line(st.sc, -228, -6, 228, -6, C.ink, 3, { opacity: 0.25 });
+    text(st.sc, 'DÉJÀ SORTI', -228, 28, 26, C.ink, { mono: true });
+    // cadran à aiguilles (sans chiffres)
+    st.dial = g(st.sc);
+    st.dialR = g(st.dial);
+    circle(st.dialR, 0, 0, 44, C.paper, C.ink, 5);
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; line(st.dialR, Math.sin(a) * 34, -Math.cos(a) * 34, Math.sin(a) * 40, -Math.cos(a) * 40, C.ink, i % 3 ? 2 : 4); }
+    st.hands = g(st.dial);
+    line(st.hands, 0, 0, 22, 12, C.ink, 7); line(st.hands, 0, 0, -8, -30, C.ink, 5); circle(st.hands, 0, 0, 5, C.ink);
+    st.q1 = text(st.sc, question, 0, 14, 40, C.ink, { mono: true, anchor: 'middle' });
+    fitW(st.q1, 190);
+    st.q1size = parseFloat(st.q1.getAttribute('font-size'));
+    // valeur
+    st.vG = g(st.sc);
+    st.vC2 = text(st.vG, '', 0, 104, 72, C.grey, { mono: true });
+    st.vC1 = text(st.vG, '', 0, 104, 72, C.red, { mono: true });
+    st.vNum = text(st.vG, amount, 0, 104, 72, C.ink, { mono: true });
+    st.vUnit = text(st.vG, unit, 0, 104, 72, C.ink, { mono: true });
+    st.vChip = g(st.vG);
+    circle(st.vChip, 0, 0, 27, C.white, C.ink, 5);
+    for (let k = 0; k < 4; k++) { const n = g(st.vChip, { transform: `rotate(${k * 90})` }); rect(n, -5, -26, 10, 12, 2, C.lime, C.ink, 2); }
+    circle(st.vChip, 0, 0, 13, C.white, C.ink, 3);
+    [st.vC2, st.vC1, st.vNum, st.vUnit].forEach((n) => { n.setAttribute('xml:space', 'preserve'); });
+
+    /* ---- colonne d'objets (jamais plus de 4) ---- */
+    st.col = g(root);
+    const kinds = [
+      { key: 'chips', t0: st.tCh },
+      { key: 'glass', t0: fo(['glass-1', 'glass-2']) },
+      { key: 'seat', t0: st.tSeat },
+      { key: 'noclock', t0: st.tNC }
+    ].filter((k) => k.t0 != null).sort((a, b) => a.t0 - b.t0);
+    const lg = p.legends && typeof p.legends === 'object' ? p.legends : {};
+    const L = {
+      chips: str(lg.chips, 'ÇA RESSEMBLE À UN JEU'), g1: str(lg.glass1, 'UN VERRE, ÇA DÉTEND'), g2: str(lg.glass2, 'DEUX VERRES, ÇA ARRONDIT'),
+      seat: str(lg.seat, 'POUR QUE TU NE TE LÈVES PAS'), noclock: str(lg.noclock, 'PLUS D’HORLOGE')
+    };
+    st.objs = kinds.map((k, i) => {
+      const y = ROW_Y(i), o = { key: k.key, t0: k.t0, y };
+      o.line = line(st.col, 985, y, 761, LINE_END[k.key], C.paper, 4, { opacity: 0.8 });
+      o.g = g(st.col);
+      if (k.key === 'chips') {
+        const pk = mkPic(o.g, 'chip', 0.58); pk.setAttribute('transform', `translate(${OBJ_X} ${y}) ` + (pk.getAttribute('transform') || ''));
+        o.stk = g(o.g);
+        const tx = text(o.stk, L.chips, 0, 9, 26, C.ink, { anchor: 'middle', mono: true });
+        const w = fitW(tx, 560) + 52;
+        rect(o.stk, -w / 2 + 8, -29 + 8, w, 58, 10, C.paper);
+        rect(o.stk, -w / 2, -29, w, 58, 10, C.lime, C.ink, 5);
+        o.stk.appendChild(tx);
+        o.stkX = LEG_X + w / 2; o.stkY = y;
+      } else if (k.key === 'glass') {
+        const a = mkGlass(o.g); a.setAttribute('transform', `translate(${OBJ_X - 40} ${y}) scale(1.05)`);
+        o.g2 = mkGlass(o.g); o.gx = OBJ_X + 42; o.gy = y;
+        o.leg1 = text(o.g, L.g1, LEG_X + 50, y + 9, 26, C.paper, { mono: true }); fitW(o.leg1, 590);
+        o.leg2 = text(o.g, L.g2, LEG_X + 50, y + 9, 26, C.paper, { mono: true }); fitW(o.leg2, 590);
+      } else if (k.key === 'seat') {
+        const pk = mkPic(o.g, 'chair', 0.5); pk.setAttribute('transform', `translate(${OBJ_X} ${y}) ` + (pk.getAttribute('transform') || ''));
+        o.leg1 = text(o.g, L.seat, LEG_X, y + 9, 26, C.paper, { mono: true }); fitW(o.leg1, 620);
+      } else {
+        const c = mkNoClock(o.g); c.setAttribute('transform', `translate(${OBJ_X} ${y}) scale(0.95)`);
+        o.leg1 = text(o.g, L.noclock, LEG_X, y + 9, 26, C.paper, { mono: true }); fitW(o.leg1, 620);
+      }
+      return o;
+    });
+
+    /* ---- bandeaux red ---- */
+    const mkBan = (x, w, s, size) => {
+      const b = g(root);
+      rect(b, x, 700, w, 90, 6, C.red, C.paper, 5);
+      mkWrapped(b, s, x + w / 2, 745, w - 56, 80, size, C.ink, {});
+      return b;
+    };
+    st.b1 = mkBan(140, 1640, need, 50);
+    st.b2 = mkBan(120, 760, erase, 44);
+    /* ---- la bille ---- */
+    st.ball = g(root);
+    circle(st.ball, 0, 0, 60, C.white, C.paper, 4);
+    path(st.ball, 'M -36 -20 A 42 42 0 0 1 -8 -42', 'none', C.lime, 8);
+    st.ballT = mkWrapped(root, bill, 1390, 440, 780, 130, 54, C.paper, {});
+  }
+
+  function updHead(st, t) {
+    const tOn = st.tOn, tCh = st.tCh, tG1 = st.tG1, tG2 = st.tG2, tNC = st.tNC, tMem = st.tMem, tBall = st.tBall, tSeat = st.tSeat;
+    const on = tOn != null && t >= tOn;
+    setA(st.scrR, 'fill', on ? C.paper : C.ink); setA(st.scrR, 'stroke', on ? C.ink : C.paper);
+    setA(st.sc, 'display', on ? 'inline' : 'none');
+    // inclinaison et coins (verre)
+    const tg = tG1 != null ? tG1 : tG2;
+    const gp = tg == null ? 0 : E.io2(prog(t, tg, tg + 0.5));
+    setA(st.scrR, 'rx', f2(lerp(20, 64, gp)));
+    setA(st.scr, 'transform', `translate(${SCR.x} ${SCR.y}) rotate(${f2(3 * gp)})`);
+
+    /* ---- ligne 1 : cadran / ?? H ?? / ? ---- */
+    const mem = tMem != null && t >= tMem;
+    const hs = Math.min(tNC == null ? 1 : 1 - E.in2(prog(t, tNC, tNC + 0.3)), tMem == null ? 1 : 1 - prog(t, tMem, tMem + 0.2));
+    const rs = Math.min(tNC == null ? 1 : 1 - E.in2(prog(t, tNC + 0.3, tNC + 0.5)), tMem == null ? 1 : 1 - prog(t, tMem, tMem + 0.2));
+    put(st.hands, 0, 0, 0, hs, hs, hs > 0.01 ? 1 : 0);
+    put(st.dialR, 0, 0, 0, rs, rs, rs > 0.01 ? 1 : 0);
+    put(st.dial, 650 - SCR.x, -62, 0, 1, 1, 1);
+    let qs = 0, qTxt = st.question;
+    if (mem) { qTxt = '?'; qs = E.back(prog(t, tMem + 0.1, tMem + 0.4)); }
+    else if (tNC != null && t >= tNC) qs = E.back(prog(t, tNC + 0.4, tNC + 0.7));
+    if (qTxt === '?') { setA(st.q1, 'font-size', 72); setA(st.q1, 'y', 26); } else { setA(st.q1, 'font-size', f2(st.q1size)); setA(st.q1, 'y', 14); }
+    setT(st.q1, qTxt);
+    setA(st.q1, 'x', 0);
+    put(st.q1, 650 - SCR.x, -62, 0, qs, qs, qs > 0.001 ? 1 : 0);
+
+    /* ---- ligne 2 : la valeur ---- */
+    let numS = st.amount, unitS = st.unit, copies = 0;
+    const g2 = tG2 != null && t >= tG2;
+    const ch = tCh != null && t >= tCh && !g2 && !mem;
+    if (mem) { numS = '?'; unitS = ''; }
+    else if (g2) { numS = '≈ ' + st.amount; unitS = ''; copies = 10 * E.out2(prog(t, tG2 + 0.4, tG2 + 1.2)); }
+    else if (ch) unitS = st.chipsUnit;
+    if (mem) copies = 10 * E.out2(prog(tG2 == null ? 0 : tG2 + 0.4, 0, 1)) * (1 - prog(t, tMem, tMem + 0.25)) * (tG2 == null ? 0 : 1);
+    const nN = numS.length;
+    let left, unitX, chipOp = 0, unitOp = 1, uScale = 1, txt2 = unitS;
+    const wUnit = (n) => (n ? (nN + 1 + n) * CW : nN * CW);
+    if (ch && !mem) {
+      const e = t - tCh, w0 = (nN + 2) * CW, w1 = (nN + 1 + st.chipsUnit.length) * CW;
+      left = lerp(-w0 / 2, -w1 / 2, E.io2(prog(e, 0.55, 0.8)));
+      unitX = left + (nN + 1) * CW;
+      if (e < 0.15) { txt2 = st.unit; uScale = 1 - prog(e, 0, 0.15); chipOp = 0; unitOp = 1; }
+      else { txt2 = st.chipsUnit; unitOp = prog(e, 0.6, 0.8); uScale = 1; chipOp = e < 0.55 ? 1 : 1 - prog(e, 0.55, 0.75); }
+      const cs = e < 0.15 ? 0 : prog(e, 0.15, 0.3);
+      put(st.vChip, unitX + CW / 2, 78, 0, cs, 1, chipOp > 0.01 && cs > 0.01 ? chipOp : 0);
+      if (e < 0.15) { setA(st.vUnit, 'transform', `translate(${f2(unitX + CW / 2)} 0) scale(${f2(Math.max(uScale, 0.001))} 1) translate(${f2(-(unitX + CW / 2))} 0)`); }
+      else setA(st.vUnit, 'transform', '');
+      setA(st.vUnit, 'opacity', f2(unitOp));
+      setA(st.vUnit, 'x', f2(unitX));
+      vis(st.vUnit, unitOp > 0.01 && (e < 0.15 || e >= 0.6));
+      setT(st.vUnit, e < 0.15 ? st.unit : st.chipsUnit);
+    } else {
+      const w = wUnit(unitS.length);
+      left = -w / 2; unitX = left + (nN + 1) * CW;
+      vis(st.vChip, false);
+      if (tCh == null && !g2 && !mem) {
+        // cash seul (ou repos) : « 100 € »
+      }
+      setA(st.vUnit, 'transform', ''); setA(st.vUnit, 'opacity', 1);
+      setT(st.vUnit, unitS); setA(st.vUnit, 'x', f2(unitX)); vis(st.vUnit, !!unitS);
+    }
+    setT(st.vNum, numS); setA(st.vNum, 'x', f2(left));
+    const vis2 = copies > 0.05;
+    [st.vC1, st.vC2].forEach((n, i) => { vis(n, vis2); if (vis2) { setT(n, numS); setA(n, 'x', f2(left + (i ? 0.8 : -1) * copies * (i ? 1 : 1))); setA(n, 'y', f2(104 + (i ? -0.6 : 0.5) * copies)); } });
+    // taille / pop de la valeur
+    const totW = (nN + (ch ? Math.max(1, st.chipsUnit.length) + 1 : (unitS ? unitS.length + 1 : 0))) * CW + 14;
+    const fitK = Math.min(1, 440 / Math.max(totW, 1));
+    const tPop = g2 ? tG2 : mem ? tMem : (tOn != null && t >= tOn ? tOn : null);
+    const bump = tPop == null ? 1 : 1 + 0.1 * Math.sin(Math.PI * prog(t, tPop, tPop + 0.3));
+    setA(st.vG, 'transform', `translate(0 78) scale(${f2(fitK * bump)}) translate(0 -78)`);
+
+    /* ---- objets ---- */
+    const exitQ = tBall == null ? 0 : prog(t, tBall, tBall + 0.35);
+    st.objs.forEach((o) => {
+      const e = t - o.t0;
+      const pe = E.out3(prog(e, 0, 0.4)), op = prog(e, 0, 0.2) * (1 - exitQ);
+      const show = e >= 0 && exitQ < 1;
+      setA(o.g, 'display', show ? 'inline' : 'none');
+      setA(o.g, 'transform', `translate(${f2((1 - pe) * 260 + exitQ * 300)} 0)`);
+      setA(o.g, 'opacity', f2(op));
+      const lp = prog(e, 0.2, 0.5);
+      vis(o.line, show && lp > 0.01);
+      setA(o.line, 'x1', f2(985)); setA(o.line, 'x2', f2(lerp(985, 761, lp)));
+      setA(o.line, 'y2', f2(lerp(o.y, LINE_END[o.key], lp)));
+      setA(o.line, 'opacity', f2(0.8 * (1 - exitQ)));
+      if (o.key === 'chips') {
+        const sp = E.back(prog(e, 0.25, 0.5));
+        put(o.stk, o.stkX, o.stkY, -1.5, sp, sp, sp > 0.001 ? 1 : 0);
+      } else if (o.key === 'glass') {
+        const second = tG2 != null && t >= tG2;
+        const b = second ? E.back(prog(t, tG2, tG2 + 0.3)) : 0;
+        put(o.g2, o.gx, o.gy, 0, 1.05 * b, 1.05 * b, b > 0.001 ? 1 : 0);
+        const lq = E.out2(prog(second ? t - tG2 : e, 0.05, 0.3));
+        vis(o.leg1, !second); vis(o.leg2, second);
+        const ln = second ? o.leg2 : o.leg1;
+        setA(ln, 'opacity', f2(lq));
+      }
+    });
+    // siège sous la silhouette
+    const sq = tSeat == null ? 0 : E.out3(prog(t, tSeat, tSeat + 0.5));
+    setA(st.pad, 'transform', `translate(${f2((1 - sq) * -820)} 0)`);
+    vis(st.pad, tSeat != null && sq > 0.001);
+
+    /* ---- bandeaux ---- */
+    const showB1 = tMem != null && t >= tMem + 0.2 && (tBall == null || t < tBall + 0.3);
+    const q1 = tMem == null ? 0 : E.out3(prog(t, tMem + 0.2, tMem + 0.55));
+    const out1 = tBall == null ? 0 : E.in2(prog(t, tBall, tBall + 0.3));
+    setA(st.b1, 'transform', `translate(0 ${f2((1 - q1) * 150 + out1 * 150)})`);
+    vis(st.b1, showB1);
+    const q2 = tBall == null ? 0 : E.out3(prog(t, tBall + 0.3, tBall + 0.65));
+    setA(st.b2, 'transform', `translate(0 ${f2((1 - q2) * 150)})`);
+    vis(st.b2, tBall != null && t >= tBall + 0.3);
+    // bille
+    const bp = tBall == null ? 0 : E.back(prog(t, tBall + 0.35, tBall + 0.75));
+    put(st.ball, 1390, 270, 0, bp, bp, bp > 0.001 ? 1 : 0);
+    const bt = tBall == null ? 0 : E.out2(prog(t, tBall + 0.6, tBall + 0.9));
+    setA(st.ballT, 'opacity', f2(bt)); vis(st.ballT, bt > 0.001);
+  }
+
+  ZV.define('head-counter', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const T = {};
+      beats.forEach((b) => { if (b && b.do === 'cue' && typeof b.name === 'string' && isNum(b.t)) (T[b.name] || (T[b.name] = [])).push(b.t); });
+      Object.keys(T).forEach((k) => T[k].sort((a, c) => a - c));
+      const first = (n) => (T[n] ? T[n][0] : null);
+      const hasW = WEIGH_CUES.some((n) => T[n]), hasH = HEAD_CUES.some((n) => T[n]);
+      const mode = p.mode === 'head' ? 'head' : p.mode === 'weigh' ? 'weigh' : (hasH && !hasW ? 'head' : 'weigh');
+      const st = { mode, T, first };
+      try { if (mode === 'head') initHead(root, st, p); else initWeigh(root, st, p); } catch (e) { st.err = e; }
+      return st;
+    },
+    update(st, t) {
+      if (!st || st.err) return;
+      t = isNum(t) ? t : 0;
+      try { if (st.mode === 'head') updHead(st, t); else updWeigh(st, t); } catch (e) { /* jamais d'exception */ }
     }
   });
 })();
@@ -11238,6 +12548,829 @@
       const bsc = bq > 0 ? E.out3(bq) : 0;
       st.band.setAttribute('transform', `translate(0 ${f2(60 * (1 - bsc))})`);
       vis(st.band, bq > 0); setA(st.band, 'opacity', f2(bsc));
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/sealed-room.js ==== */
+// Composant `sealed-room` (épisode 6) : la salle sans repères. Voir EP6-COMPONENTS.md.
+// Un mur de face (fenêtre, horloge, panneau Sortie, lampe fixe), un sol ink portant la frise du temps (DEHORS / DEDANS), un téléphone final.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter ; le ciel change par fondus lents (jamais d'alternance).
+// Cues : ask, hours (dur), window-clock, no-window, no-clock, no-exit, no-edges, phone.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
+  const tr = (n, x, y, r, s) => setA(n, 'transform', `translate(${f2(x)} ${f2(y)})` + (r ? ` rotate(${f2(r)})` : '') + (s !== undefined && s !== 1 ? ` scale(${f2(Math.max(s, 0.0001))})` : ''));
+  // largeurs estimées (servent de textLength : indépendantes de la police de secours)
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  // texte posé avec largeur imposée ; maxW réduit la police plutôt que de laisser déborder
+  function T(parent, s, x, y, size, fill, o) {
+    o = o || {};
+    const est = (sz) => (o.mono ? mw(s, sz) : bw(s, sz));
+    if (o.maxW && est(size) > o.maxW) size = size * o.maxW / est(size);
+    const n = text(parent, s, x, y, size, fill, { mono: o.mono, anchor: o.anchor, weight: o.weight, spacing: o.spacing });
+    n.setAttribute('textLength', f2(est(size)));
+    n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    n.__size = size; n.__w = est(size);
+    return n;
+  }
+  // texte dynamique en Mono : contenu + longueur mis à jour seulement si la chaîne change
+  const setTxt = (n, s, size) => { if (n.__s !== s) { n.__s = s; n.textContent = s; n.setAttribute('textLength', f2(Math.max(1, mw(s, size)))); } };
+  // sticker plat : renvoie le groupe centré sur (0,0) et sa largeur
+  function stk(parent, label, size, fill, textFill, maxW, h) {
+    h = h || Math.round(size * 1.75);
+    const sz = (maxW && bw(label, size) + 56 > maxW) ? (maxW - 56) / bw(label, size) * size : size;
+    const w = Math.round(bw(label, sz) + 56);
+    const grp = g(parent);
+    rect(grp, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, 14, fill, C.ink, 6);
+    T(grp, label, 0, sz * 0.35, sz, textFill, { anchor: 'middle' });
+    grp.__w = w;
+    return grp;
+  }
+  const popT = (n, x, y, rot, p) => { const s = E.back(clamp(p)); if (p <= 0) { vis(n, false); return; } vis(n, true); tr(n, x, y, rot, Math.max(0.0001, s)); setA(n, 'opacity', f2(clamp(p * 4))); };
+
+  const CX = 960, CY = 330, CR = 130;                       // horloge murale
+  const WX = 190, WY = 170, WW = 400, WH = 390;             // cadre de la fenêtre
+  const GX = 200, GY = 180, GW = 380, GH = 370;             // vitre
+  const GCX = 390, GCY = 365;                               // croisillon
+  const LAB_Y = 604;
+  const FX = 190, FW = 1540, FY1 = 668, FY2 = 742, FH = 44; // frise
+  const SIGN = { x: 1350, y: 260, w: 380, h: 150 };
+  const PH = { x: 1440, y: 110, w: 280, h: 480 };
+
+  function hand(parent, len, w) {
+    const grp = g(parent);
+    line(grp, 0, 12, 0, -len, C.ink, w);
+    return grp;
+  }
+
+  ZV.define('sealed-room', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cb = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t);
+      const cu = (n) => { const a = cb(n); return a.length ? a[0].t : null; };
+      const L = Object.assign({ window: 'FENÊTRE', clock: 'HORLOGE', exit: 'SORTIE' }, P.labels && typeof P.labels === 'object' ? P.labels : {});
+      const outside = Array.isArray(P.outside) && P.outside.length ? P.outside.slice(0, 6).map(String) : ['APRÈS-MIDI', 'SOIR', 'NUIT', 'PETIT MATIN'];
+      const inside = str(P.inside, 'LA MÊME LUMIÈRE');
+      const question = str(P.question, '?? H ??');
+      const phoneText = str(P.phone_text, "ALARME : L'HEURE OÙ TU SORS");
+      const skyIdx = Math.max(0, ['day', 'sunset', 'night', 'dawn'].indexOf(P.sky));
+      const hb = cb('hours')[0];
+      const st = {
+        dur, L, outside, inside, question, skyIdx,
+        ta: cu('ask'), th: hb ? hb.t : null, hd: hb ? clamp(num(hb.dur, 4), 2, 30) : 4,
+        twc: cu('window-clock'), tnw: cu('no-window'), tnc: cu('no-clock'), tnx: cu('no-exit'), tne: cu('no-edges'), tp: cu('phone'),
+        timeline: !!P.timeline
+      };
+      const uid = 'sr' + (++UID);
+
+      /* ---- mur, plafond, sol ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      rect(root, 0, 0, 1920, 56, 0, C.ink);
+      rect(root, 0, 630, 1920, 450, 0, C.ink);
+
+      /* ---- lampe : strictement fixe ---- */
+      line(root, 960, 56, 960, 94, C.ink, 6);
+      path(root, 'M934 94 L986 94 L1022 146 L898 146 Z', C.ink, C.ink, 4);
+      circle(root, 960, 152, 13, C.paper, C.ink, 5);
+
+      /* ---- fenêtre ---- */
+      st.win = g(root);
+      rect(st.win, WX + 12, WY + 12, WW, WH, 0, C.ink);
+      rect(st.win, WX, WY, WW, WH, 0, C.ink);
+      const sky = [];
+      const sg = (i) => { const n = g(st.win); sky[i] = n; return n; };
+      {
+        const d = sg(0);
+        rect(d, GX, GY, GW, GH, 0, C.white);
+        st.sunDay = circle(d, 300, 264, 56, C.lime, C.ink, 5);
+        const s = sg(1);
+        rect(s, GX, GY, GW, GH, 0, C.red);
+        st.sunSet = circle(s, 468, 478, 50, C.red, C.ink, 6);
+        const bl = [[200, 54, 48], [254, 40, 72], [294, 62, 40], [356, 36, 86], [392, 56, 52], [448, 44, 68], [492, 38, 44], [530, 50, 78]];
+        for (const [x, w, h] of bl) rect(s, x, GY + GH - h, w, h, 0, C.ink);
+        const n = sg(2);
+        rect(n, GX, GY, GW, GH, 0, C.ink);
+        circle(n, 470, 262, 46, C.paper);
+        circle(n, 490, 248, 40, C.ink);
+        for (const [x, y] of [[240, 236], [322, 300], [350, 212], [292, 430], [520, 378], [548, 230], [440, 480]]) rect(n, x, y, 6, 6, 0, C.paper);
+        const w = sg(3);
+        rect(w, GX, GY, GW, 200, 0, C.pocket);
+        rect(w, GX, GY + 200, GW, GH - 200, 0, C.paper);
+        rect(w, GX, GY + 196, GW, 8, 0, C.lime);
+      }
+      st.sky = sky;
+      rect(st.win, GCX - 4, GY, 8, GH, 0, C.ink);
+      rect(st.win, GX, GCY - 4, GW, 8, 0, C.ink);
+      // graduations de la fenêtre-horloge (ink cerné de paper pour rester lisibles sur la nuit)
+      st.ticks = [];
+      for (let k = 0; k < 12; k++) {
+        const a = k * Math.PI / 6, dx = Math.sin(a), dy = -Math.cos(a);
+        const s = Math.min(Math.abs(dx) > 1e-6 ? (GW / 2 - 6) / Math.abs(dx) : 1e9, Math.abs(dy) > 1e-6 ? (GH / 2 - 6) / Math.abs(dy) : 1e9);
+        const L1 = k % 3 === 0 ? 36 : 24;
+        const x2 = GCX + dx * s, y2 = GCY + dy * s * (GH / GW > 0 ? 1 : 1), x1 = x2 - dx * L1, y1 = y2 - dy * L1;
+        const tg = g(st.win);
+        line(tg, x1, y1, x2, y2, C.paper, 14, { 'stroke-linecap': 'butt' });
+        line(tg, x1, y1, x2, y2, C.ink, 8, { 'stroke-linecap': 'butt' });
+        st.ticks.push(tg);
+      }
+      st.wsun = circle(st.win, 260, 470, 40, C.lime, C.ink, 5);
+      // murage
+      {
+        const clip = sv('clipPath', { id: uid + 'w' }, sv('defs', null, st.win));
+        rect(clip, GX, GY, GW, GH, 0, '#000');
+        const bg = g(st.win, { 'clip-path': `url(#${uid}w)` });
+        st.rows = [];
+        for (let r = 0; r < 8; r++) {
+          const rg = g(bg), top = GY + GH - 40.25 - 46.25 * r;
+          rect(rg, GX, top - 6, GW, 46.25, 0, C.paper);
+          const off = r % 2 ? -51 : 0;
+          for (let k = 0; k < 5; k++) rect(rg, GX + off + 102 * k, top, 96, 40.25, 0, C.ink);
+          st.rows.push(rg);
+        }
+      }
+      st.lblW = T(root, L.window, WX + WW / 2, LAB_Y, 30, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+      st.strikeW = rect(root, WX + WW / 2 - 130, LAB_Y - 11, 260, 7, 0, C.red);
+      st.stkWin = stk(root, 'UNE FENÊTRE, C\'EST UNE HORLOGE', 36, C.paper, C.ink, 640, 66);
+
+      /* ---- horloge : trace + clou, puis l'horloge ---- */
+      st.trace = g(root);
+      circle(st.trace, CX, CY, 146, C.white);
+      circle(st.trace, CX, CY, 146, 'none', '#CFC9B8', 4).setAttribute('stroke-dasharray', '14 12');
+      circle(root, CX, CY - 112, 9, C.ink, C.ink, 3);
+      st.clockOuter = g(root);
+      st.clock = g(st.clockOuter);
+      circle(st.clock, 12, 12, CR + 5, C.ink);
+      circle(st.clock, 0, 0, CR, C.paper, C.ink, 10);
+      for (let k = 0; k < 12; k++) {
+        const a = k * Math.PI / 6, s = Math.sin(a), c = -Math.cos(a), r0 = k % 3 === 0 ? 100 : 104, r1 = 118;
+        line(st.clock, s * r0, c * r0, s * r1, c * r1, C.ink, k % 3 === 0 ? 8 : 6, { 'stroke-linecap': 'butt' });
+      }
+      st.hHour = hand(st.clock, 70, 12);
+      st.hMin = hand(st.clock, 102, 8);
+      st.qm = T(st.clock, question, 0, 0, 84, C.ink, { anchor: 'middle', maxW: 176 });
+      st.qm.setAttribute('y', f2(st.qm.__size * 0.35));
+      st.dot = circle(st.clock, 0, 0, 12, C.lime, C.ink, 5);
+      st.lblC = T(root, L.clock, CX, LAB_Y, 30, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+
+      /* ---- panneau Sortie ---- */
+      st.screws = g(root);
+      circle(st.screws, SIGN.x + 22, SIGN.y + 22, 8, C.ink, C.ink, 3);
+      circle(st.screws, SIGN.x + SIGN.w - 22, SIGN.y + SIGN.h - 22, 8, C.ink, C.ink, 3);
+      st.exit = g(root);
+      rect(st.exit, SIGN.x + 12, SIGN.y + 12, SIGN.w, SIGN.h, 6, C.ink);
+      rect(st.exit, SIGN.x, SIGN.y, SIGN.w, SIGN.h, 6, C.lime, C.ink, 8);
+      {
+        const ex = st.exit, cy = SIGN.y + SIGN.h / 2, fx = SIGN.x + 52;
+        // silhouette plate qui court (aucun trait de visage)
+        circle(ex, fx + 10, cy - 38, 11, C.ink);
+        line(ex, fx + 6, cy - 22, fx - 4, cy + 10, C.ink, 13);
+        line(ex, fx + 6, cy - 20, fx + 28, cy - 4, C.ink, 10);
+        line(ex, fx - 2, cy - 14, fx - 22, cy - 6, C.ink, 9);
+        line(ex, fx - 4, cy + 8, fx + 14, cy + 32, C.ink, 11);
+        line(ex, fx - 2, cy + 8, fx - 26, cy + 26, C.ink, 11);
+        // flèche →
+        line(ex, fx + 34, cy, fx + 62, cy, C.ink, 11, { 'stroke-linecap': 'butt' });
+        path(ex, `M${fx + 58} ${cy - 20} L${fx + 84} ${cy} L${fx + 58} ${cy + 20} Z`, C.ink, C.ink, 4);
+        T(ex, 'SORTIE', SIGN.x + SIGN.w - 18, cy + 22, 64, C.ink, { anchor: 'end', maxW: 206 });
+      }
+      st.lblX = T(root, L.exit, SIGN.x + SIGN.w / 2, LAB_Y, 30, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+
+      /* ---- frise du temps ---- */
+      st.fr = g(root);
+      const fr = st.fr;
+      st.outG = g(fr);
+      {
+        const segW = FW / outside.length, cols = [[C.paper, C.ink], [C.red, C.ink], [C.pocket, C.paper], [C.paper, C.ink]];
+        outside.forEach((lab, i) => {
+          const [bg, fg] = cols[i % 4], x = FX + segW * i;
+          rect(st.outG, x, FY1, segW + 0.5, FH, 0, bg);
+          if (i % 4 === 3) rect(st.outG, x, FY1 + FH - 12, segW + 0.5, 12, 0, C.lime);
+          T(st.outG, lab, x + segW / 2, FY1 + 30, 24, fg, { mono: true, anchor: 'middle', weight: 800, maxW: segW - 24 });
+        });
+        rect(st.outG, FX, FY1, FW, FH, 0, 'none', C.paper, 4);
+        st.lblOut = T(fr, 'DEHORS', 36, FY1 + 30, 24, C.paper, { mono: true, weight: 800 });
+        st.strikeOut = rect(fr, FX - 6, FY1 + FH / 2 - 4, FW + 12, 8, 0, C.red);
+      }
+      st.inFill = rect(fr, FX, FY2, FW, FH, 0, C.paper, C.paper, 4);
+      st.inEdge = rect(fr, FX + 6, FY2 + 6, FW - 12, FH - 12, 0, 'none', C.ink, 3);
+      st.lblIn = T(fr, 'DEDANS', 36, FY2 + 30, 24, C.paper, { mono: true, weight: 800 });
+      T(fr, inside, CX, FY2 + 30, 24, C.ink, { mono: true, anchor: 'middle', weight: 800, maxW: 460 });
+      st.cur = g(fr);
+      line(st.cur, 0, FY1, 0, FY1 + FH, C.paper, 12, { 'stroke-linecap': 'butt' });
+      line(st.cur, 0, FY1, 0, FY1 + FH, C.ink, 5, { 'stroke-linecap': 'butt' });
+      path(st.cur, `M-17 ${FY1 - 22} L17 ${FY1 - 22} L0 ${FY1 + 2} Z`, C.ink, C.paper, 4);
+      st.capEdges = T(root, "LA SOIRÉE N'A PLUS DE BORDS", CX, FY2 - 20, 30, C.paper, { mono: true, anchor: 'middle', weight: 800, maxW: 1200 });
+
+      /* ---- téléphone ---- */
+      st.phone = g(root);
+      {
+        const ph = st.phone;
+        rect(ph, 0, 0, PH.w, PH.h, 44, C.ink);
+        rect(ph, 3, 3, PH.w - 6, PH.h - 6, 41, 'none', C.paper, 6);
+        rect(ph, 24, 24, PH.w - 48, PH.h - 48, 26, C.paper, C.ink, 4);
+        const cx = PH.w / 2, cy = 168;
+        circle(ph, cx, cy, 72, C.white, C.ink, 7);
+        for (let k = 0; k < 12; k++) {
+          const a = k * Math.PI / 6, s = Math.sin(a), c = -Math.cos(a);
+          line(ph, cx + s * 52, cy + c * 52, cx + s * 62, cy + c * 62, C.ink, k % 3 === 0 ? 6 : 4, { 'stroke-linecap': 'butt' });
+        }
+        const hh = g(ph, { transform: `translate(${cx} ${cy}) rotate(300)` }); line(hh, 0, 6, 0, -34, C.ink, 8);
+        const hm = g(ph, { transform: `translate(${cx} ${cy}) rotate(60)` }); line(hm, 0, 6, 0, -50, C.ink, 6);
+        circle(ph, cx, cy, 8, C.lime, C.ink, 4);
+        T(ph, 'ALARME', cx, 318, 26, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+        st.track = rect(ph, cx - 66, 342, 132, 66, 33, C.white, C.ink, 6);
+        st.knob = circle(ph, cx - 33, 375, 22, C.ink);
+        st.onTxt = T(ph, 'ON', cx - 24, 384, 26, C.ink, { mono: true, weight: 800 });
+        st.knobX0 = cx - 33; st.knobX1 = cx + 33;
+      }
+      st.phoneCap = T(root, phoneText, PH.x + PH.w / 2, 690, 28, C.paper, { mono: true, anchor: 'middle', weight: 800, maxW: 560 });
+      st.stkPhone = stk(root, 'TON TÉLÉPHONE, LUI, A UNE HORLOGE', 38, C.lime, C.ink, 1000, 68);
+      st.phoneStkX = clamp(Math.min(PH.x + PH.w / 2, 1840 - st.stkPhone.__w / 2), st.stkPhone.__w / 2 + 40, 1880);
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { ta, th, hd, twc, tnw, tnc, tnx, tne, tp } = st;
+        const has = (x) => x != null && t >= x;
+
+        /* ---- ciel : fondus lents par paliers, jamais d'alternance ---- */
+        const o = [1, 0, 0, 0];
+        for (let j = 1; j < 4; j++) o[j] = j <= st.skyIdx ? 1 : 0;
+        if (has(th)) {
+          const f = clamp(hd / 4 * 0.8, 0.4, 0.6);
+          for (let j = 1; j < 4; j++) o[j] = prog(t, th + hd * j / 4, th + hd * j / 4 + f);
+        }
+        for (let j = 0; j < 4; j++) op(st.sky[j], o[j]);
+        const sunsOn = !has(twc);
+        vis(st.sunDay, sunsOn); vis(st.sunSet, sunsOn);
+
+        /* ---- fenêtre-horloge ---- */
+        const wcP = twc == null ? 0 : t - twc;
+        st.ticks.forEach((tk, k) => op(tk, twc == null ? 0 : prog(wcP, k * 0.045, k * 0.045 + 0.12)));
+        if (!has(twc)) vis(st.wsun, false);
+        else {
+          const u = E.io2(prog(wcP, 0.4, 2.4));
+          const x = 260 + 260 * u, y = 478 - 215 * Math.sin(Math.PI * u);
+          vis(st.wsun, true); setA(st.wsun, 'cx', f2(x)); setA(st.wsun, 'cy', f2(y));
+        }
+        popT(st.stkWin, 390, 106, -2, twc == null ? 0 : prog(wcP, 0.2, 0.55));
+
+        /* ---- murage ---- */
+        const BR = 0.15;
+        st.rows.forEach((rg, r) => {
+          const p = tnw == null ? 0 : prog(t, tnw + r * BR, tnw + r * BR + 0.12);
+          op(rg, p > 0 ? 1 : 0);
+          tr(rg, 0, (1 - p) * 14, 0, 1);
+        });
+        const endBr = tnw == null ? 1e9 : tnw + 8 * BR;
+        const sP = tnw == null ? 0 : prog(t, endBr + 0.05, endBr + 0.3);
+        const swapW = tnw != null && t >= endBr + 0.3;
+        setTxt(st.lblW, swapW ? 'PAS DE FENÊTRE' : st.L.window, 30);
+        vis(st.strikeW, tnw != null && sP > 0 && !swapW);
+        if (sP > 0) { setA(st.strikeW, 'x', f2(390 - st.lblW.__w / 2 - 6)); setA(st.strikeW, 'width', f2((st.lblW.__w + 12) * sP)); }
+        // centrage des étiquettes changeantes (textLength fixe : on recalcule l'ancre via text-anchor middle)
+
+        /* ---- horloge murale ---- */
+        let hOp = 1, qOp = 0;
+        if (has(ta)) { hOp = 1 - prog(t, ta, ta + 8 / 30); qOp = prog(t, ta + 0.1, ta + 0.4); }
+        if (has(th) && ta != null && th > ta) { hOp = prog(t, th, th + 0.25); qOp = 1 - prog(t, th, th + 0.2); }
+        else if (has(th) && ta == null) { hOp = 1; qOp = 0; }
+        let rotH = 305, rotM = 60;
+        if (th != null) { const u = E.io2(prog(t, th, th + hd)); rotH += 360 * u; rotM += 360 * 12 * u; }
+        setA(st.hHour, 'transform', `rotate(${f2(rotH)})`);
+        setA(st.hMin, 'transform', `rotate(${f2(rotM)})`);
+        op(st.hHour, hOp); op(st.hMin, hOp); op(st.qm, qOp); op(st.dot, 1 - qOp);
+        let sway = 0;
+        if (ta != null) { const tau = t - ta; if (tau >= 0 && tau <= 1) sway = 4 * Math.sin(tau * Math.PI * 4) * (1 - tau); }
+        let dy = 0;
+        if (tnc != null) {
+          dy = -40 * E.out2(prog(t, tnc, tnc + 0.3)) - 620 * E.in3(prog(t, tnc + 0.3, tnc + 0.7));
+        }
+        const gone = tnc != null && t >= tnc + 0.7;
+        vis(st.clockOuter, !gone);
+        setA(st.clockOuter, 'transform', `translate(${CX} ${f2(CY + dy)}) rotate(${f2(sway)})`);
+        setA(st.clock, 'transform', 'translate(0 0)');
+        op(st.trace, tnc != null && t >= tnc + 0.3 ? 1 : 0);
+        setTxt(st.lblC, gone ? "PAS D'HORLOGE" : st.L.clock, 30);
+
+        /* ---- panneau Sortie ---- */
+        const slideNx = tnx == null ? 0 : E.in2(prog(t, tnx, tnx + 14 / 30));
+        const slideP = tp == null ? 0 : E.in2(prog(t, tp, tp + 10 / 30));
+        const sx = Math.max(slideNx, slideP) * 640;
+        setA(st.exit, 'transform', `translate(${f2(sx)} 0)`);
+        vis(st.exit, sx < 639);
+        const swapX = tnx != null && t >= tnx + 14 / 30;
+        setTxt(st.lblX, swapX ? 'PAS DE PANNEAU SORTIE' : st.L.exit, 30);
+        setA(st.lblX, 'transform', `translate(${f2(slideP * 640)} 0)`);
+        vis(st.lblX, slideP < 0.999);
+
+        /* ---- frise ---- */
+        let tf = null;
+        if (st.timeline) tf = -1;
+        else { const c = [th, tne].filter((x) => x != null); if (c.length) tf = Math.min(...c); }
+        let frOp = tf == null ? 0 : (tf < 0 ? 1 : prog(t, tf, tf + 0.35));
+        if (tp != null) frOp *= 1 - prog(t, tp, tp + 8 / 30);
+        op(st.fr, frOp);
+        setA(st.fr, 'transform', `translate(0 ${f2(tf != null && tf >= 0 ? 24 * (1 - prog(t, tf, tf + 0.35)) : 0)})`);
+        // curseur
+        let curOp = th == null ? 0 : 1;
+        if (tne != null) curOp *= 1 - prog(t, tne, tne + 0.2);
+        op(st.cur, curOp);
+        if (th != null) setA(st.cur, 'transform', `translate(${f2(FX + FW * clamp((t - th) / hd))} 0)`);
+        // plus de bords
+        let stP = 0, outP = 1, capP = 0, sXP = 0;
+        if (tne != null) {
+          sXP = prog(t, tne, tne + 0.35);
+          const tfade = tne + 0.5;
+          outP = 1 - prog(t, tfade, tfade + 0.25);
+          stP = E.io2(prog(t, tfade + 0.15, tfade + 0.95));
+          capP = prog(t, tfade + 0.5, tfade + 0.8);
+        }
+        op(st.outG, outP); op(st.lblOut, outP);
+        op(st.strikeOut, outP > 0 && sXP > 0 ? 1 : 0);
+        setA(st.strikeOut, 'width', f2((FW + 12) * sXP));
+        const bx = FX + (-40 - FX) * stP, bwid = FW + (2000 - FW) * stP;
+        setA(st.inFill, 'x', f2(bx)); setA(st.inFill, 'width', f2(bwid));
+        setA(st.inEdge, 'x', f2(bx + 6)); setA(st.inEdge, 'width', f2(bwid - 12));
+        op(st.lblIn, 1 - prog(t, tne == null ? 1e9 : tne + 0.65, tne == null ? 1e9 : tne + 0.85));
+        op(st.capEdges, capP * (tp == null ? 1 : 1 - prog(t, tp, tp + 8 / 30)));
+
+        /* ---- téléphone ---- */
+        const pIn = tp == null ? 0 : E.out3(prog(t, tp + 0.3, tp + 0.85));
+        vis(st.phone, pIn > 0);
+        setA(st.phone, 'transform', `translate(${PH.x} ${f2(PH.y + (1 - pIn) * 1000)})`);
+        const sw = tp == null ? 0 : E.io2(prog(t, tp + 1.1, tp + 1.3));
+        setA(st.knob, 'cx', f2(st.knobX0 + (st.knobX1 - st.knobX0) * sw));
+        setA(st.track, 'fill', sw > 0.5 ? C.lime : C.white);
+        op(st.onTxt, sw > 0.5 ? 1 : 0);
+        op(st.phoneCap, tp == null ? 0 : prog(t, tp + 0.9, tp + 1.15));
+        popT(st.stkPhone, st.phoneStkX, 756, 0, tp == null ? 0 : prog(t, tp + 1.5, tp + 1.85));
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/section-view.js ==== */
+// Composant `section-view` (épisode 6) : le bâtiment en COUPE (profil), pour la hauteur du plafond, la lumière, le décor. Voir EP6-COMPONENTS.md.
+// Mode `schools` : deux écoles, un seul but (cues left, right, versus, goal, verdict).
+// Mode `walk` : longue coupe parcourue par la caméra + bande-plan (cues enter, lower, narrow, shelter).
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter. Aucun nom d'entreprise.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, shakeAt } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
+  const tr = (n, x, y, r, sx, sy) => setA(n, 'transform', `translate(${f2(x)} ${f2(y)})` + (r ? ` rotate(${f2(r)})` : '') + ((sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) ? ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})` : ''));
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  function T(parent, s, x, y, size, fill, o) {
+    o = o || {};
+    const est = (sz) => (o.mono ? mw(s, sz) : bw(s, sz));
+    if (o.maxW && est(size) > o.maxW) size = size * o.maxW / est(size);
+    const n = text(parent, s, x, y, size, fill, { mono: o.mono, anchor: o.anchor, weight: o.weight });
+    n.setAttribute('textLength', f2(est(size)));
+    n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    n.__size = size; n.__w = est(size);
+    return n;
+  }
+  function stk(parent, label, size, fill, textFill, h, maxW) {
+    h = h || Math.round(size * 1.7);
+    const sz = maxW && bw(label, size) + 56 > maxW ? (maxW - 56) / bw(label, size) * size : size;
+    const w = Math.round(bw(label, sz) + 56);
+    const grp = g(parent);
+    rect(grp, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, 14, fill, C.ink, 6);
+    T(grp, label, 0, sz * 0.35, sz, textFill, { anchor: 'middle' });
+    grp.__w = w; grp.__h = h;
+    return grp;
+  }
+  const halo = (n) => { n.setAttribute('stroke', C.white); n.setAttribute('stroke-width', 8); n.setAttribute('paint-order', 'stroke'); n.setAttribute('stroke-linejoin', 'round'); };
+  const pop = (n, x, y, rot, p, k) => { if (p <= 0) { vis(n, false); return; } vis(n, true); const s = Math.max(0.0001, E.back(clamp(p))) * (k || 1); tr(n, x, y, rot, s, s); setA(n, 'opacity', f2(clamp(p * 5))); };
+  const smooth = (x, s) => { const u = clamp((x - s + 30) / 60); return u * u * (3 - 2 * u); };
+
+  // machine vue de face (centrée sur (0,0) au sol : le bas est à y = 0)
+  function machine(parent, w, h, red) {
+    const grp = g(parent);
+    rect(grp, -w / 2, -h, w, h, 8, red ? C.red : C.ink, C.ink, 5);
+    rect(grp, -w * 0.34, -h + 14, w * 0.68, h * 0.36, 5, red ? C.ink : C.paper);
+    rect(grp, -w * 0.3, -h * 0.4, w * 0.6, 10, 2, C.lime, C.ink, 3);
+    rect(grp, -w * 0.4, -14, w * 0.8, 14, 2, C.ink);
+    return grp;
+  }
+  function chair(parent) {                                                       // chaise de profil, tournée vers la droite, posée au sol
+    const grp = g(parent);
+    rect(grp, -22, -78, 10, 76, 2, C.ink);
+    rect(grp, -22, -42, 46, 12, 2, C.ink);
+    rect(grp, -22, -42, 6, 42, 0, C.ink);
+    rect(grp, 16, -42, 6, 42, 0, C.ink);
+    return grp;
+  }
+  function toiDisc(parent, r) {
+    const grp = g(parent);
+    circle(grp, 0, 0, r, C.lime, C.ink, 5);
+    T(grp, 'TOI', 0, 6, 17, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+    return grp;
+  }
+  // flèche lime cernée d'ink, de (x1,y) vers (x2,y)
+  function arrow(parent) {
+    const grp = g(parent);
+    st_line(grp);
+    return grp;
+  }
+  function st_line(grp) {
+    grp.__a = line(grp, 0, 0, 0, 0, C.ink, 16, { 'stroke-linecap': 'butt' });
+    grp.__b = line(grp, 0, 0, 0, 0, C.lime, 8, { 'stroke-linecap': 'butt' });
+    grp.__h = path(grp, 'M0 -18 L28 0 L0 18 Z', C.lime, C.ink, 5);
+  }
+  function setArrow(grp, x1, x2, y, p) {
+    const xe = x1 + (x2 - x1) * p;
+    vis(grp, p > 0.01);
+    setA(grp.__a, 'x1', f2(x1)); setA(grp.__a, 'x2', f2(xe - 4)); setA(grp.__a, 'y1', y); setA(grp.__a, 'y2', y);
+    setA(grp.__b, 'x1', f2(x1)); setA(grp.__b, 'x2', f2(xe - 8)); setA(grp.__b, 'y1', y); setA(grp.__b, 'y2', y);
+    setA(grp.__h, 'transform', `translate(${f2(xe - 24)} ${y})`);
+  }
+
+  /* =========================================================== schools */
+  const PXL = 80, PXR = 980, PY = 140, PWD = 860, PHT = 560, FLOOR = 690, SLAB0 = 148;
+  const BAND = { x: 120, y: 540, w: 1680, h: 80 };
+
+  function initSchools(root, st, P, c, dur) {
+    const left = Object.assign({ kicker: 'ÉCOLE FRIEDMAN', title: 'LE LABYRINTHE' }, P.left && typeof P.left === 'object' ? P.left : {});
+    const right = Object.assign({ kicker: 'ÉCOLE THOMAS', title: 'LE TERRAIN DE JEU' }, P.right && typeof P.right === 'object' ? P.right : {});
+    const goal = str(P.goal, 'OBJECTIF : QUE TU RESTES'), verdict = str(P.verdict, 'LE DÉCOR CHANGE. LE BUT, JAMAIS.');
+    const uid = 'sv' + (++UID);
+    rect(root, 0, 0, 1920, 1080, 0, C.paper);
+    const defs = sv('defs', null, root);
+    st.sch = { uid };
+
+    /* en-têtes : au-dessus des panneaux, collés aux bords extérieurs (le milieu reste libre pour le tampon) */
+    T(root, left.kicker, 80, 70, 26, C.ink, { mono: true, weight: 800, maxW: 500 });
+    T(root, left.title, 80, 122, 44, C.ink, { maxW: 600 });
+    T(root, right.kicker, 1840, 70, 26, C.ink, { mono: true, weight: 800, anchor: 'end', maxW: 500 });
+    T(root, right.title, 1840, 122, 44, C.ink, { anchor: 'end', maxW: 600 });
+
+    const panel = (px, key) => {
+      const cp = sv('clipPath', { id: `${uid}${key}` }, defs);
+      rect(cp, px + 4, PY + 4, PWD - 8, PHT - 8, 0, '#000');
+      rect(root, px + 14, PY + 14, PWD, PHT, 0, C.ink);
+      rect(root, px, PY, PWD, PHT, 0, C.paper, C.ink, 8);
+      return g(root, { 'clip-path': `url(#${uid}${key})` });
+    };
+    /* ---- gauche : le labyrinthe ---- */
+    const L = st.L = {};
+    L.g = panel(PXL, 'l');
+    L.floor = rect(L.g, PXL + 8, FLOOR, PWD - 16, 10, 0, C.ink);
+    L.slab = rect(L.g, PXL + 8, SLAB0, PWD - 16, 40, 0, C.ink);
+    L.wl = rect(L.g, PXL + 8, FLOOR, 52, 10, 0, C.ink);
+    L.wr = rect(L.g, PXL + PWD - 60, FLOOR, 52, 10, 0, C.ink);
+    L.back = []; L.front = [];
+    [[425, 0], [515, 1], [605, 0], [695, 1]].forEach(([x, k], i) => {
+      const m = machine(L.g, 66, 120, false); m.__x = PXL + x; m.__y = FLOOR - 8; m.__s = 0.82; m.__t = 0.9 + i * 0.12; L.back.push(m);
+    });
+    [[470, 1], [560, 0], [650, 1], [740, 0]].forEach(([x, k], i) => {
+      const m = machine(L.g, 80, 150, !!k); m.__x = PXL + x; m.__y = FLOOR; m.__s = 1; m.__t = 0.85 + i * 0.12; L.front.push(m);
+    });
+    L.clock = g(L.g);
+    circle(L.clock, 0, 0, 26, C.paper, C.ink, 5); line(L.clock, 0, 0, 0, -16, C.ink, 4); line(L.clock, 0, 0, 12, 6, C.ink, 4);
+    L.clockX = g(L.clock); line(L.clockX, -24, -24, 24, 24, C.red, 7); line(L.clockX, 24, -24, -24, 24, C.red, 7);
+    L.chair = chair(L.g); L.toi = toiDisc(L.g, 26); L.arr = arrow(L.g);
+
+    /* ---- droite : le terrain de jeu ---- */
+    const R = st.R = {};
+    R.g = panel(PXR, 'r');
+    R.floor = rect(R.g, PXR + 8, FLOOR, PWD - 16, 10, 0, C.ink);
+    R.slab = rect(R.g, PXL + 8 + 900, SLAB0, PWD - 16, 40, 0, C.ink);
+    R.glass = g(R.g);                                                            // verrière sur le mur du fond
+    {
+      const gx = PXR + 300, gy = 215, gw = 400, gh = 160;
+      R.glassH = gh; R.glassY = gy + gh / 2;
+      const gg = R.glassIn = g(R.glass);
+      rect(gg, gx + 8, gy + 8, gw, gh, 0, C.ink);
+      rect(gg, gx, gy, gw, gh, 0, C.paper, C.ink, 8);
+      line(gg, gx + gw / 3, gy, gx + gw / 3, gy + gh, C.ink, 6); line(gg, gx + gw * 2 / 3, gy, gx + gw * 2 / 3, gy + gh, C.ink, 6);
+      line(gg, gx, gy + gh / 2, gx + gw, gy + gh / 2, C.ink, 6);
+      circle(gg, gx + 332, gy + 40, 40, C.lime, C.ink, 5);
+      R.glass.__c = [gx + gw / 2, gy + gh / 2];
+      gg.setAttribute('transform', `translate(${-R.glass.__c[0]} ${-R.glass.__c[1]})`);
+    }
+    R.art = g(R.g);
+    {
+      const ax = PXR + 70, ay = 235;
+      rect(R.art, -50 + 6, -80 + 6, 100, 160, 0, C.ink);
+      rect(R.art, -50, -80, 100, 160, 0, C.paper, C.ink, 7);
+      circle(R.art, -6, -28, 24, C.lime, C.ink, 4);
+      rect(R.art, -30, 8, 40, 40, 0, C.red, C.ink, 4);
+      path(R.art, 'M8 54 L34 14 L40 54 Z', C.paper, C.ink, 4);
+      R.art.__c = [ax + 40, ay + 80];
+    }
+    R.tree = g(R.g);
+    {
+      path(R.tree, 'M-34 0 L34 0 L26 -52 L-26 -52 Z', C.ink, C.ink, 4);
+      rect(R.tree, -5, -150, 10, 100, 0, C.ink);
+      circle(R.tree, 0, -190, 42, C.lime, C.ink, 5); circle(R.tree, -34, -160, 30, C.lime, C.ink, 5); circle(R.tree, 34, -166, 32, C.lime, C.ink, 5);
+      R.tree.__c = [PXR + 770, FLOOR];
+    }
+    R.mach = [[1530, 1], [1690, 0]].map(([x, k], i) => { const m = machine(R.g, 80, 150, !!k); m.__x = x; m.__y = FLOOR; m.__t = 1.6 + i * 0.15; return m; });
+    R.chair = chair(R.g); R.toi = toiDisc(R.g, 26); R.arr = arrow(R.g);
+
+    /* ---- ≠ / =, étiquettes, bandeau, tampon ---- */
+    st.vs = g(root);
+    {
+      circle(st.vs, 5, 5, 48, C.ink); circle(st.vs, 0, 0, 48, C.ink, C.paper, 6);
+      st.neq = T(st.vs, '≠', 0, 22, 64, C.paper, { anchor: 'middle', maxW: 60 });
+      st.eq = T(st.vs, '=', 0, 22, 64, C.lime, { anchor: 'middle', maxW: 60 });
+    }
+    const tag = (lab, cx) => { const grp = g(root); const w = Math.round(mw(lab, 28) + 40); rect(grp, -w / 2 + 6, -22 + 6, w, 44, 6, C.ink); rect(grp, -w / 2, -22, w, 44, 6, C.red, C.ink, 5); T(grp, lab, 0, 10, 28, C.ink, { mono: true, anchor: 'middle', weight: 800 }); grp.__cx = cx; return grp; };
+    st.tagL = tag('BAS · FERMÉ · SANS JOUR', PXL + PWD / 2);
+    st.tagR = tag('HAUT · OUVERT · LUMIÈRE', PXR + PWD / 2);
+    st.band = g(root);
+    {
+      rect(st.band, -BAND.w / 2 + 10, -BAND.h / 2 + 10, BAND.w, BAND.h, 6, C.red);
+      rect(st.band, -BAND.w / 2, -BAND.h / 2, BAND.w, BAND.h, 6, C.ink, C.paper, 5);
+      T(st.band, goal, 0, 20, 56, C.lime, { anchor: 'middle', maxW: BAND.w - 100 });
+    }
+    st.stamp = g(root);
+    {
+      const lines = verdict.indexOf('. ') > 0 ? [verdict.slice(0, verdict.indexOf('. ') + 1), verdict.slice(verdict.indexOf('. ') + 2)] : [verdict];
+      const fs = 36, w = Math.round(Math.max(...lines.map((l) => bw(l, fs))) + 64), h = Math.round(lines.length * fs * 1.2 + 36);
+      rect(st.stamp, -w / 2, -h / 2, w, h, 10, C.paper, C.red, 8);
+      rect(st.stamp, -w / 2 + 9, -h / 2 + 9, w - 18, h - 18, 4, 'none', C.red, 3);
+      lines.forEach((l, i) => T(st.stamp, l, 0, -h / 2 + 18 + fs * 0.95 + i * fs * 1.2, fs, C.red, { anchor: 'middle' }));
+      st.stamp.__h = h;
+    }
+  }
+
+  function updateSchools(st, t, c) {
+    const has = (x) => x != null && t >= x;
+    const pr = (t0, d) => (t0 == null ? 0 : prog(t, t0, t0 + d));
+    const L = st.L, R = st.R;
+    /* ---- panneau gauche ---- */
+    {
+      const lt = c.left == null ? -1 : t - c.left, on = lt >= 0;
+      vis(L.floor, on && lt >= 0);
+      setA(L.floor, 'width', f2((PWD - 16) * E.out2(prog(lt, 0, 0.2))));
+      const und = lerp(190, 470, E.in2(prog(lt, 0.4, 0.8)));
+      const wtop = lt < 0.4 ? lerp(FLOOR, 190, E.out2(prog(lt, 0.15, 0.4))) : und;
+      vis(L.wl, on && lt >= 0.15); vis(L.wr, on && lt >= 0.15);
+      for (const w of [L.wl, L.wr]) { setA(w, 'y', f2(wtop)); setA(w, 'height', f2(Math.max(0, FLOOR - wtop))); }
+      vis(L.slab, on && lt >= 0.4); setA(L.slab, 'height', f2(Math.max(1, und - SLAB0)));
+      L.back.forEach((m) => pop(m, m.__x, m.__y, 0, on ? prog(lt, m.__t, m.__t + 0.25) : 0, 0.82));
+      L.front.forEach((m) => pop(m, m.__x, m.__y, 0, on ? prog(lt, m.__t, m.__t + 0.25) : 0));
+      pop(L.clock, PXL + 610, 507, 0, on ? prog(lt, 1.5, 1.8) : 0);
+      const xp = on ? prog(lt, 1.85, 2.1) : 0;
+      vis(L.clockX, xp > 0);
+      pop(L.toi, PXL + 150, FLOOR - 26, 0, (on ? prog(lt, 2.0, 2.3) : 0) || (has(c.goal) ? 1 : 0));
+      const ch = (on ? prog(lt, 1.9, 2.2) : 0) || (has(c.goal) ? 1 : 0);
+      pop(L.chair, PXL + 300, FLOOR, 0, ch);
+    }
+    /* ---- panneau droit ---- */
+    {
+      const rt = c.right == null ? -1 : t - c.right, on = rt >= 0;
+      vis(R.floor, on); setA(R.floor, 'width', f2((PWD - 16) * E.out2(prog(rt, 0, 0.2))));
+      const und = lerp(470, 190, E.out3(prog(rt, 0.15, 0.55)));
+      vis(R.slab, on); setA(R.slab, 'x', PXR + 8); setA(R.slab, 'height', f2(Math.max(1, und - SLAB0)));
+      const gp = on ? E.out3(prog(rt, 0.65, 1.05)) : 0;
+      if (gp <= 0) vis(R.glass, false); else { vis(R.glass, true); tr(R.glass, R.glass.__c[0], R.glass.__c[1], 0, 1, gp); }
+      pop(R.art, R.art.__c[0], R.art.__c[1], 0, on ? prog(rt, 1.15, 1.45) : 0);
+      pop(R.tree, R.tree.__c[0], R.tree.__c[1], 0, on ? prog(rt, 1.35, 1.7) : 0);
+      R.mach.forEach((m) => { const p = on ? prog(rt, m.__t, m.__t + 0.25) : 0; pop(m, m.__x, m.__y, 0, p); });
+      pop(R.toi, PXR + 150, FLOOR - 26, 0, (on ? prog(rt, 1.95, 2.25) : 0) || (has(c.goal) ? 1 : 0));
+      pop(R.chair, PXR + 300, FLOOR, 0, (on ? prog(rt, 1.9, 2.2) : 0) || (has(c.goal) ? 1 : 0));
+    }
+    /* ---- ≠, étiquettes ---- */
+    const tvis = [c.versus, c.goal].filter((x) => x != null);
+    const tvs = tvis.length ? Math.min(...tvis) : null;
+    const eqOn = c.goal != null && t >= c.goal + 0.95;
+    if (tvs == null) vis(st.vs, false); else { pop(st.vs, 960, 420, 0, prog(t, tvs, tvs + 0.35)); }
+    const sw = c.goal == null ? 0 : prog(t, c.goal + 0.95, c.goal + 1.1);
+    op(st.neq, 1 - sw); op(st.eq, sw);
+    void eqOn;
+    for (const tg of [st.tagL, st.tagR]) {
+      const p = c.versus == null ? 0 : prog(t, c.versus + 0.3 + (tg === st.tagR ? 0.12 : 0), c.versus + 0.6 + (tg === st.tagR ? 0.12 : 0));
+      if (p <= 0) vis(tg, false); else { vis(tg, true); tr(tg, tg.__cx, 752 + 14 * (1 - E.out3(p)), 0, 1, 1); setA(tg, 'opacity', f2(p)); }
+    }
+    /* ---- but : flèches vers la chaise, bandeau ---- */
+    const ga = c.goal == null ? 0 : E.out2(prog(t, c.goal, c.goal + 0.45));
+    const gb = c.goal == null ? 0 : E.out2(prog(t, c.goal + 0.2, c.goal + 0.65));
+    setArrow(L.arr, PXL + 150 + 36, PXL + 300 - 34, 646, ga);
+    setArrow(R.arr, PXR + 150 + 36, PXR + 300 - 34, 646, gb);
+    const bp = c.goal == null ? 0 : E.out3(prog(t, c.goal + 0.7, c.goal + 1.15));
+    if (bp <= 0) vis(st.band, false); else { vis(st.band, true); tr(st.band, 960, 580, 0, bp, 1); }
+    /* ---- verdict ---- */
+    const vp = c.verdict == null ? 0 : prog(t, c.verdict, c.verdict + 0.22);
+    if (vp <= 0) vis(st.stamp, false);
+    else { vis(st.stamp, true); const s = 1 + 0.5 * (1 - E.out3(vp)); tr(st.stamp, 960, 100, -6, s, s); setA(st.stamp, 'opacity', f2(clamp(vp * 4))); }
+  }
+
+  /* =========================================================== walk */
+  const WORLD = 4200, GROUND = 560, PLAN_Y = 700;
+  const STEPS = [1500, 1900, 2500];
+  const aisleHalf = (x, p) => lerp(70, 70 - 48 * clamp((x - 1500) / 1500), p);
+  const ceilY = (x) => 150 + 110 * smooth(x, 1500) + 100 * smooth(x, 1900) + 60 * smooth(x, 2500);
+
+  function initWalk(root, st, P, c, dur) {
+    const first = str(P.first, 'LA PREMIÈRE MINUTE'), safe = str(P.safe, "UN JOUEUR À L'ABRI, IL RESTE.");
+    rect(root, 0, 0, 1920, 1080, 0, C.paper);
+    const W = st.W = {};
+    W.world = g(root);
+    const wd = W.world;
+    /* coupe : fond blanc, dalle du plafond en marches, sol */
+    rect(wd, -40, 130, WORLD + 80, GROUND - 130, 0, C.white);
+    path(wd, `M-40 120 L${WORLD + 40} 120 L${WORLD + 40} 420 L2500 420 L2500 360 L1900 360 L1900 260 L1500 260 L1500 150 L-40 150 Z`, C.ink, C.ink, 4).setAttribute('stroke-linejoin', 'miter');
+    rect(wd, -40, GROUND, WORLD + 80, 24, 0, C.ink);
+    /* entrée : colonnes, fontaine, tapis rouge */
+    W.enter = g(wd);
+    W.carpet = rect(W.enter, 0, GROUND - 14, 1500, 14, 0, C.red, C.ink, 4);
+    W.cols = [330, 530, 730].map((x) => {
+      const cg = g(W.enter);
+      rect(cg, -22, 176 - GROUND, 44, GROUND - 14 - 176 - 14, 0, C.ink);
+      rect(cg, -38, 150 - GROUND, 76, 30, 0, C.ink); rect(cg, -38, -28, 76, 14, 0, C.ink);
+      cg.__x = x;
+      return cg;
+    });
+    W.fount = g(W.enter);
+    {
+      const f = W.fount;
+      rect(f, -150, -34, 300, 34, 4, C.lime, C.ink, 6);
+      rect(f, -22, -112, 44, 80, 0, C.ink);
+      path(f, 'M-104 -116 Q0 -40 104 -116 Z', C.paper, C.ink, 6);
+      for (const d of ['M0 -116 L0 -240', 'M-6 -116 C-14 -230 -50 -270 -92 -214', 'M6 -116 C14 -230 50 -270 92 -214']) {
+        path(f, d, 'none', C.ink, 20); path(f, d, 'none', C.paper, 9);
+      }
+      f.__x = 1180; f.__y = GROUND - 14;
+    }
+    W.stFirst = stk(root, first, 44, C.paper, C.ink, 70, 900);
+    /* machines de la coupe (se rapprochent pendant `narrow`) */
+    W.mach = [];
+    for (let k = 0; k < 24; k++) { const m = machine(wd, 70, 112, k % 2 === 0); m.__k = k; W.mach.push(m); }
+    /* abri : aplat ink débordant sous le plafond, au-dessus de TOI */
+    W.shelter = rect(wd, 0, 420, 270, 56, 0, C.ink);
+    W.shelterEdge = rect(wd, 0, 470, 270, 6, 0, C.lime);
+    /* bande-plan */
+    rect(wd, -40, 596, WORLD + 80, 208, 0, C.ink);
+    W.aisle = path(wd, 'M0 700 L1 700 Z', C.white);
+    W.pm = [];
+    for (let k = 0; k < 70; k++) {
+      const x = 30 + k * 60, red = k % 2 === 0;
+      W.pm.push([rect(wd, x - 22, 600, 44, 24, 2, red ? C.red : C.paper, red ? C.paper : C.ink, 3), rect(wd, x - 22, 700, 44, 24, 2, red ? C.red : C.paper, red ? C.paper : C.ink, 3), x]);
+    }
+    /* TOI sur les deux vues */
+    W.toi1 = toiDisc(wd, 24); W.toi2 = toiDisc(wd, 20);
+    /* cotes qui suivent TOI */
+    W.cv = g(wd);
+    W.cvBar = rect(W.cv, -8, 0, 16, 10, 0, C.lime, C.ink, 4);
+    W.cvA = path(W.cv, 'M-14 8 L14 8 L0 -10 Z', C.ink); W.cvB = path(W.cv, 'M-14 0 L14 0 L0 18 Z', C.ink);
+    W.cvT = T(W.cv, 'PLAFOND', 24, 0, 22, C.ink, { mono: true, weight: 800 });
+    halo(W.cvT);
+    W.ch = g(wd);
+    W.chBar = rect(W.ch, -8, 0, 16, 10, 0, C.lime, C.ink, 4);
+    W.chA = path(W.ch, 'M-14 8 L14 8 L0 -10 Z', C.ink); W.chB = path(W.ch, 'M-14 0 L14 0 L0 18 Z', C.ink);
+    W.chT = T(W.ch, 'ALLÉE', 24, 0, 22, C.ink, { mono: true, weight: 800 });
+    halo(W.chT);
+    /* textes fixes à l'écran */
+    W.safe = T(root, safe, 960, 92, 60, C.ink, { anchor: 'middle', maxW: 1700 });
+    W.stStay = stk(root, 'IL RESTE', 52, C.red, C.ink, 84);
+  }
+
+  function walkGeom(st, c, dur) {
+    const tL = c.lower, tS = c.shelter;
+    let Dl = 5.5;
+    const nxt = [c.narrow, c.shelter].filter((x) => x != null && tL != null && x > tL);
+    if (nxt.length) Dl = clamp((Math.min(...nxt) - tL) * 0.92, 1.5, 5.5);
+    const x0 = 160, xL = 2700, xS = 3300;
+    const lowerX = (t) => (tL == null ? x0 : lerp(x0, xL, E.io2(prog(t, tL, tL + Dl))));
+    let Ds = 1.6;
+    if (tS != null) Ds = Math.max(1.6, Math.abs(xS - lowerX(tS)) / 900);
+    const xAt = (t) => {
+      if (tS != null && t >= tS) return lerp(lowerX(tS), xS, E.io2(prog(t, tS, tS + Ds)));
+      return lowerX(t);
+    };
+    // instants où TOI franchit chaque marche (secousse)
+    const hits = [];
+    let prev = xAt(0);
+    for (let t = 0.02; t <= dur + 0.5; t += 0.02) {
+      const x = xAt(t);
+      for (const s of STEPS) if (prev < s && x >= s) hits.push(t);
+      prev = x;
+    }
+    return { xAt, hits, Ds, Dl };
+  }
+
+  function updateWalk(st, t, c) {
+    const W = st.W, G = st.G;
+    const has = (x) => x != null && t >= x;
+    const pr = (t0, d) => (t0 == null ? 0 : prog(t, t0, t0 + d));
+    const x = G.xAt(t);
+    const camX = clamp(x - 520, 0, WORLD - 1920);
+    let sx = 0, sy = 0;
+    for (const h of G.hits) { const s = shakeAt(t, h, 6, 0.3); sx += s[0] * 0.4; sy += s[1]; }
+    setA(W.world, 'transform', `translate(${f2(-camX + sx)} ${f2(sy)})`);
+    const sc = (wx) => wx - camX;                                               // abscisse d'écran
+
+    /* entrée */
+    const pe = c.enter == null ? 1 : pr(c.enter, 0.5);
+    vis(W.enter, pe > 0);
+    W.cols.forEach((cg, i) => { const p = c.enter == null ? 1 : prog(t, c.enter + i * 0.1, c.enter + i * 0.1 + 0.3); pop(cg, cg.__x, GROUND, 0, p); });
+    pop(W.fount, W.fount.__x, W.fount.__y, 0, c.enter == null ? 1 : prog(t, c.enter + 0.3, c.enter + 0.7));
+    setA(W.carpet, 'width', f2(1500 * (c.enter == null ? 1 : E.out2(pr(c.enter, 0.5)))));
+    {
+      const so = c.enter == null ? 0 : pr(c.enter + 0.6, 0.3), si = c.lower == null ? 0 : pr(c.lower, 0.3);
+      if (so * (1 - si) <= 0) vis(W.stFirst, false); else { pop(W.stFirst, 960, 74, -2, so); setA(W.stFirst, 'opacity', f2(clamp(so * 5) * (1 - si))); }
+    }
+
+    /* resserrement */
+    const pN = c.narrow == null ? 0 : E.io2(pr(c.narrow, 1.6));
+    const pitch = lerp(170, 105, pN);
+    W.mach.forEach((m, k) => {
+      const mx = 1650 + k * pitch;
+      const vis_ = c.enter == null || t >= c.enter + 0.6;
+      if (!vis_ || mx > WORLD + 100) { vis(m, false); return; }
+      vis(m, true); tr(m, mx, GROUND, 0, 1, 1);
+    });
+    {
+      const key = Math.round(pN * 300);
+      if (W.aisle.__k !== key) {
+        W.aisle.__k = key;
+        let top = '', bot = '';
+        for (let xx = 0; xx <= WORLD; xx += 60) { const a = aisleHalf(xx, pN); top += `${xx === 0 ? 'M' : 'L'}${xx} ${f2(PLAN_Y - a)} `; bot = `L${xx} ${f2(PLAN_Y + a)} ` + bot; }
+        W.aisle.setAttribute('d', top + bot + 'Z');
+        for (const [r1, r2, px] of W.pm) { const a = aisleHalf(px, pN); r1.setAttribute('y', f2(PLAN_Y - a - 24)); r2.setAttribute('y', f2(PLAN_Y + a)); }
+      }
+    }
+
+    /* TOI, cotes */
+    vis(W.toi1, true); tr(W.toi1, x, GROUND - 24, 0, 1, 1);
+    vis(W.toi2, true); tr(W.toi2, x, PLAN_Y, 0, 1, 1);
+    {
+      const xc = x + 62, yc = ceilY(xc), aw = aisleHalf(xc, pN);
+      const on = c.enter == null ? 1 : pr(c.enter + 0.8, 0.3);
+      op(W.cv, on); op(W.ch, on);
+      setA(W.cv, 'transform', `translate(${f2(xc)} 0)`);
+      setA(W.cvBar, 'y', f2(yc + 8)); setA(W.cvBar, 'height', f2(Math.max(4, GROUND - 8 - yc - 8)));
+      setA(W.cvA, 'transform', `translate(0 ${f2(yc)})`); setA(W.cvB, 'transform', `translate(0 ${f2(GROUND - 18)})`);
+      setA(W.cvT, 'y', f2((yc + GROUND) / 2 + 8));
+      setA(W.ch, 'transform', `translate(${f2(xc)} 0)`);
+      setA(W.chBar, 'y', f2(PLAN_Y - aw + 8)); setA(W.chBar, 'height', f2(Math.max(4, aw * 2 - 16)));
+      setA(W.chA, 'transform', `translate(0 ${f2(PLAN_Y - aw)})`); setA(W.chB, 'transform', `translate(0 ${f2(PLAN_Y + aw - 18)})`);
+      setA(W.chT, 'y', PLAN_Y + 8);
+    }
+
+    /* abri + textes */
+    {
+      const arrive = c.shelter == null ? null : c.shelter + G.Ds;
+      const ov = arrive == null ? 0 : E.out2(pr(arrive, 0.4));
+      vis(W.shelter, ov > 0); vis(W.shelterEdge, ov > 0);
+      setA(W.shelter, 'x', f2(x - 135)); setA(W.shelter, 'height', f2(56 * ov)); setA(W.shelter, 'y', 420);
+      setA(W.shelterEdge, 'x', f2(x - 135)); setA(W.shelterEdge, 'y', f2(420 + 56 * ov - 6));
+      op(W.safe, arrive == null ? 0 : pr(arrive + 0.15, 0.3));
+      const sp = arrive == null ? 0 : pr(arrive + 0.9, 0.3);
+      if (sp <= 0) vis(W.stStay, false); else pop(W.stStay, clamp(sc(x), 160, 1760), 270, -3, sp);
+    }
+  }
+
+  ZV.define('section-view', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cu = (n) => { const a = beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((x, y) => x - y); return a.length ? a[0] : null; };
+      const walk = P.mode === 'walk';
+      const names = walk ? ['enter', 'lower', 'narrow', 'shelter'] : ['left', 'right', 'versus', 'goal', 'verdict'];
+      let c = {};
+      names.forEach((n) => { c[n] = cu(n); });
+      if (names.every((n) => c[n] == null)) {                                    // aucun cue : une composition d'ensemble sobre et complète
+        const f = walk ? { enter: 0 } : { left: 0.04, right: 0.16, versus: 0.3, goal: 0.42, verdict: 0.62 };
+        for (const n in f) c[n] = f[n] * dur;
+        if (walk) c.enter = null;
+      }
+      const st = { dur, walk, c };
+      if (walk) { initWalk(root, st, P, c, dur); st.G = walkGeom(st, c, dur); }
+      else initSchools(root, st, P, c, dur);
+      return st;
+    },
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        if (st.walk) updateWalk(st, t, st.c); else updateSchools(st, t, st.c);
+      } catch (e) { /* jamais d'exception */ }
     }
   });
 })();

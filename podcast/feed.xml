@@ -91,5 +91,20 @@
       <itunes:explicit>false</itunes:explicit>
       <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-seul-jeu-quon-peut-battre" type="text/html" language="fr"/>
     </item>
+    <item>
+      <title>Une maison sans horloges</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>Le manuel de Bill Friedman, l’école d’en face de Roger Thomas, les jetons, le verre offert et le siège. Un architecte et un croupier en pause, deux personnages composites, et ce que la loi française demande aux casinos.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/06-une-maison-sans-horloges.mp3" length="7795910" type="audio/mpeg"/>
+      <itunes:title>Une maison sans horloges</itunes:title>
+      <itunes:episode>6</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>487</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges" type="text/html" language="fr"/>
+    </item>
   </channel>
 </rss>

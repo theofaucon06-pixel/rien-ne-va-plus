@@ -648,7 +648,7 @@ export const EPISODES = [
 
   {
     slug: 'une-maison-sans-horloges',
-    status: 'soon',
+    status: 'published',
     number: 6,
     title: 'Une maison sans horloges',
     hook: 'Depuis que tu es entré, as-tu vu une fenêtre ? Une horloge ? Un panneau Sortie ? Ce n’est pas un oubli.',
@@ -657,7 +657,9 @@ export const EPISODES = [
     themes: ['lieux', 'psycho'],
     mechanics: ['maison'],
     witnesses: ['architecte', 'main'],
-    audio: null,
+    audio: { file: 'assets/podcast/06-une-maison-sans-horloges.mp3', bytes: 7795910, seconds: 487 },
+    experience: 'motion',
+    poster: 8.0,
     sections: [
       {
         h: 'Il est quelle heure ?',
