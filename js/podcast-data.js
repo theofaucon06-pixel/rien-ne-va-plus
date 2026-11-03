@@ -66,7 +66,8 @@ export const EPISODES = [
           'Tu poses un jeton. La bille part. Le croupier dit trois mots : rien ne va plus.',
           'À partir de là, tu peux souffler sur tes doigts, fixer la roue très fort : plus rien de ce que tu fais ne compte. Ce qui compte a été décidé avant. Par une petite case verte, avec un zéro dessus. Elle travaille pour la maison à chaque tour, sans pause et sans mauvaise soirée.',
           'Ce podcast porte son nom. Zéro Vert. Moi, c’est Théo.'
-        ]
+        ],
+        v: ['theo', 'theo', 'theo']
       },
       {
         h: 'Neuf épisodes',
@@ -75,7 +76,8 @@ export const EPISODES = [
         p: [
           'Moi, c’est Tom. Neuf épisodes pour voir le casino de l’autre côté du décor. La bille, et pourquoi elle n’a pas de mémoire. La zone des machines à sous. Le système infaillible, qui ne l’est jamais. Se refaire, ou comment perdre plus vite en voulant rattraper. Le seul jeu qu’on peut battre, et ce que fait la maison quand on y arrive. Une maison sans horloges. Le tapis rouge, et qui le paie. Le casino dans la poche. Et la sortie.',
           'Et moi, c’est Arthur. Avec des gens qui l’ont vécu. Un escroc qui a fait sauter la banque de Monte-Carlo. Un écrivain russe et la femme qui l’attendait. Une joueuse de Las Vegas qui ne joue pas pour gagner.'
-        ]
+        ],
+        v: ['tom', 'arthur']
       },
       {
         h: 'La promesse',
@@ -85,7 +87,8 @@ export const EPISODES = [
           'La promesse est simple. Du réel. Quand un personnage est composite ou fictif, je te le dis. Chaque chiffre est sourcé en bas de la page, pour que tu vérifies. Pas de sermon : ta soirée t’appartient. Et pas de système pour gagner. Il n’en existe pas. C’est justement le sujet.',
           'Et si le jeu prend trop de place, pour toi ou pour un proche, Joueurs Info Service répond au zéro neuf, soixante-quatorze, soixante-quinze, treize, treize, tous les jours de huit heures à deux heures, de façon anonyme et non surtaxée.',
           'Premier épisode : la bille n’a pas de mémoire. Installe-toi. Ici, c’est Zéro Vert.'
-        ]
+        ],
+        v: ['arthur', 'arthur', 'arthur']
       }
     ],
     retenir: [
@@ -399,7 +402,7 @@ export const EPISODES = [
 
   {
     slug: 'se-refaire',
-    status: 'soon',
+    status: 'published',
     number: 4,
     title: 'Se refaire',
     hook: 'Il a transformé cinquante dollars en quarante millions. Puis il a voulu se refaire.',
@@ -408,7 +411,9 @@ export const EPISODES = [
     themes: ['psycho', 'histoires', 'maths'],
     mechanics: ['refaire'],
     witnesses: ['karas'],
-    audio: null,
+    audio: { file: 'assets/podcast/04-se-refaire.mp3', bytes: 7690571, seconds: 481 },
+    experience: 'motion',
+    poster: 106.3,
     sections: [
       {
         h: 'Je m’arrête à zéro',
@@ -494,7 +499,7 @@ export const EPISODES = [
 
   {
     slug: 'le-seul-jeu-quon-peut-battre',
-    status: 'soon',
+    status: 'published',
     number: 5,
     title: 'Le seul jeu qu’on peut battre',
     hook: 'Au blackjack, on peut battre la maison. Ken Uston l’a fait. Alors la maison a changé les règles.',
@@ -503,7 +508,9 @@ export const EPISODES = [
     themes: ['maths', 'histoires'],
     mechanics: ['competence', 'simplicite', 'bruit'],
     witnesses: ['uston'],
-    audio: null,
+    audio: { file: 'assets/podcast/05-le-seul-jeu-quon-peut-battre.mp3', bytes: 8699545, seconds: 544 },
+    experience: 'motion',
+    poster: 363.3,
     sections: [
       {
         h: 'Une table à part',
