@@ -745,7 +745,7 @@ export const EPISODES = [
 
   {
     slug: 'le-tapis-rouge',
-    status: 'soon',
+    status: 'published',
     number: 7,
     title: 'Le tapis rouge',
     hook: 'Un texto t’offre une suite, avec ton prénom. Le casino connaît ton chiffre. Tout a été calculé dessus.',
@@ -754,7 +754,9 @@ export const EPISODES = [
     themes: ['lieux', 'histoires', 'maths'],
     mechanics: ['tapis', 'retour'],
     witnesses: ['watanabe', 'kakavas'],
-    audio: null,
+    audio: { file: 'assets/podcast/07-le-tapis-rouge.mp3', bytes: 8736726, seconds: 546 },
+    experience: 'motion',
+    poster: 267.8,
     sections: [
       {
         h: 'Votre suite vous attend',

@@ -6988,6 +6988,340 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/jet-invite.js ==== */
+// Composant `jet-invite` (épisode 7) : le dossier que le casino connaît, l'invitation, le jet, l'argent « porte-bonheur ». Voir EP7-COMPONENTS.md.
+// Scène 1 (fond paper) : la chemise cartonnée, quatre lignes qui s'écrivent, le tampon, la carte d'invitation à côté.
+// Scène 2 (fond ink) : l'arc pointillé entre « chez lui » et la ville, l'hôte, le jet, les cadeaux, la boîte, le circuit jusqu'au guichet.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter, aucun marquage. Cues : file, flag-1..4, ban, anyway, host, jet, gifts, box, circuit.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, put, shakeAt } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : v != null && typeof v !== 'object' && String(v).length ? String(v) : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => n.setAttribute('visibility', on ? 'visible' : 'hidden');   // non mis en cache : ZV.put pose aussi cet attribut
+  const disp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');        // pour les groupes dont les enfants posent leur propre visibility
+  const WT = {};
+  '0:.67 1:.36 2:.61 3:.61 4:.64 5:.62 6:.66 7:.52 8:.66 9:.66 A:.71 B:.69 C:.69 D:.71 E:.63 F:.6 G:.73 H:.73 I:.3 J:.38 K:.7 L:.51 M:.96 N:.79 O:.73 P:.65 Q:.73 R:.69 S:.66 T:.58 U:.73 V:.68 W:1 X:.72 Y:.66 Z:.58 À:.71 Â:.71 É:.63 È:.63 Ê:.63 Î:.3 Ô:.73 Û:.73 Ç:.69 €:.75 %:.99 +:.53 ×:.53 −:.53 -:.36 .:.25 ,:.21 ::.26 ;:.24 \':.19 ’:.22 !:.3 ?:.43 |:.28 (:.33 ):.33 $:.65 ¢:.57 ≈:.55 →:1 ·:.25 /:.37 «:.48 »:.48 –:.55'.split(' ').forEach((p) => { WT[p[0]] = parseFloat(p.slice(2)); });
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += WT[ch] !== undefined ? WT[ch] : /\s/.test(ch) ? 0.22 : 0.6; return a * size; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const fitSize = (s, size, maxW, minS, mono) => Math.max(minS, Math.min(size, Math.floor(maxW / Math.max(0.01, mono ? mw(s, 1) : bw(s, 1)))));
+  function layout(words, sz, maxW, maxL) {
+    if (maxL <= 1) { const s = words.join(' '); return bw(s, sz) <= maxW ? [s] : null; }
+    const lines = []; let cur = '';
+    for (const w of words) { const nx = cur ? cur + ' ' + w : w; if (!cur || bw(nx, sz) <= maxW) cur = nx; else { lines.push(cur); cur = w; } }
+    lines.push(cur);
+    if (lines.length > maxL || lines.some((l) => bw(l, sz) > maxW)) return null;
+    if (lines.length === 2 && maxL === 2) {
+      let best = lines, bm = Math.max(bw(lines[0], sz), bw(lines[1], sz));
+      for (let k = 1; k < words.length; k++) { const a = words.slice(0, k).join(' '), b = words.slice(k).join(' '), m = Math.max(bw(a, sz), bw(b, sz)); if (m < bm && m <= maxW) { bm = m; best = [a, b]; } }
+      return best;
+    }
+    return lines;
+  }
+  function wrap(s, size, maxW, maxL, minS) {
+    const words = String(s).split(/\s+/).filter(Boolean); if (!words.length) words.push('');
+    for (let sz = size; sz >= minS; sz -= 2) { const L = layout(words, sz, maxW, maxL); if (L) return { lines: L, size: sz }; }
+    return { lines: layout(words, minS, 1e9, maxL) || [words.join(' ')], size: minS };
+  }
+  function typed(parent, defs, id, s, x, y, size, fill, o) {
+    o = o || {};
+    const w = o.mono ? mw(s, size) : bw(s, size), W = Math.min(w, o.maxW || 1e9);
+    const x0 = o.anchor === 'middle' ? x - W / 2 : x;
+    const cp = sv('clipPath', { id }, defs), cr = rect(cp, x0 - 6, y - size * 1.1, 0, size * 1.5, 0, '#000');
+    const t = text(parent, s, x0, y, size, fill, { mono: o.mono, len: f2(W) });
+    t.setAttribute('clip-path', `url(#${id})`);
+    const chars = Array.from(s), cum = [0]; let acc = 0;
+    for (const ch of chars) { acc += o.mono ? 0.6 : (WT[ch] !== undefined ? WT[ch] : 0.4); cum.push(acc); }
+    return { t, W, n: chars.length, set(k) { k = Math.max(0, Math.min(chars.length, Math.floor(k))); setA(cr, 'width', f2(k <= 0 ? 0 : k >= chars.length ? W + 12 : (cum[k] / acc) * W + 6)); vis(t, k > 0); } };
+  }
+
+  /* ---- l'arc du voyage : courbe quadratique entre « chez lui » et la ville ---- */
+  const A0 = [260, 640], AC = [960, -180], A1 = [1660, 640];
+  const arcX = (s) => (1 - s) * (1 - s) * A0[0] + 2 * s * (1 - s) * AC[0] + s * s * A1[0];
+  const arcY = (s) => (1 - s) * (1 - s) * A0[1] + 2 * s * (1 - s) * AC[1] + s * s * A1[1];
+  const arcAng = (s) => Math.atan2(2 * (1 - s) * (AC[1] - A0[1]) + 2 * s * (A1[1] - AC[1]), 2 * (1 - s) * (AC[0] - A0[0]) + 2 * s * (A1[0] - AC[0])) / ZV.D2R;
+  const GY = 662;                                                              // sol de la scène 2
+  const BOXX = 1440, BOXY = 652;                                              // pied de la boîte cadeau
+  const GUI = [1736, 598];                                                     // bord du guichet
+
+  ZV.define('jet-invite', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 20;
+      const first = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r === null || b.t < r)) r = b.t; return r; };
+      const NAMES = ['file', 'flag-1', 'flag-2', 'flag-3', 'flag-4', 'ban', 'anyway', 'host', 'jet', 'gifts', 'box', 'circuit'];
+      const T = {}; NAMES.forEach((n) => { T[n] = first(n); });
+      if (NAMES.every((n) => T[n] == null)) {
+        const k = Math.min(1, dur / 20), d = { file: 0.3, 'flag-1': 1.2, 'flag-2': 2.1, 'flag-3': 3.0, 'flag-4': 4.2, ban: 5.8, anyway: 6.8, host: 8.2, jet: 10.4, gifts: 13.2, box: 14.4, circuit: 16.0 };
+        NAMES.forEach((n) => { T[n] = d[n] * k; });
+      }
+      const name = str(P.name, 'HARRY KAKAVAS'), role = str(P.role, 'JOUEUR · AUSTRALIE');
+      const dflags = ['JOUEUR PATHOLOGIQUE', 'EXCLU DU CASINO DE SYDNEY', 'CONDAMNÉ POUR UNE FRAUDE (POUR FINANCER SON JEU)', 'A DEMANDÉ LUI-MÊME À ÊTRE INTERDIT AU CASINO DE MELBOURNE'];
+      const flags = [0, 1, 2, 3].map((i) => str(Array.isArray(P.flags) ? P.flags[i] : null, dflags[i]));
+      const ban = str(P.ban, 'INTERDIT À SA DEMANDE'), invite = str(P.invite, 'INVITATION');
+      const gifts = (Array.isArray(P.gifts) ? P.gifts : ['DES SUITES', 'DES CADEAUX']).slice(0, 3).map((x) => str(x, '')).filter((x) => x);
+      const box = str(P.box, '50 000 $'), boxLabel = str(P.box_label, 'ARGENT PORTE-BONHEUR'), circuit = str(P.circuit, 'IL FINIT TOUJOURS AU MÊME GUICHET');
+      // la scène 2 s'ouvre sur `host` (ou 0,5 s avant son premier cue)
+      let tS = T.host;
+      if (tS == null) { const o = [T.jet, T.gifts, T.box, T.circuit].filter((x) => x != null); if (o.length) tS = Math.max(0, Math.min(...o) - 0.5); }
+      const uid = 'ji' + (++UID);
+      const st = { T, tS, uid, dur };
+      const defs = sv('defs', null, root);
+      const pt = sv('pattern', { id: uid + 'h', width: 30, height: 30, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+      sv('rect', { x: 0, y: 0, width: 30, height: 30, fill: C.paper }, pt);
+      sv('rect', { x: 0, y: 0, width: 7, height: 30, fill: C.ink, 'fill-opacity': 0.08 }, pt);
+
+      /* =================== scène 1 : le dossier =================== */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      st.s1 = g(root);
+      const S1 = st.s1;
+      st.ghostCh = rect(S1, 260, 90, 1200, 710, 14, 'none', '#CFCABB', 6, { 'stroke-dasharray': '16 12' });
+      st.ch = g(S1);
+      const CH = st.ch;
+      rect(CH, -600 + 16, -355 + 16, 1200, 710, 14, C.ink);
+      rect(CH, -600, -355, 1200, 710, 14, `url(#${uid}h)`, C.ink, 8);
+      rect(CH, -590, -355 - 46, 290, 56, 12, `url(#${uid}h)`, C.ink, 8);
+      text(CH, 'DOSSIER', -445, -355 - 8, 28, C.ink, { mono: true, anchor: 'middle', spacing: 5, len: f2(mw('DOSSIER', 28) + 6 * 5) });
+      rect(CH, -566, -322, 1132, 644, 6, C.white, C.ink, 4);
+      const ns = fitSize(name, 84, 900, 40);
+      text(CH, name, -536, -236, ns, C.ink, { len: f2(Math.min(bw(name, ns), 900)) });
+      const rs = fitSize(role, 30, 1000, 16, true);
+      text(CH, role, -536, -190, rs, C.grey, { mono: true, len: f2(Math.min(mw(role, rs), 1000)) });
+      line(CH, -536, -166, 536, -166, C.ink, 4);
+      // quatre lignes : taille commune, retour à la ligne mesuré (2 lignes au plus)
+      let fs = 40, wr;
+      for (; fs >= 30; fs -= 2) { wr = flags.map((f) => layout(String(f).split(/\s+/).filter(Boolean), fs, 670, 2)); if (wr.every((x) => x)) break; }
+      if (!wr || !wr.every((x) => x)) { fs = 30; wr = flags.map((f) => layout(String(f).split(/\s+/).filter(Boolean), fs, 1e9, 2) || [String(f)]); }
+      st.flags = [];
+      const rowC = [-91, 23, 136, 250];
+      flags.forEach((f, i) => {
+        const o = { pen: g(CH), lines: [], n: 0 }, c = rowC[i], L = wr[i];
+        line(o.pen, -536, c - 26, -536, c + 26, C.ink, 5);
+        sv('polygon', { points: `-536,${c - 26} -494,${c - 11} -536,${c + 4}`, fill: C.red, stroke: C.ink, 'stroke-width': 3, 'stroke-linejoin': 'round' }, o.pen);
+        o.cx = -536; o.cy = c;
+        L.forEach((l, k) => {
+          const y = c + (k - (L.length - 1) / 2) * fs * 1.08 + fs * 0.35;
+          const ty = typed(CH, defs, `${uid}f${i}_${k}`, l, -470, y, fs, C.ink, { maxW: 676 });
+          o.lines.push(ty); o.n += ty.n;
+        });
+        st.flags.push(o);
+      });
+      // tampon (marge droite)
+      st.stamp = g(CH);
+      {
+        const w = 340, h = 190, W = wrap(ban, 52, 290, 2, 26), n = W.lines.length;
+        rect(st.stamp, -w / 2, -h / 2, w, h, 6, C.white, C.red, 8);
+        rect(st.stamp, -w / 2 + 16, -h / 2 + 16, w - 32, h - 32, 3, 'none', C.red, 3);
+        W.lines.forEach((l, i) => text(st.stamp, l, 0, (i - (n - 1) / 2) * W.size * 1.1 + W.size * 0.35, W.size, C.red, { anchor: 'middle', len: f2(Math.min(bw(l, W.size), w - 56)) }));
+      }
+      // carte d'invitation, à côté de la chemise
+      st.card = g(S1);
+      {
+        const w = 340, h = 230;
+        rect(st.card, -w / 2 + 14, -h / 2 + 14, w, h, 12, C.ink);
+        rect(st.card, -w / 2, -h / 2, w, h, 12, C.paper, C.red, 8);
+        const sz = fitSize(invite, 40, w - 50, 20, true);
+        text(st.card, invite, 0, -22, sz, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(invite, sz), w - 50)) });
+        rect(st.card, -110, 8, 220, 10, 0, C.ink); rect(st.card, -110, 36, 150, 10, 0, '#B9B5A8');
+        circle(st.card, 100, 70, 26, C.red, C.ink, 5);
+      }
+      st.quand = g(S1);
+      {
+        const lab = 'QUAND MÊME', w = 320, h = 70, sz = fitSize(lab, 42, w - 40, 24);
+        rect(st.quand, -w / 2 + 9, -h / 2 + 9, w, h, 12, '#8A8578');
+        rect(st.quand, -w / 2, -h / 2, w, h, 12, C.ink, C.ink, 6);
+        text(st.quand, lab, 0, sz * 0.35, sz, C.paper, { anchor: 'middle', len: f2(Math.min(bw(lab, sz), w - 40)) });
+      }
+
+      /* =================== scène 2 : le voyage =================== */
+      st.s2 = g(root);
+      const S2 = st.s2;
+      rect(S2, 0, 0, 1920, 1080, 0, C.ink);
+      line(S2, 100, GY, 1900, GY, C.paper, 6);
+      // maison « chez lui »
+      path(S2, 'M138 654 L138 604 L184 566 L230 604 L230 654 Z', C.ink, C.paper, 5);
+      rect(S2, 170, 622, 28, 32, 0, 'none', C.paper, 4);
+      // l'arc pointillé (tracé par un clip qui s'ouvre de gauche à droite)
+      const cpArc = sv('clipPath', { id: uid + 'a' }, defs);
+      st.arcClip = rect(cpArc, 200, 0, 0, 1080, 0, '#000');
+      const arcG = g(S2, { 'clip-path': `url(#${uid}a)` });
+      path(arcG, `M${A0[0]} ${A0[1]} Q${AC[0]} ${AC[1]} ${A1[0]} ${A1[1]}`, 'none', C.paper, 8, { 'stroke-dasharray': '24 18', 'stroke-linecap': 'butt' });
+      circle(S2, A0[0], A0[1], 18, C.lime, C.paper, 5);
+      circle(S2, A1[0], A1[1], 18, C.lime, C.paper, 5);
+      text(S2, 'CHEZ LUI', A0[0], 712, 30, C.paper, { mono: true, anchor: 'middle', len: f2(mw('CHEZ LUI', 30)) });
+      text(S2, 'MELBOURNE', A1[0], 712, 30, C.paper, { mono: true, anchor: 'middle', len: f2(mw('MELBOURNE', 30)) });
+      // flèche du circuit
+      st.arrow = g(S2);
+      st.arrowL = line(st.arrow, BOXX + 80, GUI[1], BOXX + 80, GUI[1], C.lime, 20, { 'stroke-linecap': 'butt' });
+      st.arrowH = sv('polygon', { points: '0,0 0,0 0,0', fill: C.lime }, st.arrow);
+      // liasses du circuit (sous le bâtiment : elles disparaissent derrière lui)
+      st.bills = [];
+      for (let i = 0; i < 3; i++) {
+        const b = g(S2);
+        rect(b, -33 + 5, -19 + 5, 66, 38, 5, '#5A5A5A'); rect(b, -33, -19, 66, 38, 5, C.paper, C.ink, 4); rect(b, -8, -19, 16, 38, 0, C.lime, C.ink, 3);
+        st.bills.push(b);
+      }
+      // bâtiment au guichet (blocs ink bordés paper, aucune enseigne)
+      st.bld = g(S2);
+      {
+        const B = st.bld;
+        line(B, 1840, 330, 1840, 384, C.paper, 5);
+        rect(B, 1800, 384, 80, 60, 0, C.ink, C.paper, 5);
+        rect(B, 1770, 440, 120, 66, 0, C.ink, C.paper, 5);
+        rect(B, 1740, 500, 160, 160, 0, C.ink, C.paper, 5);
+        for (let r = 0; r < 2; r++) for (let k = 0; k < 3; k++) rect(B, 1784 + k * 34, 456 + r * 24 - (r ? 0 : 0), 16, 12, 0, C.paper);
+        rect(B, 1760, 548, 120, 84, 0, C.paper, C.paper, 4);
+        for (let k = 0; k < 5; k++) rect(B, 1770 + k * 26, 548, 8, 84, 0, C.ink);
+        rect(B, 1752, 630, 136, 12, 0, C.paper, C.ink, 4);
+        text(B, 'LE GUICHET', 1820, 534, 22, C.paper, { mono: true, anchor: 'middle', len: f2(mw('LE GUICHET', 22)) });
+      }
+      // hôte (buste plat sans visage)
+      st.host = g(S2);
+      {
+        const H = st.host;
+        path(H, 'M-34 0 L-30 -26 Q0 -40 30 -26 L34 0 Z', C.ink, C.paper, 5);
+        circle(H, 0, -52, 19, C.ink, C.paper, 5);
+        path(H, 'M0 -26 L-14 -36 L-14 -18 Z', C.lime, C.ink, 3); path(H, 'M0 -26 L14 -36 L14 -18 Z', C.lime, C.ink, 3); rect(H, -4, -30, 8, 8, 2, C.lime, C.ink, 3);
+      }
+      st.hostLab = typed(S2, defs, uid + 'hl', 'UN HÔTE FAIT LE VOYAGE', 960, 470, 30, C.paper, { mono: true, anchor: 'middle', maxW: 800 });
+      // jet privé plat (aucun marquage)
+      st.jet = g(S2);
+      {
+        const J = st.jet;
+        path(J, 'M-132 -20 L-136 -62 L-108 -62 L-76 -20 Z', C.ink, C.paper, 5); rect(J, -132, -64, 26, 8, 0, C.red);
+        path(J, 'M-20 14 L-62 56 L-34 56 L28 14 Z', C.ink, C.paper, 5);
+        rect(J, -104, -22, 214, 44, 22, C.ink, C.paper, 5);
+        rect(J, -92, 4, 190, 9, 0, C.red);
+        for (let k = 0; k < 6; k++) circle(J, -58 + k * 24, -8, 5.5, C.paper);
+        path(J, 'M76 -18 Q92 -18 100 -6 L76 -6 Z', C.paper);
+      }
+      // étiquettes des cadeaux
+      st.gifts = gifts.map((lab, i) => {
+        const o = g(S2), w = 290, h = 64, sz = fitSize(lab, 40, w - 36, 22);
+        rect(o, -w / 2 + 8, -h / 2 + 8, w, h, 12, '#5A5A5A'); rect(o, -w / 2, -h / 2, w, h, 12, C.paper, C.ink, 6);
+        text(o, lab, 0, sz * 0.35, sz, C.ink, { anchor: 'middle', len: f2(Math.min(bw(lab, sz), w - 36)) });
+        return o;
+      });
+      // boîte cadeau (red, ruban lime) + montant
+      st.box = g(S2);
+      {
+        const B = st.box;
+        rect(B, -65, -75, 130, 75, 4, C.red, C.paper, 5);
+        rect(B, -13, -75, 26, 75, 0, C.lime, C.ink, 4);
+        st.slot = rect(B, -58, -75, 116, 14, 0, C.ink);
+        st.lid = g(B);
+        rect(st.lid, -72, -38, 144, 38, 4, C.red, C.paper, 5); rect(st.lid, -13, -38, 26, 38, 0, C.lime, C.ink, 4);
+      }
+      {
+        const sz = fitSize(box, 80, 340, 40);
+        st.boxT = typed(S2, defs, uid + 'bx', box, 1360 - Math.min(bw(box, sz), 340), 574, sz, C.paper, { maxW: 340 });
+        const ls = fitSize(boxLabel, 28, 340, 16, true);
+        st.boxL = typed(S2, defs, uid + 'bl', boxLabel, 1360 - Math.min(mw(boxLabel, ls), 340), 614, ls, C.lime, { mono: true, maxW: 340 });
+      }
+      st.offert = g(S2);
+      {
+        const w = 190, h = 60;
+        rect(st.offert, -w / 2 + 8, -h / 2 + 8, w, h, 12, '#5A5A5A'); rect(st.offert, -w / 2, -h / 2, w, h, 12, C.paper, C.ink, 6);
+        text(st.offert, 'OFFERT', 0, 13, 38, C.ink, { anchor: 'middle', len: f2(bw('OFFERT', 38)) });
+      }
+      {
+        const sz = fitSize(circuit, 56, 1700, 30);
+        st.circT = typed(S2, defs, uid + 'ci', circuit, 960, 810, sz, C.paper, { anchor: 'middle', maxW: 1700 });
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const T = st.T, tS = st.tS;
+      const U = (k) => (T[k] == null ? -1 : t - T[k]);
+
+      /* ---- bascule scène 1 → scène 2 (poussée en 12 images, un seul événement) ---- */
+      const e = tS == null ? 0 : E.io3(prog(t - tS, 0, 0.4));
+      disp(st.s1, e < 1); disp(st.s2, e > 0);
+      if (e < 1) setA(st.s1, 'transform', `translate(${f2(-1920 * e)} 0)`);
+      if (e > 0) setA(st.s2, 'transform', `translate(${f2(1920 * (1 - e))} 0)`);
+
+      /* ---- scène 1 ---- */
+      if (e < 1) {
+        const uf = U('file');
+        vis(st.ghostCh, uf < 0);
+        if (uf < 0) disp(st.ch, false); else {
+          disp(st.ch, true);
+          let sx = 0, sy = 0;
+          if (T.ban != null) { const s = shakeAt(t, T.ban + 0.14, 7, 0.4); sx = s[0]; sy = s[1]; }
+          const slide = 900 * (1 - E.out3(prog(uf, 0, 0.55)));
+          setA(st.ch, 'transform', `translate(${f2(860 + sx)} ${f2(445 + sy + slide)}) rotate(-1.5)`);
+        }
+        st.flags.forEach((o, i) => {
+          const u = U('flag-' + (i + 1));
+          if (u < 0) { vis(o.pen, false); o.lines.forEach((l) => l.set(0)); return; }
+          const p = E.back(prog(u, 0, 0.2)); setA(o.pen, 'transform', `translate(${f2(o.cx)} ${f2(o.cy)}) scale(${f2(Math.max(0.001, p))}) translate(${f2(-o.cx)} ${f2(-o.cy)})`);
+          vis(o.pen, true);
+          let k = u * 30; o.lines.forEach((l) => { l.set(k); k -= l.n; });
+        });
+        const ub = U('ban');
+        if (ub < 0) vis(st.stamp, false); else put(st.stamp, 402, 52, -10, 1 + 1.4 * (1 - E.out3(prog(ub, 0, 0.16))), undefined, 1);
+        const ua = U('anyway');
+        if (ua < 0) { vis(st.card, false); vis(st.quand, false); } else {
+          put(st.card, 1670 + 520 * (1 - E.out3(prog(ua, 0, 0.5))), 400, 2, 1, 1, 1);
+          const q = E.back(prog(ua, 0.55, 0.8)); put(st.quand, 1670, 590, 5, q, undefined, 1);
+        }
+      }
+
+      /* ---- scène 2 ---- */
+      if (e > 0) {
+        const us = tS == null ? 0 : t - tS;
+        setA(st.arcClip, 'width', f2(1500 * E.out2(prog(us, 0.35, 1.1))));
+        // hôte : de la ville vers « chez lui », puis embarque dans le jet
+        const uh = U('host'), uj = U('jet');
+        const hostOn = uh >= 0.4 && (uj < 0);
+        if (!hostOn) { vis(st.host, false); } else {
+          const p = E.io2(prog(uh, 0.4, 2.8)), s = 1 - p, bob = p > 0 && p < 1 ? Math.abs(Math.sin(uh * 9)) * 7 : 0;
+          put(st.host, arcX(s), arcY(s) - 24 - bob, 0, 1.35, undefined, 1);
+        }
+        st.hostLab.set(uh < 0.9 || uj >= 0 ? 0 : (uh - 0.9) * 30);
+        // jet : décolle de « chez lui », suit l'arc, se pose
+        if (uj < 0) vis(st.jet, false); else {
+          const p = E.io2(prog(uj, 0, 2.5)), k = 1 - E.in2(prog(uj, 3.1, 3.4));
+          put(st.jet, arcX(p), arcY(p) - 4, arcAng(p), 0.9 * k, undefined, 1);
+        }
+        // cadeaux : tombent l'un après l'autre au-dessus de la ville
+        st.gifts.forEach((o, i) => {
+          const ug = T.gifts == null ? -1 : t - T.gifts - i * 0.55;
+          if (ug < 0) { vis(o, false); return; }
+          const fall = E.bounce(prog(ug, 0, 0.5)), ty = 350 - i * 86;
+          put(o, 1600, ty - 460 * (1 - fall), (i % 2 ? 3 : -3), 1, 1, 1);
+        });
+        // boîte cadeau
+        const ux = U('box');
+        if (ux < 0) { vis(st.box, false); vis(st.offert, false); st.boxT.set(0); st.boxL.set(0); } else {
+          put(st.box, BOXX, BOXY, 0, E.back(prog(ux, 0, 0.3)), undefined, 1);
+          { const lp = E.out3(prog(ux, 0.35, 0.8)); setA(st.lid, 'transform', `translate(${f2(10 * lp)} ${f2(-75 - 62 * lp)}) rotate(${f2(9 * lp)})`); vis(st.slot, lp > 0.02); }
+          st.boxT.set((ux - 0.6) * 30); st.boxL.set((ux - 1.1) * 30);
+          put(st.offert, 1230, 478, -6, E.back(prog(ux, 1.3, 1.55)), undefined, 1);
+        }
+        // circuit : flèche de la boîte au guichet, liasses
+        const uc = U('circuit');
+        if (uc < 0) { vis(st.arrow, false); st.bills.forEach((b) => vis(b, false)); st.circT.set(0); } else {
+          const x0 = BOXX + 80, x1 = GUI[0], p = E.out2(prog(uc, 0, 0.5)), xe = x0 + (x1 - x0) * p, hl = Math.min(44, xe - x0);
+          vis(st.arrow, true);
+          setA(st.arrowL, 'x2', f2(Math.max(x0, xe - hl + 4))); setA(st.arrowL, 'x1', x0); setA(st.arrowL, 'y1', GUI[1]); setA(st.arrowL, 'y2', GUI[1]);
+          setA(st.arrowH, 'points', `${f2(xe)},${GUI[1]} ${f2(xe - hl)},${GUI[1] - 26} ${f2(xe - hl)},${GUI[1] + 26}`);
+          st.bills.forEach((b, i) => {
+            const u = uc - 0.6 - i * 0.55, q = prog(u, 0, 0.7);
+            if (u < 0 || q >= 1) { vis(b, false); return; }
+            put(b, x0 + 20 + (x1 + 40 - x0 - 20) * q, GUI[1], 0, 1, 1, 1);
+          });
+          st.circT.set((uc - 0.4) * 40);
+        }
+      }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/kinetic.js ==== */
 // Composant « kinetic » : voir tools/video/composition/INTERFACE.md. Fonction pure du temps du plan, aplats seulement.
 (() => {
@@ -11603,6 +11937,643 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/rebate-loop.js ==== */
+// Composant `rebate-loop` (épisode 7) : la remise sur les pertes. Voir EP7-COMPONENTS.md.
+// À gauche une étiquette de prix (la perte) qui se balance au bout de sa ficelle, un sticker de remise, des liasses qui filent,
+// un ruban cadeau qui tombe ; à droite une boucle de trois nœuds reliés par des flèches, parcourue par un jeton.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter. Cues : loss, rebate, gift, price, longer, more, spin.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, put, rng, shakeAt } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : v != null && typeof v !== 'object' && String(v).length ? String(v) : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => n.setAttribute('visibility', on ? 'visible' : 'hidden');   // non mis en cache : ZV.put pose aussi cet attribut
+  const disp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');      // pour les groupes dont les enfants posent leur propre visibility
+  // largeurs réelles de Bricolage Grotesque 800 (em), mesurées ; Mono = 0,6 em
+  const WT = {};
+  '0:.67 1:.36 2:.61 3:.61 4:.64 5:.62 6:.66 7:.52 8:.66 9:.66 A:.71 B:.69 C:.69 D:.71 E:.63 F:.6 G:.73 H:.73 I:.3 J:.38 K:.7 L:.51 M:.96 N:.79 O:.73 P:.65 Q:.73 R:.69 S:.66 T:.58 U:.73 V:.68 W:1 X:.72 Y:.66 Z:.58 À:.71 Â:.71 É:.63 È:.63 Ê:.63 Î:.3 Ô:.73 Û:.73 Ç:.69 €:.75 %:.99 +:.53 ×:.53 −:.53 -:.36 .:.25 ,:.21 ::.26 ;:.24 \':.19 ’:.22 !:.3 ?:.43 |:.28 (:.33 ):.33 $:.65 ¢:.57 ≈:.55 →:1 ·:.25 /:.37 «:.48 »:.48 –:.55'.split(' ').forEach((p) => { WT[p[0]] = parseFloat(p.slice(2)); });
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += WT[ch] !== undefined ? WT[ch] : /\s/.test(ch) ? 0.22 : 0.6; return a * size; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  // retour à la ligne mesuré, équilibré sur 2 lignes ; réduit la taille plutôt que de déborder
+  function layout(words, sz, maxW, maxL) {
+    if (maxL <= 1) { const s = words.join(' '); return bw(s, sz) <= maxW ? [s] : null; }
+    const lines = []; let cur = '';
+    for (const w of words) { const nx = cur ? cur + ' ' + w : w; if (!cur || bw(nx, sz) <= maxW) cur = nx; else { lines.push(cur); cur = w; } }
+    lines.push(cur);
+    if (lines.length > maxL || lines.some((l) => bw(l, sz) > maxW)) return null;
+    if (lines.length === 2 && maxL === 2) {
+      let best = lines, bm = Math.max(bw(lines[0], sz), bw(lines[1], sz));
+      for (let k = 1; k < words.length; k++) { const a = words.slice(0, k).join(' '), b = words.slice(k).join(' '), m = Math.max(bw(a, sz), bw(b, sz)); if (m < bm && m <= maxW) { bm = m; best = [a, b]; } }
+      return best;
+    }
+    return lines;
+  }
+  function wrap(s, size, maxW, maxL, minS) {
+    const words = String(s).split(/\s+/).filter(Boolean); if (!words.length) words.push('');
+    for (let sz = size; sz >= minS; sz -= 2) { const L = layout(words, sz, maxW, maxL); if (L) return { lines: L, size: sz }; }
+    return { lines: layout(words, minS, 1e9, maxL) || [words.join(' ')], size: minS };
+  }
+  const fitSize = (s, size, maxW, minS) => Math.max(minS, Math.min(size, Math.floor(maxW / Math.max(0.01, bw(s, 1)))));
+  // texte qui s'écrit lettre à lettre : texte plein (textLength fixe) révélé par un clip ; set(n) = nombre de lettres visibles
+  function typed(parent, defs, id, s, x, y, size, fill, o) {
+    o = o || {};
+    const w = o.mono ? mw(s, size) : bw(s, size), W = Math.min(w, o.maxW || 1e9);
+    const x0 = o.anchor === 'middle' ? x - W / 2 : x;
+    const cp = sv('clipPath', { id }, defs), cr = rect(cp, x0 - 6, y - size * 1.1, 0, size * 1.5, 0, '#000');
+    const t = text(parent, s, x0, y, size, fill, { mono: o.mono, len: f2(W) });
+    t.setAttribute('clip-path', `url(#${id})`);
+    const chars = Array.from(s), cum = [0]; let acc = 0;
+    for (const ch of chars) { acc += o.mono ? 0.6 : (WT[ch] !== undefined ? WT[ch] : 0.4); cum.push(acc); }
+    return { t, n: chars.length, set(k) { k = Math.max(0, Math.min(chars.length, Math.floor(k))); const wv = k >= chars.length ? W + 12 : (cum[k] / acc) * W; setA(cr, 'width', f2(k <= 0 ? 0 : wv + 6)); vis(t, k > 0); } };
+  }
+
+  // positions des éléments (repère 1920×1080)
+  const HX = 470, HY = 100, SL = 165;                                          // crochet, ficelle (l'œillet est à y = HY + SL)
+  const NW = 360, NH = 150;
+  const CN = [[1400, 205], [1640, 615], [1130, 615]];                          // centres des nœuds
+  const LAP = 2.4;
+  const PATHLEN = (() => { let a = 0; for (let i = 0; i < 3; i++) { const p = CN[i], q = CN[(i + 1) % 3]; a += Math.hypot(q[0] - p[0], q[1] - p[1]); } return a; })();
+  const D3 = Math.hypot(CN[1][0] - CN[0][0], CN[1][1] - CN[0][1]) + Math.hypot(CN[2][0] - CN[1][0], CN[2][1] - CN[1][1]);   // distance au 3e nœud
+
+  // flèche plate entre deux points (p = avancement du tracé) ; la pointe est toujours visible
+  function mkArrow(parent, color) {
+    const o = {};
+    o.shaft = line(parent, 0, 0, 0, 0, color, 16); o.shaft.setAttribute('stroke-linecap', 'butt');
+    o.head = sv('polygon', { points: '0,0 0,0 0,0', fill: color }, parent);
+    o.set = (p, x1, y1, x2, y2) => {
+      const dx = x2 - x1, dy = y2 - y1, L = Math.max(1, Math.hypot(dx, dy)), ux = dx / L, uy = dy / L;
+      if (p <= 0.001) { vis(o.shaft, false); vis(o.head, false); return; }
+      const len = L * p, hl = Math.min(40, len), hw = 27 * Math.min(1, len / 40);
+      const tx = x1 + ux * len, ty = y1 + uy * len, bx = tx - ux * hl, by = ty - uy * hl;
+      setA(o.shaft, 'x1', f2(x1)); setA(o.shaft, 'y1', f2(y1)); setA(o.shaft, 'x2', f2(bx + ux * 3)); setA(o.shaft, 'y2', f2(by + uy * 3)); vis(o.shaft, len > hl);
+      setA(o.head, 'points', `${f2(tx)},${f2(ty)} ${f2(bx - uy * hw)},${f2(by + ux * hw)} ${f2(bx + uy * hw)},${f2(by - ux * hw)}`); vis(o.head, true);
+    };
+    return o;
+  }
+  function mkNode(parent, label) {
+    const o = {}; const W = wrap(label, 44, NW - 50, 2, 30), n = W.lines.length;
+    o.g = g(parent);
+    rect(o.g, -NW / 2 + 10, -NH / 2 + 10, NW, NH, 18, C.ink);
+    o.bd = rect(o.g, -NW / 2, -NH / 2, NW, NH, 18, C.ink, C.ink, 6);
+    o.inn = rect(o.g, -NW / 2 + 11, -NH / 2 + 11, NW - 22, NH - 22, 11, 'none', C.paper, 3);
+    o.tx = W.lines.map((l, i) => text(o.g, l, 0, (i - (n - 1) / 2) * W.size * 1.1 + W.size * 0.35, W.size, C.paper, { anchor: 'middle', len: f2(Math.min(bw(l, W.size), NW - 40)) }));
+    o.paint = (fill, tf, inn) => { setA(o.bd, 'fill', fill); setA(o.inn, 'stroke', inn); o.tx.forEach((x) => setA(x, 'fill', tf)); };
+    return o;
+  }
+
+  ZV.define('rebate-loop', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 12;
+      const first = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r === null || b.t < r)) r = b.t; return r; };
+      const NAMES = ['loss', 'rebate', 'gift', 'price', 'longer', 'more', 'spin'];
+      const T = {}; NAMES.forEach((n) => { T[n] = first(n); });
+      if (NAMES.every((n) => T[n] == null)) { const k = Math.min(1, dur / 13); const d = { loss: 0.4, rebate: 1.8, gift: 4.0, price: 5.4, longer: 6.8, more: 8.8, spin: 10.4 }; NAMES.forEach((n) => { T[n] = d[n] * k; }); }
+      const loss = str(P.loss, '1 000 000 $'), rate = str(P.rate, '−15 %'), back = str(P.back, 'ON LUI REND 150 000 $');
+      const nodes = Array.isArray(P.nodes) ? P.nodes.slice(0, 3) : [];
+      const dn = ['LA PERTE COÛTE MOINS CHER', 'IL JOUE PLUS LONGTEMPS', 'IL PERD PLUS'];
+      while (nodes.length < 3) nodes.push(dn[nodes.length]);
+      const gift = str(P.gift, 'UN CADEAU ?'), price = str(P.price, 'LE PRIX DE LA PERTE BAISSE');
+      const uid = 'rb' + (++UID);
+      const st = { T, uid, dur };
+      const r = rng(7007);
+
+      /* ---- fond et décor ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      circle(root, 1390, 470, 360, '#ECE8DC');
+      line(root, 905, 120, 905, 800, '#CFCABB', 6, { 'stroke-dasharray': '4 18' });
+      const defs = sv('defs', null, root);
+
+      /* ---- fantômes (le plan reste beau sans cue) ---- */
+      st.ghostTag = path(root, `M${HX - 240} 150 L${HX + 240} 150 L${HX + 330} 240 L${HX + 330} 700 L${HX - 330} 700 L${HX - 330} 240 Z`, 'none', '#CFCABB', 6, { 'stroke-dasharray': '16 12' });
+      st.ghostNodes = CN.map((c) => rect(root, c[0] - NW / 2, c[1] - NH / 2, NW, NH, 18, 'none', '#CFCABB', 6, { 'stroke-dasharray': '16 12' }));
+
+      /* ---- étiquette de prix ---- */
+      st.swing = g(root);
+      st.string = path(st.swing, 'M0 0 L0 ' + SL, 'none', C.ink, 8);
+      st.eyeG = g(st.swing, { transform: `translate(0 ${SL})` });
+      st.body = g(st.eyeG);
+      const poly = '-240,-50 240,-50 330,40 330,450 -330,450 -330,40';
+      sv('polygon', { points: poly, fill: C.ink, transform: 'translate(14 14)', 'stroke-linejoin': 'round', stroke: C.ink, 'stroke-width': 8 }, st.body);
+      sv('polygon', { points: poly, fill: C.paper, stroke: C.ink, 'stroke-width': 8, 'stroke-linejoin': 'round' }, st.body);
+      circle(st.body, 0, 0, 24, C.paper, C.ink, 7);
+      text(st.body, 'LA PERTE', -292, 112, 30, C.ink, { mono: true, spacing: 4, len: f2(mw('LA PERTE', 30) + 7 * 4) });
+      const vs = fitSize(loss, 120, 600, 56);
+      st.val = text(st.body, loss, 0, 318, vs, C.ink, { anchor: 'middle', len: f2(Math.min(bw(loss, vs), 600)) });
+      rect(st.body, -296, 342, 592, 8, 0, C.ink);
+      // sticker de remise
+      st.rate = g(st.body);
+      {
+        const w = 270, h = 96, sz = fitSize(rate, 66, w - 40, 36);
+        rect(st.rate, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+        rect(st.rate, -w / 2, -h / 2, w, h, 14, C.lime, C.ink, 6);
+        text(st.rate, rate, 0, sz * 0.35, sz, C.ink, { anchor: 'middle', len: f2(Math.min(bw(rate, sz), w - 40)) });
+      }
+      // sticker cadeau
+      st.gift = g(st.body);
+      {
+        const w = 380, h = 78, sz = fitSize(gift, 46, w - 40, 30);
+        rect(st.gift, -w / 2 + 8, -h / 2 + 8, w, h, 14, C.ink);
+        rect(st.gift, -w / 2, -h / 2, w, h, 14, C.paper, C.ink, 6);
+        text(st.gift, gift, 0, sz * 0.35, sz, C.ink, { anchor: 'middle', len: f2(Math.min(bw(gift, sz), w - 40)) });
+      }
+      // ruban (nœud plat lime)
+      st.bow = g(st.body);
+      {
+        const lp = 'M0 0 C-52 -64 -102 -22 -76 26 C-56 44 -22 22 0 0 Z';
+        path(st.bow, lp, C.lime, C.ink, 6);
+        path(st.bow, lp, C.lime, C.ink, 6, { transform: 'scale(-1 1)' });
+        path(st.bow, 'M-6 14 L-52 84 L-24 92 L6 30 Z', C.lime, C.ink, 6);
+        path(st.bow, 'M6 14 L52 84 L24 92 L-6 30 Z', C.lime, C.ink, 6);
+        rect(st.bow, -17, -17, 34, 34, 8, C.lime, C.ink, 6);
+      }
+      /* ---- liasses (devant l'étiquette) ---- */
+      st.bills = [];
+      for (let i = 0; i < 7; i++) {
+        const o = { g: g(root) };
+        rect(o.g, -39 + 5, -21 + 5, 78, 42, 5, C.ink);
+        rect(o.g, -39, -21, 78, 42, 5, C.paper, C.ink, 5);
+        rect(o.g, -9, -21, 18, 42, 0, C.lime, C.ink, 4);
+        o.p0 = [300 + (r() - 0.5) * 120, 690 + (r() - 0.5) * 20];
+        o.p1 = [30 + r() * 60, 690 + r() * 40];
+        o.p2 = [190 + r() * 90, 786 + r() * 8];
+        o.spin = (r() - 0.5) * 120; o.rot0 = (r() - 0.5) * 50; o.t0 = 0.2 + i * 0.16;
+        st.bills.push(o);
+      }
+
+      /* ---- légendes sous l'étiquette ---- */
+      st.band = g(root);
+      {
+        const sz = fitSize(back, 34, 640, 22), w = Math.min(700, mw(back, sz) + 56);
+        rect(st.band, 8, 8, w, 56, 10, C.lime);
+        rect(st.band, 0, 0, w, 56, 10, C.ink, C.ink, 5);
+        st.bandT = typed(st.band, defs, uid + 'b', back, 28, 38, sz, C.paper, { mono: true, maxW: w - 50 });
+        st.bandW = w;
+      }
+      st.band.setAttribute('transform', 'translate(120 778)');
+      {
+        const W = wrap(price, 52, 700, 2, 34); st.price = [];
+        W.lines.forEach((l, i) => st.price.push(typed(root, defs, uid + 'p' + i, l, HX, 694 + i * W.size * 1.06, W.size, C.ink, { anchor: 'middle', maxW: 700 })));
+        st.priceN = st.price.reduce((a, o) => a + o.n, 0);
+      }
+
+      /* ---- boucle ---- */
+      st.arrows = [0, 1, 2].map(() => mkArrow(root, C.ink)); st.sc = [1, 1, 1];
+      st.token = g(root);
+      circle(st.token, 5, 5, 22, C.ink); circle(st.token, 0, 0, 22, C.lime, C.ink, 6);
+      st.nodes = nodes.map((n) => mkNode(root, str(n, '')));
+      st.stamp = g(root);
+      {
+        const lab = 'DONC IL PERD PLUS', sz = 46, w = Math.min(640, bw(lab, sz) + 70), h = 88;
+        rect(st.stamp, -w / 2 + 9, -h / 2 + 9, w, h, 10, C.lime);
+        rect(st.stamp, -w / 2, -h / 2, w, h, 10, C.ink, C.ink, 6);
+        rect(st.stamp, -w / 2 + 9, -h / 2 + 9, w - 18, h - 18, 5, 'none', C.paper, 3);
+        text(st.stamp, lab, 0, sz * 0.35, sz, C.paper, { anchor: 'middle', len: f2(Math.min(bw(lab, sz), w - 50)) });
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const T = st.T;
+      const has = (n) => T[n] != null && t >= T[n];
+      const U = (n) => (T[n] != null ? t - T[n] : -1);
+
+      /* ---- étiquette ---- */
+      const tagOn = T.loss != null ? t >= T.loss : (T.rebate != null || T.gift != null || T.price != null);
+      vis(st.ghostTag, !tagOn);
+      disp(st.swing, tagOn);
+      if (tagOn) {
+        const u = T.loss != null ? t - T.loss : 99;
+        const drop = u < 0.4 ? -780 * (1 - E.out3(prog(u, 0, 0.4))) : 0;
+        const th = -4 + 14 * Math.exp(-3.2 * u) * Math.cos(10.5 * u);
+        let sx = 0, sy = 0;
+        if (T.rebate != null) { const s = shakeAt(t, T.rebate + 0.16, 6, 0.4); sx = s[0]; sy = s[1]; }
+        setA(st.swing, 'transform', `translate(${f2(HX + sx)} ${f2(HY + sy + drop)}) rotate(${f2(th)})`);
+        // rétrécissement + ficelle qui se détend
+        const up = U('price');
+        const k = up < 0 ? 0 : E.io2(prog(up, 0.25, 0.75)), sc = 1 - 0.2 * k;
+        setA(st.body, 'transform', `scale(${f2(sc)})`);
+        const sk = up < 0 ? 0 : E.io2(prog(up, 0.25, 0.9));
+        const wob = up < 0.9 ? 0 : 10 * Math.exp(-4 * (up - 0.9)) * Math.sin((up - 0.9) * 14);
+        setA(st.string, 'd', sk < 0.01 ? `M0 0 L0 ${SL}` : `M0 0 C${f2(64 * sk + wob)} ${f2(SL * 0.3)} ${f2(-74 * sk - wob)} ${f2(SL * 0.72)} 0 ${SL}`);
+        // sticker de remise
+        const ur = U('rebate');
+        if (ur < 0) vis(st.rate, false); else { const p = prog(ur, 0, 0.18); put(st.rate, 170, 148, 7, 1 + 1.4 * (1 - E.out3(p)), undefined, 1); }
+        // sticker cadeau + ruban
+        const ug = U('gift');
+        if (ug < 0) { vis(st.gift, false); vis(st.bow, false); } else {
+          const p = E.back(prog(ug, 0, 0.3));
+          put(st.gift, -110, 412, -5, p, undefined, 1);
+          const fall = up < 0 ? 0 : E.in2(prog(up, 0, 0.7));
+          if (fall >= 1) vis(st.bow, false); else put(st.bow, 226 + 40 * fall, 392 + 900 * fall, 12 + 70 * fall, p, undefined, 1);
+        }
+      }
+
+      /* ---- liasses + bandeau « back » ---- */
+      const ur = U('rebate');
+      st.bills.forEach((b) => {
+        const u = ur - b.t0, p = prog(u, 0, 0.8);
+        if (ur < 0 || u < 0 || p >= 1) { vis(b.g, false); return; }
+        const e = E.in2(p) * 0.6 + p * 0.4, a = 1 - e;
+        const x = a * a * b.p0[0] + 2 * a * e * b.p1[0] + e * e * b.p2[0], y = a * a * b.p0[1] + 2 * a * e * b.p1[1] + e * e * b.p2[1];
+        put(b.g, x, y, b.rot0 + b.spin * p, E.out2(prog(p, 0, 0.18)), undefined, 1);
+      });
+      if (ur < 0.5) disp(st.band, false); else { disp(st.band, true); const p = E.out3(prog(ur, 0.5, 0.7)); setA(st.band, 'transform', `translate(120 ${f2(778 + 60 * (1 - p))})`); st.bandT.set((ur - 0.7) * 30); }
+      // légende du prix
+      const up = U('price');
+      const pn = up < 0.55 ? 0 : (up - 0.55) * 30;
+      let rest = pn; st.price.forEach((o) => { o.set(rest); rest -= o.n; });
+
+      /* ---- boucle ---- */
+      const tl = T.longer, tm = T.more, ts = T.spin;
+      const tA3 = tm != null ? tm : ts;
+      const showN = [tl != null && t >= tl, tl != null && t >= tl + 0.7, (tl != null && t >= tl + 1.4) || (tm != null && t >= tm) || (ts != null && t >= ts)];
+      const litT = [tl != null ? tl + 0.2 : null, tl != null ? tl + 0.9 : null];
+      st.nodes.forEach((nd, i) => {
+        const on = showN[i]; vis(st.ghostNodes[i], !on); vis(nd.g, on);
+        if (!on) { st.sc[i] = 1; return; }
+        const t0 = i === 0 ? tl : i === 1 ? tl + 0.7 : Math.min(...[tl != null ? tl + 1.4 : 1e9, tm != null ? tm : 1e9, ts != null ? ts : 1e9]);
+        let s = E.back(prog(t - t0, 0, 0.3)), fill = C.ink, tf = C.paper, inn = C.paper;
+        if (i < 2 && litT[i] != null && t >= litT[i]) { fill = C.lime; tf = C.ink; inn = C.ink; }
+        if (i === 2) {
+          const g0 = tm != null ? tm : ts;
+          let grow = 1;
+          if (g0 != null && t >= g0) { fill = C.red; grow = 1 + 0.2 * E.back(prog(t - g0, 0, 0.3)); }
+          if (ts != null && t >= ts) {
+            // chaque passage du jeton sur le 3e nœud le fait grossir de 4 % (plafond 1.4)
+            let m = 0; const tp0 = ts + (D3 / PATHLEN) * LAP;
+            for (let k = 0; k < 40; k++) { const q = (t - (tp0 + k * LAP)) / 0.25; if (q <= 0) break; m += E.out2(clamp(q)); }
+            grow = Math.min(1.4, grow * Math.pow(1.04, m));
+          }
+          s *= grow;
+        }
+        nd.paint(fill, tf, inn);
+        st.sc[i] = s; put(nd.g, CN[i][0], CN[i][1], 0, s, undefined, 1);
+      });
+      // flèches : de bord à bord, selon l'échelle courante des nœuds
+      const edge = (i, ux, uy) => { const sc = st.sc[i], hw = 186 * sc, hh = 81 * sc; return Math.min(Math.abs(ux) < 1e-6 ? 1e9 : hw / Math.abs(ux), Math.abs(uy) < 1e-6 ? 1e9 : hh / Math.abs(uy)) + 12; };
+      const arrow = (k, i, j, p) => {
+        const a = CN[i], b = CN[j], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+        const d0 = edge(i, ux, uy), d1 = edge(j, -ux, -uy);
+        st.arrows[k].set(L - d0 - d1 < 30 ? 0 : p, a[0] + ux * d0, a[1] + uy * d0, b[0] - ux * d1, b[1] - uy * d1);
+      };
+      arrow(0, 0, 1, tl == null ? 0 : E.out2(prog(t - tl, 0.25, 0.65)));
+      arrow(1, 1, 2, tl == null ? 0 : E.out2(prog(t - tl, 0.95, 1.35)));
+      arrow(2, 2, 0, tA3 == null ? 0 : E.out2(prog(t - tA3, 0.05, 0.5)));
+      // tampon
+      if (tm == null || t < tm + 0.35) vis(st.stamp, false); else { const p = prog(t - tm - 0.35, 0, 0.16); put(st.stamp, 1400, 792, -3, 1 + 1.3 * (1 - E.out3(p)), undefined, 1); }
+      // jeton
+      if (ts == null || t < ts) vis(st.token, false); else {
+        let d = (((t - ts) / LAP) % 1) * PATHLEN, x = CN[0][0], y = CN[0][1];
+        for (let i = 0; i < 3; i++) { const p = CN[i], q = CN[(i + 1) % 3], L = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d <= L) { x = p[0] + (q[0] - p[0]) * d / L; y = p[1] + (q[1] - p[1]) * d / L; break; } d -= L; }
+        put(st.token, x, y, 0, 1, 1, 1);
+      }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/red-carpet.js ==== */
+// Composant `red-carpet` (épisode 7) : le tapis rouge déroulé, les cadeaux posés le long, et la case verte au bout. Voir EP7-COMPONENTS.md.
+// Cues : unroll, g1…g6 (cadeaux), long (serpentin), compare (deux bandes + virgule), end (le tapis finit devant la case verte).
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter ; aucune marque.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, shakeAt } = ZV;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' ? v : v == null ? d : String(v));
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const BW = { '0': .67, '1': .36, '2': .61, '3': .61, '4': .64, '5': .62, '6': .66, '7': .52, '8': .66, '9': .66, A: .71, B: .69, C: .69, D: .71, E: .63, F: .6, G: .73, H: .73, I: .3, J: .38, K: .7, L: .51, M: .96, N: .79, O: .73, P: .65, Q: .73, R: .69, S: .66, T: .58, U: .73, V: .68, W: 1, X: .72, Y: .66, Z: .58, 'À': .71, 'Â': .71, 'É': .63, 'È': .63, 'Ê': .63, 'Ë': .63, 'Î': .3, 'Ï': .3, 'Ô': .73, 'Û': .73, 'Ù': .73, 'Ç': .69, 'Œ': 1, ' ': .22, ' ': .22, ' ': .22, ',': .21, '.': .25, ':': .26, ';': .24, "'": .19, '’': .22, '!': .3, '?': .43, '|': .28, '%': .99, '€': .75, '≈': .55, '×': .53, '−': .53, '+': .53, '→': 1, '·': .25, '(': .33, ')': .33, '-': .36, '/': .37, '"': .38, '–': .55 };
+  const bw = (s, z) => { let a = 0; for (const ch of String(s)) { const w = BW[ch]; a += z * (w !== undefined ? w : ch >= 'a' && ch <= 'z' ? 0.6 : 0.7); } return a; };
+  const mw = (s, z) => Array.from(String(s)).length * z * 0.6;
+  const fitSize = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, bw(s, z)));
+  const fitMono = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, mw(s, z)));
+  const BT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ len: f2(bw(s, z)) }, o || {}));
+  const MT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ mono: true, len: f2(mw(s, z)) }, o || {}));
+  const pop = (t, t0, d) => (t < t0 ? 0 : E.back(prog(t, t0, t0 + (d || 0.25))));
+  const sc = (s) => Math.max(0.001, s);
+  const TR = (x, y, s, r) => `translate(${f2(x)} ${f2(y)})${r ? ` rotate(${f2(r)})` : ''} scale(${f2(sc(s))})`;
+
+  /* ---- pictos plats (centrés sur 0,0, ±75) ; dernier champ : 0 = sans trait, chaîne = couleur du trait (défaut ink) ---- */
+  const PIC = {
+    glass: [['p', 'M -44 -66 L 44 -66 Q 44 2 0 12 Q -44 2 -44 -66 Z', C.white], ['p', 'M -38 -34 L 38 -34 Q 35 -5 0 5 Q -35 -5 -38 -34 Z', C.paper, 0], ['r', -8, 10, 16, 46, 0, C.paper], ['r', -40, 54, 80, 16, 8, C.paper]],
+    plate: [['c', 0, 4, 46, C.white], ['c', 0, 4, 28, C.paper], ['r', -76, -58, 22, 40, 6, C.white], ['r', -72, -22, 14, 74, 6, C.white], ['p', 'M 60 -58 Q 76 -40 72 -14 L 72 -10 L 60 -10 Z', C.white], ['r', 60, -14, 12, 66, 5, C.white]],
+    key: [['c', -34, -10, 32, C.white], ['c', -34, -10, 11, C.ink, 0], ['r', -4, -20, 76, 20, 4, C.white], ['r', 40, -4, 12, 24, 2, C.white], ['r', 22, -4, 10, 15, 2, C.white], ['r', -62, 28, 56, 40, 8, C.paper], ['c', -34, 40, 6, C.ink, 0]],
+    card: [['r', -70, -46, 140, 92, 12, C.white], ['r', -70, -28, 140, 22, 0, C.ink, 0], ['r', -56, 10, 32, 24, 5, C.paper], ['r', -12, 14, 54, 7, 3, C.ink, 0], ['r', -12, 28, 36, 7, 3, C.ink, 0]],
+    host: [['p', 'M -70 72 Q -70 14 -30 6 L 30 6 Q 70 14 70 72 Z', C.ink, C.paper], ['p', 'M -20 6 L 20 6 L 0 56 Z', C.white], ['c', 0, -34, 30, C.paper], ['p', 'M -28 -2 L 0 10 L -28 22 Z', C.lime], ['p', 'M 28 -2 L 0 10 L 28 22 Z', C.lime], ['c', 0, 10, 7, C.lime]],
+    suite: [['r', -70, -46, 16, 106, 4, C.paper], ['r', -60, 16, 130, 32, 5, C.white], ['r', -54, -10, 42, 28, 12, C.paper], ['r', -8, 0, 78, 24, 5, C.paper], ['r', -66, 60, 12, 14, 2, C.paper], ['r', 58, 60, 12, 14, 2, C.paper]],
+    jet: [['p', 'M -70 -2 L -86 -46 L -50 -16 Z', C.ink, C.paper], ['p', 'M -4 18 L 30 64 L 8 64 L -32 18 Z', C.ink, C.paper], ['p', 'M -72 6 Q -72 -14 -40 -16 L 46 -16 Q 74 -10 82 6 Q 74 22 46 22 L -50 22 Q -72 22 -72 6 Z', C.ink, C.paper], ['r', -64, 3, 134, 8, 0, C.red, 0], ['c', -34, -4, 5, C.paper, 0], ['c', -14, -4, 5, C.paper, 0], ['c', 6, -4, 5, C.paper, 0], ['c', 26, -4, 5, C.paper, 0]]
+  };
+  function picto(parent, kind, shadowCol) {
+    const grp = g(parent), spec = PIC[kind] || PIC.card, BASE = { p: 3, r: 7, c: 5 };
+    const draw = (gr, sh) => {
+      for (const s of spec) {
+        const base = BASE[s[0]], extra = s.length > base ? s[base] : undefined;
+        const fill = sh ? shadowCol : s[base - 1], stroke = sh ? shadowCol : extra === 0 ? null : typeof extra === 'string' ? extra : C.ink;
+        if (s[0] === 'p') path(gr, s[1], fill, stroke, 4);
+        else if (s[0] === 'r') rect(gr, s[1], s[2], s[3], s[4], s[5], fill, stroke, 4);
+        else circle(gr, s[1], s[2], s[3], fill, stroke, 4);
+      }
+    };
+    if (shadowCol) draw(g(grp, { transform: 'translate(10 10)' }), true);
+    draw(g(grp), false);
+    return grp;
+  }
+  // bande de tapis (parallélogramme) entre x0 et x1, bord haut yT, bord bas yB, inclinaison sk ; renvoie les nœuds à mettre à jour
+  function mkStrip(parent, yT, yB, sk, lis) {
+    const o = { yT, yB, sk };
+    o.poly = path(parent, '', C.red);
+    o.top = line(parent, 0, yT, 0, yT, C.paper, lis, { 'stroke-linecap': 'butt' });
+    o.bot = line(parent, 0, yB, 0, yB, C.paper, lis, { 'stroke-linecap': 'butt' });
+    return o;
+  }
+  function setStrip(o, x0, x1, show) {
+    vis(o.poly, show); vis(o.top, show); vis(o.bot, show);
+    if (!show) return;
+    setA(o.poly, 'd', `M ${f2(x0 + o.sk)} ${o.yT} L ${f2(x1 + o.sk)} ${o.yT} L ${f2(x1)} ${o.yB} L ${f2(x0)} ${o.yB} Z`);
+    setA(o.top, 'x1', f2(x0 + o.sk)); setA(o.top, 'x2', f2(x1 + o.sk));
+    setA(o.bot, 'x1', f2(x0)); setA(o.bot, 'x2', f2(x1));
+  }
+
+  ZV.define('red-carpet', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 12;
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((a, b) => a - b);
+      const dflt = [{ cue: 'g1', icon: 'glass', label: 'LE VERRE' }, { cue: 'g2', icon: 'plate', label: 'LE REPAS' }, { cue: 'g3', icon: 'key', label: 'LA CHAMBRE' }, { cue: 'g4', icon: 'card', label: 'LE CRÉDIT' }];
+      const icons = ['glass', 'plate', 'key', 'card', 'host', 'suite', 'jet'];
+      const gifts = (Array.isArray(P.gifts) && P.gifts.length ? P.gifts : dflt).slice(0, 6).map((x, i) => {
+        const o = x && typeof x === 'object' ? x : { label: str(x, '') };
+        return { cue: str(o.cue, 'g' + (i + 1)), icon: icons.includes(o.icon) ? o.icon : icons[i % 4], label: str(o.label, '') };
+      });
+      const length = clamp(num(P.length, 0.75), 0.2, 0.95);
+      const zero = P.zero !== false;
+      const small = str(P.small, 'TON VERRE'), big = str(P.big, 'LEUR TAPIS ROUGE'), same = str(P.same, 'MÊME CALCUL');
+      const endLabel = str(P.end_label, 'IL FINIT TOUJOURS DEVANT LA CASE VERTE');
+      const st = { dur, gifts, zero, length, xfLen: 80 + length * 1840 };
+
+      /* ---- repères ---- */
+      const c = { unroll: cl('unroll')[0], g: gifts.map((x) => cl(x.cue)[0]) };
+      const ev = [];
+      for (const k of [['long', 'B'], ['compare', 'C'], ['end', 'E']]) for (const t of cl(k[0])) ev.push({ t, kind: k[1] });
+      ev.sort((a, b) => a.t - b.t);
+      const any = c.unroll != null || c.g.some((x) => x != null) || ev.length;
+      if (!any) {
+        const k = Math.min(1, dur / 8);
+        c.unroll = 0.4 * k; c.g = gifts.map((_, i) => (2.3 + 0.65 * i) * k);
+        ev.push({ t: (2.3 + 0.65 * gifts.length + 0.6) * k, kind: 'E' });
+      } else if (c.unroll == null) c.unroll = -10;
+      st.c = c; st.ev = ev;
+
+      /* ---- fond ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+
+      /* =========== scène principale =========== */
+      st.main = g(root);
+      st.world = g(st.main);
+      line(st.world, 0, 640, 1920, 640, C.paper, 6, { 'stroke-linecap': 'butt' });
+      st.strip = mkStrip(st.world, 520, 620, 60, 6);
+      st.dia = [];
+      for (let k = 0; k < 17; k++) st.dia.push(path(st.world, 'M -15 0 L 0 -9 L 15 0 L 0 9 Z', C.paper));
+      // cadeaux sur socles, espacés entre x 200 et x 1440
+      const n = gifts.length;
+      st.gfx = gifts.map((gf, i) => {
+        const x = n === 1 ? 820 : 200 + i * (1240 / (n - 1)), o = { x, g: g(st.world) };
+        const inner = g(o.g);
+        picto(g(inner, { transform: 'translate(0 337)' }), gf.icon, C.pocket);
+        rect(inner, -98 + 10, 412 + 10, 196, 30, 4, C.pocket);
+        rect(inner, -98, 412, 196, 30, 4, C.paper, C.ink, 6);
+        o.lab = g(o.g);
+        MT(o.lab, gf.label, 0, 474, 28, C.paper, { anchor: 'middle', len: f2(Math.min(mw(gf.label, 28), 230)) });
+        o.inner = inner;
+        return o;
+      });
+      // serpentin (long)
+      st.serp = g(st.main);
+      const xL = 140, xR = 1780, xE = 1690, ys = [199.5, 325, 450, 575, 700];
+      const wp = [[0.35 * (st.xfLen + 30), ys[0]], [xR, ys[0]], [xR, ys[1]], [xL, ys[1]], [xL, ys[2]], [xR, ys[2]], [xR, ys[3]], [xL, ys[3]], [xL, ys[4]], [xE, ys[4]]];
+      const poly = [wp[0]], rc = 34;
+      for (let i = 1; i < wp.length - 1; i++) {
+        const a = wp[i - 1], b = wp[i], d = wp[i + 1];
+        const l1 = Math.hypot(b[0] - a[0], b[1] - a[1]), l2 = Math.hypot(d[0] - b[0], d[1] - b[1]);
+        const p1 = [b[0] + (a[0] - b[0]) / l1 * rc, b[1] + (a[1] - b[1]) / l1 * rc], p2 = [b[0] + (d[0] - b[0]) / l2 * rc, b[1] + (d[1] - b[1]) / l2 * rc];
+        for (let k = 0; k <= 8; k++) { const u = k / 8, w = 1 - u; poly.push([w * w * p1[0] + 2 * w * u * b[0] + u * u * p2[0], w * w * p1[1] + 2 * w * u * b[1] + u * u * p2[1]]); }
+      }
+      poly.push(wp[wp.length - 1]);
+      const cum = [0]; for (let i = 1; i < poly.length; i++) cum.push(cum[i - 1] + Math.hypot(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1]));
+      st.poly = poly; st.cum = cum; st.L = cum[cum.length - 1];
+      const d = poly.map((p, i) => (i ? 'L ' : 'M ') + f2(p[0]) + ' ' + f2(p[1])).join(' ');
+      st.sA = path(st.serp, d, 'none', C.paper, 44, { 'stroke-linejoin': 'round', 'stroke-linecap': 'butt' });
+      st.sB = path(st.serp, d, 'none', C.red, 32, { 'stroke-linejoin': 'round', 'stroke-linecap': 'butt' });
+      const distOf = (yRun, x, left) => { for (let i = 0; i < poly.length; i++) if (Math.abs(poly[i][1] - yRun) < 1.5 && (left ? poly[i][0] <= x : poly[i][0] >= x)) return cum[i]; return st.L * 0.5; };
+      st.sg = [['host', ys[1], 1150, true, 'L’HÔTE'], ['suite', ys[2], 620, false, 'LA SUITE'], ['jet', ys[3], 1300, true, 'LE JET']].map(([kind, y, x, left, lab]) => {
+        const o = { y, x, dist: distOf(y, x, left), g: g(st.serp) };
+        const inner = g(o.g); o.inner = inner;
+        picto(g(inner, { transform: 'translate(0 -57) scale(0.44)' }), kind, null);
+        MT(inner, lab, 44, -48, 24, C.paper, { anchor: 'start' });
+        return o;
+      });
+      // la fonction qui donne la distance déroulée dans le serpentin (τ depuis le début de l'étape) : io2 entre 1,2 s et 5,2 s
+      st.dFrac = (tau) => E.io2(prog(tau, 1.2, 5.2));
+      st.tLand = (dist) => { let a = 1.2, b = 5.2; const f = dist / st.L; for (let i = 0; i < 24; i++) { const m = (a + b) / 2; if (st.dFrac(m) < f) a = m; else b = m; } return b; };
+      st.sg.forEach((o) => { o.tl = st.tLand(o.dist) + 0.15; });
+      st.mil = g(st.serp);
+      { const lab = 'QUAND LE THÉO SE COMPTE EN MILLIONS', z = fitMono(lab, 36, 1100); MT(st.mil, lab, 0, z * 0.33, z, C.paper, { anchor: 'middle' }); }
+      st.pointAt = (dist) => {
+        dist = clamp(dist, 0, st.L); let lo = 0, hi = cum.length - 1;
+        while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] <= dist) lo = m; else hi = m; }
+        const u = (dist - cum[lo]) / Math.max(1e-6, cum[hi] - cum[lo]);
+        return [lerp(poly[lo][0], poly[hi][0], u), lerp(poly[lo][1], poly[hi][1], u)];
+      };
+      // rouleau (hors du monde : sa position est calculée)
+      st.roll = g(st.main);
+      circle(st.roll, 0, 0, 1, C.red, C.ink, 6).setAttribute('vector-effect', 'non-scaling-stroke');
+      {
+        let sp = '';
+        for (let i = 0; i <= 64; i++) { const u = i / 64, a = u * 2.6 * 2 * Math.PI, r = 0.1 + 0.8 * u; sp += (i ? ' L ' : 'M ') + f2(r * Math.cos(a)) + ' ' + f2(r * Math.sin(a)); }
+        path(st.roll, sp, 'none', C.ink, 4, { 'vector-effect': 'non-scaling-stroke' });
+      }
+      // case verte
+      st.box = g(st.main);
+      if (zero) {
+        rect(st.box, -120 + 10, -240 + 10, 240, 240, 36, C.pocket);
+        rect(st.box, -120, -240, 240, 240, 36, C.lime, C.ink, 8);
+        BT(st.box, '0', 0, -120 + 180 * 0.35, 180, C.ink, { anchor: 'middle' });
+      }
+      // étiquette de fin
+      st.endL = g(st.main);
+      {
+        const z = fitSize(endLabel, 64, 1740), w = bw(endLabel, z);
+        BT(st.endL, endLabel, 0, z * 0.35, z, C.paper, { anchor: 'middle' });
+        const k = endLabel.indexOf('CASE VERTE');
+        if (k >= 0) { const x0 = -w / 2 + bw(endLabel.slice(0, k), z); rect(st.endL, x0, z * 0.35 + 12, bw('CASE VERTE', z), 10, 0, C.lime); }
+      }
+
+      /* =========== vue « compare » =========== */
+      st.cmp = g(root);
+      const Cg = st.cmp;
+      line(Cg, 60, 306, 1860, 306, C.paper, 6, { 'stroke-linecap': 'butt' });
+      line(Cg, 0, 770, 1920, 770, C.paper, 6, { 'stroke-linecap': 'butt' });
+      st.cS = mkStrip(Cg, 268, 300, 24, 4);
+      st.cB = mkStrip(Cg, 668, 748, 50, 6);
+      st.cGlass = g(Cg);
+      picto(g(st.cGlass, { transform: 'translate(0 190) scale(0.62)' }), 'glass', null);
+      rect(st.cGlass, -48, 238, 96, 22, 4, C.paper, C.ink, 4);
+      st.cSmall = g(Cg);
+      { const z = fitSize(small, 56, 520); BT(st.cSmall, small, 0, z * 0.35, z, C.paper, { anchor: 'start' }); }
+      st.cBig = g(Cg);
+      { const z = fitSize(big, 56, 700); BT(st.cBig, big, 0, z * 0.35, z, C.paper, { anchor: 'start' }); }
+      st.cG = [['host', 900], ['suite', 1250], ['jet', 1600]].map(([k, x]) => {
+        const o = { x, g: g(Cg) }; const inner = g(o.g); o.inner = inner;
+        picto(g(inner, { transform: 'translate(0 560)' }), k, C.pocket);
+        rect(inner, -98 + 10, 636 + 10, 196, 26, 4, C.pocket);
+        rect(inner, -98, 636, 196, 26, 4, C.paper, C.ink, 6);
+        return o;
+      });
+      st.cSame = g(Cg);
+      { const z = fitSize(same, 72, 800); BT(st.cSame, same, 0, z * 0.35, z, C.paper, { anchor: 'start' }); }
+      st.cComma = g(Cg);
+      {
+        const tail = 'M 22 -10 C 34 30 18 74 -28 96 L -14 52 C 6 40 8 18 -12 4 Z';
+        path(st.cComma, tail, C.ink, C.ink, 16); circle(st.cComma, 0, -28, 40, C.ink, C.ink, 16);
+        path(st.cComma, tail, C.lime); circle(st.cComma, 0, -28, 40, C.lime);
+      }
+      st.cStk = g(Cg);
+      {
+        const lab = 'SEULE LA VIRGULE CHANGE DE PLACE', z = fitSize(lab, 44, 940), w = bw(lab, z) + 56, h = 68;
+        rect(st.cStk, -w / 2 + 9, -h / 2 + 9, w, h, 12, C.pocket);
+        rect(st.cStk, -w / 2, -h / 2, w, h, 12, C.paper, C.ink, 6);
+        BT(st.cStk, lab, 0, z * 0.35, z, C.ink, { anchor: 'middle' });
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const ev = st.ev, c = st.c;
+      /* ---- étape de vue courante ---- */
+      let j = -1; for (let i = 0; i < ev.length; i++) if (ev[i].t <= t) j = i;
+      const seg = j >= 0 ? ev[j] : null, kind = seg ? seg.kind : 'A', prevKind = j > 0 ? ev[j - 1].kind : 'A';
+      const ts = seg ? seg.t + (prevKind === 'C' && kind !== 'C' ? 0.5 : 0) : 0;
+      /* conveyor main <-> compare */
+      let offM = 0, mainOn = true, offC = 0, cmpOn = false, cmpT0 = 0;
+      if (kind === 'C') {
+        offM = -1080 * E.io2(prog(t, seg.t, seg.t + 0.3)); mainOn = t < seg.t + 0.32;
+        offC = 1080 * (1 - E.out3(prog(t, seg.t + 0.15, seg.t + 0.5))); cmpOn = t >= seg.t + 0.15; cmpT0 = seg.t + 0.5;
+      } else if (prevKind === 'C' && seg) {
+        offC = -1080 * E.io2(prog(t, seg.t, seg.t + 0.3)); cmpOn = t < seg.t + 0.32; cmpT0 = ev[j - 1].t + 0.5;
+        offM = 1080 * (1 - E.out3(prog(t, seg.t + 0.15, seg.t + 0.5))); mainOn = t >= seg.t + 0.15;
+      }
+      vis(st.main, mainOn); vis(st.cmp, cmpOn);
+      setA(st.main, 'transform', `translate(0 ${f2(offM)})`);
+      setA(st.cmp, 'transform', `translate(0 ${f2(offC)})`);
+      if (cmpOn) updCompare(st, t - cmpT0);
+      if (!mainOn) return;
+
+      /* ---- scène principale ---- */
+      const xfLen = st.xfLen;
+      let s = 1, pS = 0;
+      const tauB = t - ts;
+      if (kind === 'B') { s = lerp(1, 0.35, E.io2(prog(tauB, 0, 1.4))); pS = st.dFrac(tauB); }
+      else if (kind === 'E' && prevKind === 'B') { s = lerp(0.35, 1, E.io2(prog(t, ts, ts + 1.0))); pS = 1 - E.in2(prog(t, ts, ts + 0.8)); }
+      let xf = lerp(80, xfLen, E.out3(prog(t, c.unroll, c.unroll + 1.6)));
+      if (kind === 'E') xf = lerp(xfLen, 1700, E.out3(prog(t, ts, ts + 1.2)));
+      setA(st.world, 'transform', `scale(${f2(s)})`);
+      setStrip(st.strip, 80, xf, xf > 90);
+      st.dia.forEach((n, k) => { const x = 140 + k * 110; const on = x < xf - 10 && xf > 90; vis(n, on); if (on) setA(n, 'transform', `translate(${f2(x + 30)} 570)`); });
+      /* cadeaux */
+      st.gfx.forEach((o, i) => {
+        const t0 = c.g[i], u = t0 == null ? -1 : t - t0;
+        const on = t0 != null && u >= 0;
+        vis(o.g, on);
+        if (!on) return;
+        const fall = 300, p = clamp(u / 0.2), dy = u < 0.2 ? -fall * (1 - p * p) : -0.04 * fall * Math.sin(Math.PI * clamp((u - 0.2) / 0.133));
+        setA(o.g, 'transform', `translate(${f2(o.x)} ${f2(dy)})`);
+        const k = pop(u, 0.2, 0.25); setA(o.lab, 'transform', `translate(0 474) scale(${f2(sc(k))}) translate(0 -474)`);
+      });
+      /* serpentin */
+      const serpOn = pS > 0.0005;
+      vis(st.serp, serpOn);
+      if (serpOn) {
+        const dd = pS * st.L;
+        setA(st.sA, 'stroke-dasharray', `${f2(dd)} ${f2(st.L + 60)}`); setA(st.sB, 'stroke-dasharray', `${f2(dd)} ${f2(st.L + 60)}`);
+        st.sg.forEach((o) => {
+          const u = kind === 'B' ? tauB - o.tl : -1, on = kind === 'B' && u >= 0;
+          vis(o.g, on);
+          if (!on) return;
+          const p = clamp(u / 0.2), dy = u < 0.2 ? -160 * (1 - p * p) : -6 * Math.sin(Math.PI * clamp((u - 0.2) / 0.133));
+          setA(o.g, 'transform', `translate(${f2(o.x)} ${f2(o.y + dy)})`);
+        });
+        const k = pop(tauB, 1.0, 0.3); setA(st.mil, 'transform', `translate(1280 72) scale(${f2(sc(kind === 'B' ? k : 0))})`); vis(st.mil, kind === 'B' && k > 0.001);
+      } else { vis(st.mil, false); }
+      /* rouleau */
+      {
+        const r0 = lerp(50, 18, clamp((xf - 80) / 1620));
+        let px = s * (xf + 30), py = s * 570, r = s * r0;
+        if (serpOn) { const tip = st.pointAt(pS * st.L), w = clamp(pS / 0.03); px = lerp(px, tip[0], w); py = lerp(py, tip[1], w); r = lerp(r, 15, w); }
+        const ang = (0.6 * (xf - 80) / Math.max(r0, 8) + (serpOn ? pS * st.L / 140 : 0)) * 57.2958;
+        setA(st.roll, 'transform', `translate(${f2(px)} ${f2(py)}) rotate(${f2(ang)}) scale(${f2(sc(r))})`);
+        vis(st.roll, true);                                                          // en fin de course, la case (au premier plan) recouvre le rouleau
+      }
+      /* case verte */
+      if (st.zero) {
+        const sBase = (x) => lerp(0.55, 1, E.io2(prog(x, 900, 1500)));
+        let bx = 1680, by = 620, sb = sBase(kind === 'A' ? xf : xfLen);
+        if (kind === 'B') {
+          const w = E.io2(prog(tauB, 1.0, 2.2)), ws = sBase(xfLen) * s;
+          bx = lerp(1680 * s, 1700, w); by = lerp(620 * s, 742, w); sb = lerp(ws, 0.55, w);
+        } else if (kind === 'E') {
+          const b0 = sBase(xfLen);
+          sb = lerp(b0, 1.25, E.back(prog(t, ts + 1.0, ts + 1.6)));
+          if (prevKind === 'B') { const w = E.io2(prog(t, ts, ts + 1.0)); bx = lerp(1700, bx, w); by = lerp(742, by, w); sb = lerp(0.55, sb, w); }
+          const [dx, dy] = shakeAt(t, ts + 1.0, 6, 0.4); bx += dx; by += dy;
+        }
+        setA(st.box, 'transform', `translate(${f2(bx)} ${f2(by)}) scale(${f2(sc(sb))})`);
+      }
+      /* étiquette de fin */
+      {
+        const k = kind === 'E' ? pop(t, ts + 1.5, 0.3) : 0;
+        setA(st.endL, 'transform', `translate(960 215) scale(${f2(sc(k))})`); vis(st.endL, k > 0.001);
+      }
+    }
+  });
+
+  /* vue « compare » : τ = secondes depuis le début de la vue (après le conveyor) */
+  function updCompare(st, tau) {
+    // bande du haut : tapis minuscule, un seul verre
+    const a = E.out3(prog(tau, 0.1, 0.5));
+    setStrip(st.cS, 200, 200 + 160 * a, a > 0.02);
+    const kg = tau < 0.4 ? 0 : 1, fall = 160, u = tau - 0.4;
+    const dy = u < 0 ? -fall : u < 0.2 ? -fall * (1 - (u / 0.2) * (u / 0.2)) : -0.04 * fall * Math.sin(Math.PI * clamp((u - 0.2) / 0.133));
+    setA(st.cGlass, 'transform', `translate(282 ${f2(dy)})`); vis(st.cGlass, kg > 0);
+    const k1 = pop(tau, 0.7, 0.25); setA(st.cSmall, 'transform', `translate(430 215) scale(${f2(sc(k1))})`); vis(st.cSmall, k1 > 0.001);
+    // bande du bas : tapis qui traverse tout le cadre
+    const b = E.out3(prog(tau, 0.7, 1.7));
+    setStrip(st.cB, -90, -90 + 2100 * b, b > 0.01);
+    st.cG.forEach((o, i) => {
+      const t0 = 1.5 + 0.2 * i, v = tau - t0, on = v >= 0; vis(o.g, on);
+      if (!on) return;
+      const f = 300, d = v < 0.2 ? -f * (1 - (v / 0.2) * (v / 0.2)) : -0.04 * f * Math.sin(Math.PI * clamp((v - 0.2) / 0.133));
+      setA(o.g, 'transform', `translate(${o.x} ${f2(d)})`);
+    });
+    const k2 = pop(tau, 2.0, 0.25); setA(st.cBig, 'transform', `translate(100 515) scale(${f2(sc(k2))})`); vis(st.cBig, k2 > 0.001);
+    const k3 = pop(tau, 2.6, 0.25); setA(st.cSame, 'transform', `translate(100 420) scale(${f2(sc(k3))})`); vis(st.cSame, k3 > 0.001);
+    // la virgule : saute de la bande du haut à la bande du bas
+    const x0 = 1000, y0 = 222, x1 = 520, y1 = 652, tj = 3.4, p = prog(tau, tj, tj + 10 / 30), e = E.back(p);
+    const kc = tau < 2.6 ? 0 : tau < tj ? pop(tau, 2.6, 0.25) : 1;
+    const cx = lerp(x0, x1, e), cy = lerp(y0, y1, e) - 230 * Math.sin(Math.PI * clamp(p));
+    setA(st.cComma, 'transform', `translate(${f2(cx)} ${f2(cy)}) rotate(${f2(-24 * Math.sin(Math.PI * clamp(p)))}) scale(${f2(sc(kc) * 1.2)})`); vis(st.cComma, kc > 0.001);
+    const k4 = pop(tau, 3.9, 0.3); setA(st.cStk, 'transform', `translate(1190 392) rotate(-2) scale(${f2(sc(k4))})`); vis(st.cStk, k4 > 0.001);
+  }
+})();
+;
 /* ==== tools/video/composition/components/rtp-bars.js ==== */
 // Composant « rtp-bars » (épisode 2) : « la case verte invisible », le taux de redistribution. Voir EP2-COMPONENTS.md.
 // Deux barres de 100 unités (1500 px) : part rendue en paper, part gardée en lime. Fonction pure du temps du plan ; aplats seulement.
@@ -13821,6 +14792,277 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/sms-invite.js ==== */
+// Composant `sms-invite` (épisode 7) : le texto d'invitation et le fichier client. Voir EP7-COMPONENTS.md.
+// Un téléphone générique plat (aucune heure, aucun logo), une bulle de message écrite lettre à lettre, puis le fichier « CLIENTS » où le prénom devient une ligne et une case chiffre.
+// Cues : buzz, message, name, sender, reveal, figure, question. Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, rng, shakeAt } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' ? v : v == null ? d : String(v));
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  // largeurs mesurées de Bricolage Grotesque 800 (em par caractère) : sert de textLength, donc indépendant de la police de secours
+  const BW = { '0': .67, '1': .36, '2': .61, '3': .61, '4': .64, '5': .62, '6': .66, '7': .52, '8': .66, '9': .66, A: .71, B: .69, C: .69, D: .71, E: .63, F: .6, G: .73, H: .73, I: .3, J: .38, K: .7, L: .51, M: .96, N: .79, O: .73, P: .65, Q: .73, R: .69, S: .66, T: .58, U: .73, V: .68, W: 1, X: .72, Y: .66, Z: .58, 'À': .71, 'Â': .71, 'É': .63, 'È': .63, 'Ê': .63, 'Ë': .63, 'Î': .3, 'Ï': .3, 'Ô': .73, 'Û': .73, 'Ù': .73, 'Ç': .69, 'Œ': 1, ' ': .22, ' ': .22, ' ': .22, ',': .21, '.': .25, ':': .26, ';': .24, "'": .19, '’': .22, '!': .3, '?': .43, '|': .28, '%': .99, '€': .75, '≈': .55, '×': .53, '−': .53, '+': .53, '→': 1, '·': .25, '(': .33, ')': .33, '-': .36, '/': .37, '"': .38, '–': .55 };
+  const bw = (s, z) => { let a = 0; for (const ch of String(s)) { const w = BW[ch]; a += z * (w !== undefined ? w : ch >= 'a' && ch <= 'z' ? 0.6 : 0.7); } return a; };
+  const mw = (s, z) => Array.from(String(s)).length * z * 0.6;
+  const fitSize = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, bw(s, z)));
+  const BT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ len: f2(bw(s, z)) }, o || {}));
+  const MT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ mono: true, len: f2(mw(s, z)) }, o || {}));
+  // texte « machine à écrire » : le texte entier porte un textLength fixe, un clipPath le découvre caractère par caractère (ancre à gauche)
+  function TY(parent, s, x, y, z, fill, o) {
+    o = o || {};
+    const chars = Array.from(s), w = o.mono ? mw(s, z) : bw(s, z);
+    const grp = g(parent), id = 'sm' + (++UID) + 'c';
+    const cr = sv('rect', { x: x - 6, y: y - z * 1.05, width: 0, height: z * 1.45 }, sv('clipPath', { id }, grp));
+    const tn = text(grp, s, x, y, z, fill, { mono: o.mono, len: f2(Math.max(1, w)) });
+    tn.setAttribute('clip-path', `url(#${id})`);
+    const cum = [0]; let a = 0;
+    for (const ch of chars) { a += o.mono ? z * 0.6 : bw(ch, z); cum.push(a); }
+    const k = w / Math.max(a, 1); for (let i = 0; i < cum.length; i++) cum[i] *= k;
+    return { g: grp, cr, cum, n: chars.length, w };
+  }
+  const tyShow = (o, n) => { n = clamp(Math.floor(n), 0, o.n); setA(o.cr, 'width', n === 0 ? 0 : f2(o.cum[n] + (n >= o.n ? 14 : 4))); };
+  const pop = (t, t0, d) => (t < t0 ? 0 : E.back(prog(t, t0, t0 + (d || 0.25))));
+  const shadowRect = (p, x, y, w, h, r, d, col) => rect(p, x + d, y + d, w, h, r, col || C.ink);
+
+  ZV.define('sms-invite', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 9;
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((a, b) => a - b);
+      const sender = str(P.sender, 'LA MAISON'), name = str(P.name, 'TOM');
+      const msg = str(P.text, 'TOM, VOTRE SUITE VOUS ATTEND VENDREDI.');
+      const figure = P.figure == null || P.figure === '' ? null : str(P.figure, null);
+      const verdict = P.verdict === '' ? '' : str(P.verdict, '→ ÇA VAUT UNE SUITE');
+      const question = str(P.question, 'COMBIEN ONT-ILS ESTIMÉ QUE JE VALAIS ?');
+      const st = { dur };
+
+      /* ---- repères ---- */
+      let c = { buzz: cl('buzz'), message: cl('message')[0], name: cl('name')[0], sender: cl('sender')[0], reveal: cl('reveal')[0], figure: cl('figure')[0], question: cl('question')[0] };
+      const any = c.buzz.length || [c.message, c.name, c.sender, c.reveal, c.figure, c.question].some((x) => x != null);
+      if (!any) { const k = Math.min(1, dur / 9); c = { buzz: [0.4 * k], message: 1.2 * k, name: 2.9 * k, sender: 3.6 * k, reveal: 4.6 * k, figure: 6.3 * k, question: null }; }
+      else if (c.message == null) c.message = -10;                                    // le message est déjà là (plan de suite)
+      st.c = c;
+
+      /* ---- décor ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+
+      /* ---- le fichier (à droite) ---- */
+      const SX = 980, SY = 120, SW = 860, SH = 640, ROWY = 445;
+      st.fl = g(root);
+      shadowRect(st.fl, SX, SY, SW, SH, 6, 14, C.lime);
+      rect(st.fl, SX, SY, SW, SH, 6, C.paper, C.ink, 8);
+      MT(st.fl, 'CLIENTS', SX + 32, SY + 56, 34, C.ink, { anchor: 'start', spacing: 0 });
+      line(st.fl, SX + 32, SY + 78, SX + SW - 32, SY + 78, C.ink, 6);
+      const anon = [[222, 300], [280, 380], [338, 250], [592, 340], [642, 280]];
+      for (const [ay, aw] of anon) {
+        line(st.fl, SX + 40, ay + 22, SX + 40 + aw, ay + 22, C.ink, 14);
+        rect(st.fl, SX + SW - 32 - 150, ay, 150, 44, 6, C.pocket);
+      }
+      rect(st.fl, SX + 14, ROWY - 55, SW - 28, 110, 4, 'none', C.ink, 5);
+      const nm = fitSize(name, 60, 520);
+      BT(st.fl, name, SX + 40, ROWY + nm * 0.35, nm, C.ink, { anchor: 'start' });
+      st.box = g(st.fl, { transform: `translate(${SX + SW - 32 - 110} ${ROWY})` });
+      rect(st.box, -110 + 8, -45 + 8, 220, 90, 10, C.ink);
+      rect(st.box, -110, -45, 220, 90, 10, C.lime, C.ink, 6);
+      const fgTxt = figure != null ? figure : '?';
+      const fz = fitSize(fgTxt, 76, 188);
+      st.boxT = BT(st.box, fgTxt, 0, fz * 0.35, fz, C.ink, { anchor: 'middle' });
+      st.vd = g(st.fl);
+      if (verdict) {
+        const z = fitSize(verdict, 44, 760), w = bw(verdict, z) + 56, h = 66;
+        shadowRect(st.vd, -w / 2, -h / 2, w, h, 12, 9);
+        rect(st.vd, -w / 2, -h / 2, w, h, 12, C.red, C.ink, 6);
+        BT(st.vd, verdict, 0, z * 0.35, z, C.ink, { anchor: 'middle' });
+      }
+      st.vdX = SX + SW / 2; st.vdY = 538;
+
+      /* ---- le téléphone ---- */
+      st.ph = g(root);
+      const ph = st.ph;
+      st.arcs = g(ph);
+      for (const s of [-1, 1]) {
+        const cx = s < 0 ? 410 : 870;
+        path(st.arcs, `M ${cx} 405 Q ${cx + s * 22} 445 ${cx} 485`, 'none', C.paper, 7);
+        path(st.arcs, `M ${cx + s * 4} 365 Q ${cx + s * 52} 445 ${cx + s * 4} 525`, 'none', C.paper, 7);
+      }
+      shadowRect(ph, 440, 80, 400, 720, 56, 14, C.red);
+      rect(ph, 440, 80, 400, 720, 56, C.ink, C.paper, 8);
+      rect(ph, 458, 98, 364, 684, 40, C.paper);
+      for (let i = 0; i < 3; i++) rect(ph, 484 + i * 14, 140 - (10 + i * 6), 9, 10 + i * 6, 2, C.ink);
+      rect(ph, 752, 120, 46, 20, 5, 'none', C.ink, 4); rect(ph, 757, 125, 30, 10, 2, C.ink); rect(ph, 801, 126, 4, 8, 1, C.ink);
+      MT(ph, 'MARDI', 640, 188, 26, C.ink, { anchor: 'middle', spacing: 0 });
+      // cartouche de l'expéditeur
+      {
+        const z = fitSize(sender, 44, 270), w = Math.min(330, bw(sender, z) + 52), h = 64;
+        st.cart = rect(ph, 640 - w / 2, 200, w, h, 12, C.ink);
+        st.cartT = BT(ph, sender, 640, 200 + h / 2 + z * 0.35, z, C.paper, { anchor: 'middle' });
+        // sticker « PAS UN AMI » (collé au bord droit du cartouche, il suit le téléphone)
+        const lab = 'PAS UN AMI', sz = 30, sw = bw(lab, sz) + 40, shh = 52;
+        st.stk = g(ph);
+        shadowRect(st.stk, -sw / 2, -shh / 2, sw, shh, 8, 6);
+        rect(st.stk, -sw / 2, -shh / 2, sw, shh, 8, C.paper, C.ink, 5);
+        BT(st.stk, lab, 0, sz * 0.35, sz, C.ink, { anchor: 'middle' });
+        st.stkX = 640 + w / 2 + sw / 2 - 4; st.stkY = 208;
+      }
+      // zone de saisie décorative
+      rect(ph, 482, 714, 316, 44, 22, 'none', C.ink, 4);
+      circle(ph, 776, 736, 13, C.ink);
+      rect(ph, 590, 770, 100, 6, 3, C.ink);
+
+      /* ---- la bulle ---- */
+      let size = 36, lines = null;
+      const words = msg.split(/\s+/).filter(Boolean);
+      for (let z = 52; z >= 36; z -= 2) {
+        if (words.some((w) => bw(w, z) > 300)) continue;
+        const ls = []; let cur = '';
+        for (const w of words) { const tryS = cur ? cur + ' ' + w : w; if (cur && bw(tryS, z) > 300) { ls.push(cur); cur = w; } else cur = tryS; }
+        if (cur) ls.push(cur);
+        if (ls.length <= 4 || z === 36) { size = z; lines = ls; break; }
+      }
+      if (!lines) { size = 34; lines = [msg]; }
+      const lh = size * 1.12, bh = lines.length * lh + 40, BX = 478, BTOP = 312, BBOT = BTOP + bh;
+      st.bb = g(ph);
+      const bb = st.bb;
+      rect(bb, 8, -bh + 8, 336, bh, 28, C.ink, null);
+      rect(bb, 0, -bh, 336, bh, 28, C.paper, C.ink, 5);
+      path(bb, 'M 3 -44 L -22 -6 L 13 -12 Z', C.paper, C.ink, 5);
+      line(bb, 0, -39, 0, -15, C.paper, 8, { 'stroke-linecap': 'butt' });
+      // surlignage du prénom (sous le texte)
+      const nU = name.toUpperCase().replace(/[^A-ZÀ-Ý]/g, '');
+      let hl = null;
+      lines.forEach((ln, li) => {
+        if (hl) return;
+        const ws = ln.split(' '); let pre = '';
+        for (const w of ws) {
+          if (w.toUpperCase().replace(/[^A-ZÀ-Ý]/g, '') === nU && nU) { const core = w.replace(/[,.;:!?]+$/, ''); hl = { li, x: 18 + bw(pre, size) + (pre ? bw(' ', size) : 0), w: bw(core, size) }; return; }
+          pre += (pre ? ' ' : '') + w;
+        }
+      });
+      st.hl = null;
+      if (hl) {
+        const top = -bh + 20 + hl.li * lh;
+        st.hl = rect(bb, hl.x - 4, top + size * 0.02, hl.w + 8, size * 1.02, 4, C.lime);
+        st.hlW = hl.w + 8; st.hlAbs = { x: BX + hl.x + hl.w / 2, y: BTOP + 20 + hl.li * lh };
+      } else st.hlAbs = { x: BX + 80, y: BTOP + 20 };
+      st.ty = []; st.tyOff = []; let acc = 0;
+      lines.forEach((ln, li) => {
+        const o = TY(bb, ln, 18, -bh + 20 + li * lh + size * 0.84, size, C.ink);
+        st.ty.push(o); st.tyOff.push(acc); acc += o.n + 1;
+      });
+      st.nLet = acc; st.bBot = BBOT; st.bX = BX;
+
+      /* ---- la flèche lime du prénom à la ligne ---- */
+      st.arw = g(root);
+      {
+        const ax = st.hlAbs.x - 300, ay = st.hlAbs.y - 14, rx = SX + 20, d = `M ${f2(ax)} ${f2(ay)} L ${f2(ax)} 284 L 900 284 L 900 ${ROWY} L ${rx - 44} ${ROWY}`;
+        st.arwU = path(st.arw, d, 'none', C.ink, 24, { pathLength: 1000, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+        st.arwL = path(st.arw, d, 'none', C.lime, 14, { pathLength: 1000, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+        st.head = g(st.arw);
+        path(st.head, `M ${rx + 8} ${ROWY} L ${rx - 44} ${ROWY - 30} L ${rx - 44} ${ROWY + 30} Z`, C.ink, C.ink, 10);
+        path(st.head, `M ${rx + 8} ${ROWY} L ${rx - 44} ${ROWY - 30} L ${rx - 44} ${ROWY + 30} Z`, C.lime, null);
+        st.headX = rx + 8;
+      }
+
+      /* ---- la bande de la question (au premier plan) ---- */
+      st.qb = g(root);
+      {
+        const z = fitSize(question, 56, 1560), w = bw(question, z);
+        shadowRect(st.qb, -840, -50, 1680, 100, 10, 10, C.lime);
+        rect(st.qb, -840, -50, 1680, 100, 10, C.paper, C.ink, 6);
+        st.qt = TY(st.qb, question, -w / 2, z * 0.35, z, C.ink);
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const c = st.c;
+      /* téléphone : entrée, vibration, glissement */
+      let bz = 0, arcs = false;
+      for (const tb of c.buzz) { const u = t - tb; if (u >= 0 && u <= 0.8) { bz = 6 * Math.sin(u * 2 * Math.PI * 2.5) * (1 - prog(u, 0.68, 0.8)); arcs = true; } }
+      const tR = c.reveal;
+      const sh = tR != null ? -300 * E.out3(prog(t, tR, tR + 0.4)) : 0;
+      const dy = 120 * (1 - E.out3(prog(t, 0, 0.35)));
+      setA(st.ph, 'transform', `translate(${f2(sh + bz)} ${f2(dy)})`);
+      vis(st.arcs, arcs);
+
+      /* bulle */
+      const tM = c.message;
+      const has = tM != null && t >= tM;
+      vis(st.bb, has);
+      if (has) {
+        const s = E.back(prog(t, tM, tM + 8 / 30));
+        setA(st.bb, 'transform', `translate(${st.bX} ${f2(st.bBot)}) scale(${f2(Math.max(0.001, s))})`);
+        const n = Math.floor(Math.max(0, t - tM - 8 / 30) * 30) + (t >= tM + 8 / 30 ? 1 : 0);
+        for (let i = 0; i < st.ty.length; i++) tyShow(st.ty[i], n - st.tyOff[i]);
+        if (st.hl) {
+          const tN = c.name;
+          const p = tN != null ? E.out2(prog(t, tN, tN + 0.2)) : 0;
+          setA(st.hl, 'width', f2(Math.max(0, st.hlW * p)));
+          vis(st.hl, p > 0);
+        }
+      }
+
+      /* expéditeur */
+      const tS = c.sender, sOn = tS != null && t >= tS;
+      setA(st.cart, 'fill', sOn ? C.red : C.ink);
+      setA(st.cartT, 'fill', sOn ? C.ink : C.paper);
+      {
+        const s = tS != null ? pop(t, tS + 0.08, 0.25) : 0;
+        setA(st.stk, 'transform', `translate(${f2(st.stkX)} ${f2(st.stkY)}) rotate(-8) scale(${f2(Math.max(0.001, s))})`);
+        vis(st.stk, s > 0.001);
+      }
+
+      /* fichier */
+      if (tR == null) { vis(st.fl, false); vis(st.arw, false); }
+      else {
+        const p = E.out3(prog(t, tR + 0.1, tR + 0.1 + 14 / 30));
+        vis(st.fl, t >= tR + 0.1);
+        setA(st.fl, 'transform', `translate(${f2(1000 * (1 - p))} 0)`);
+        const pa = E.out2(prog(t, tR + 0.55, tR + 1.15));
+        vis(st.arw, pa > 0);
+        setA(st.arwU, 'stroke-dasharray', `${f2(pa * 1000)} 1100`);
+        setA(st.arwL, 'stroke-dasharray', `${f2(pa * 1000)} 1100`);
+        const hp = pa >= 1 ? E.back(prog(t, tR + 1.15, tR + 1.4)) : 0;
+        setA(st.head, 'transform', `translate(${st.headX} ${ROWY_()}) scale(${f2(Math.max(0.001, hp))}) translate(${-st.headX} ${-ROWY_()})`);
+        vis(st.head, hp > 0.001);
+      }
+
+      /* case chiffre + verdict */
+      const tF = c.figure;
+      if (tF == null || t < tF) { vis(st.boxT, false); vis(st.vd, false); setA(st.box, 'transform', st.boxBase || (st.boxBase = st.box.getAttribute('transform'))); }
+      else {
+        const base = st.boxBase || (st.boxBase = st.box.getAttribute('transform'));
+        const m = /translate\(([-\d.]+) ([-\d.]+)\)/.exec(base);
+        const [dx, dy2] = shakeAt(t, tF, 6, 0.4);
+        const sc = 1 + 0.5 * (1 - E.out3(prog(t, tF, tF + 0.2)));
+        setA(st.box, 'transform', `translate(${f2(+m[1] + dx)} ${f2(+m[2] + dy2)}) scale(${f2(sc)})`);
+        vis(st.boxT, true);
+        const v = pop(t, tF + 0.3, 0.25);
+        setA(st.vd, 'transform', `translate(${st.vdX} ${st.vdY}) rotate(-2) scale(${f2(Math.max(0.001, v))})`);
+        vis(st.vd, v > 0.001);
+      }
+
+      /* question */
+      const tQ = c.question;
+      if (tQ == null || t < tQ) vis(st.qb, false);
+      else {
+        const s = E.back(prog(t, tQ, tQ + 0.25));
+        setA(st.qb, 'transform', `translate(960 740) scale(1 ${f2(Math.max(0.001, s))})`);
+        vis(st.qb, true);
+        tyShow(st.qt, (t - tQ - 0.15) / 0.035);
+      }
+    }
+  });
+  const ROWY_ = () => 445;
+})();
+;
 /* ==== tools/video/composition/components/strategy-chart.js ==== */
 // Composant `strategy-chart` (épisode 5) : le tableau gratuit de la stratégie de base. Voir EP5-COMPONENTS.md.
 // Grille 10 × 10 (mains dures, six paquets) : T tirer (paper), R rester (lime), D doubler (pocket bordé lime). Fonction pure du temps ; aplats seulement.
@@ -14282,6 +15524,485 @@
       }
     }
   });
+})();
+;
+/* ==== tools/video/composition/components/theo-file.js ==== */
+// Composant `theo-file` (épisode 7) : la perte théorique (le « théo ») et la valeur à vie. Voir EP7-COMPONENTS.md.
+// Mode `formula` : 4 tuiles (mise × tours × avantage = théo) puis UN panneau à la fois (tonight, card, free, comps, barman).
+// Mode `lifetime` : 52 vendredis, compteur, escalade. Cues formula : formula, bet, rounds, edge, theo, tonight, card, free, comps, barman.
+// Cues lifetime : one, year, total, easier, escalade. Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, rng, shakeAt } = ZV;
+  let UID = 0;
+  const NB = ' ', NNB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' ? v : v == null ? d : String(v));
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const BW = { '0': .67, '1': .36, '2': .61, '3': .61, '4': .64, '5': .62, '6': .66, '7': .52, '8': .66, '9': .66, A: .71, B: .69, C: .69, D: .71, E: .63, F: .6, G: .73, H: .73, I: .3, J: .38, K: .7, L: .51, M: .96, N: .79, O: .73, P: .65, Q: .73, R: .69, S: .66, T: .58, U: .73, V: .68, W: 1, X: .72, Y: .66, Z: .58, 'À': .71, 'Â': .71, 'É': .63, 'È': .63, 'Ê': .63, 'Ë': .63, 'Î': .3, 'Ï': .3, 'Ô': .73, 'Û': .73, 'Ù': .73, 'Ç': .69, 'Œ': 1, ' ': .22, ' ': .22, ' ': .22, ',': .21, '.': .25, ':': .26, ';': .24, "'": .19, '’': .22, '!': .3, '?': .43, '|': .28, '%': .99, '€': .75, '≈': .55, '×': .53, '−': .53, '+': .53, '→': 1, '·': .25, '(': .33, ')': .33, '-': .36, '/': .37, '"': .38, '–': .55 };
+  const bw = (s, z) => { let a = 0; for (const ch of String(s)) { const w = BW[ch]; a += z * (w !== undefined ? w : ch >= 'a' && ch <= 'z' ? 0.6 : 0.7); } return a; };
+  const mw = (s, z) => Array.from(String(s)).length * z * 0.6;
+  const fitSize = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, bw(s, z)));
+  const fitMono = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, mw(s, z)));
+  const BT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ len: f2(bw(s, z)) }, o || {}));
+  const MT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ mono: true, len: f2(mw(s, z)) }, o || {}));
+  function TY(parent, s, x, y, z, fill, o) {                                    // texte « machine à écrire » : textLength fixe + clipPath (ancre à gauche)
+    o = o || {};
+    const chars = Array.from(s), w = o.mono ? mw(s, z) : bw(s, z);
+    const grp = g(parent), id = 'tf' + (++UID) + 'c';
+    const cr = sv('rect', { x: x - 6, y: y - z * 1.05, width: 0, height: z * 1.45 }, sv('clipPath', { id }, grp));
+    const tn = text(grp, s, x, y, z, fill, { mono: o.mono, len: f2(Math.max(1, w)) });
+    tn.setAttribute('clip-path', `url(#${id})`);
+    const cum = [0]; let a = 0;
+    for (const ch of chars) { a += o.mono ? z * 0.6 : bw(ch, z); cum.push(a); }
+    const k = w / Math.max(a, 1); for (let i = 0; i < cum.length; i++) cum[i] *= k;
+    return { g: grp, tn, cr, cum, n: chars.length, w };
+  }
+  const tyShow = (o, n) => { n = clamp(Math.floor(n), 0, o.n); setA(o.cr, 'width', n === 0 ? 0 : f2(o.cum[n] + (n >= o.n ? 14 : 4))); };
+  const pop = (t, t0, d) => (t < t0 ? 0 : E.back(prog(t, t0, t0 + (d || 0.25))));
+  const sc = (s) => Math.max(0.001, s);
+  const shadowRect = (p, x, y, w, h, r, d, col) => rect(p, x + d, y + d, w, h, r, col || C.ink);
+
+  /* ---- pictos plats (centrés sur 0,0, ±75) : verre, assiette, clé, carte ---- */
+  const PIC = {
+    glass: [['p', 'M -44 -66 L 44 -66 Q 44 2 0 12 Q -44 2 -44 -66 Z', C.white], ['p', 'M -38 -34 L 38 -34 Q 35 -5 0 5 Q -35 -5 -38 -34 Z', C.lime, 0], ['r', -5, 10, 10, 46, 0, C.ink], ['r', -38, 54, 76, 14, 7, C.ink]],
+    plate: [['c', 0, 4, 46, C.white], ['c', 0, 4, 28, C.paper], ['r', -76, -58, 22, 40, 6, C.white], ['r', -70, -22, 10, 74, 5, C.white], ['p', 'M 60 -58 Q 76 -40 72 -14 L 72 -10 L 60 -10 Z', C.white], ['r', 60, -14, 12, 66, 5, C.white]],
+    key: [['c', -34, -10, 32, C.white], ['c', -34, -10, 11, C.ink, 0], ['r', -4, -19, 76, 17, 4, C.white], ['r', 40, -4, 12, 24, 2, C.white], ['r', 22, -4, 10, 15, 2, C.white], ['r', -62, 28, 56, 40, 8, C.red], ['c', -34, 40, 6, C.paper, 0]],
+    card: [['r', -70, -46, 140, 92, 12, C.white], ['r', -70, -28, 140, 22, 0, C.ink, 0], ['r', -56, 10, 32, 24, 5, C.lime], ['r', -12, 14, 54, 7, 3, C.ink, 0], ['r', -12, 28, 36, 7, 3, C.ink, 0]]
+  };
+  function picto(parent, kind, shadow) {
+    const grp = g(parent), spec = PIC[kind] || PIC.card;
+    const BASE = { p: 3, r: 7, c: 5 };
+    const draw = (gr, sh) => {
+      for (const s of spec) {
+        const base = BASE[s[0]], noStroke = s.length > base && s[base] === 0;
+        const fill = sh ? C.ink : s[base - 1], stroke = sh || !noStroke ? C.ink : null;
+        if (s[0] === 'p') path(gr, s[1], fill, stroke, 6);
+        else if (s[0] === 'r') rect(gr, s[1], s[2], s[3], s[4], s[5], fill, stroke, 6);
+        else circle(gr, s[1], s[2], s[3], fill, stroke, 6);
+      }
+    };
+    if (shadow !== false) draw(g(grp, { transform: 'translate(8 8)' }), true);
+    draw(g(grp), false);
+    return grp;
+  }
+
+  ZV.define('theo-file', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 20;
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((a, b) => a - b);
+      const FNAMES = ['formula', 'bet', 'rounds', 'edge', 'theo', 'tonight', 'card', 'free', 'comps', 'barman'];
+      const LNAMES = ['one', 'year', 'total', 'easier', 'escalade'];
+      const hasF = FNAMES.some((n) => cl(n).length), hasL = LNAMES.some((n) => cl(n).length);
+      const lifeProps = ['nights', 'theo_night', 'steps', 'first', 'you'].some((k) => P[k] != null);
+      const life = P.mode === 'lifetime' || (P.mode !== 'formula' && (hasL && !hasF || (!hasF && !hasL && lifeProps)));
+      const st = { life, dur, uid: 'tf' + (++UID) };
+
+      /* ---- fond paper, trame ink très légère ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+      const pt = sv('pattern', { id: st.uid + 'h', width: 32, height: 32, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+      sv('rect', { x: 0, y: 0, width: 32, height: 32, fill: C.paper }, pt);
+      sv('rect', { x: 0, y: 0, width: 4, height: 32, fill: '#E6E2D6' }, pt);
+      rect(root, 0, 0, 1920, 1080, 0, `url(#${st.uid}h)`);
+      return life ? buildLife(root, st, P, cl, dur, defs) : buildForm(root, st, P, cl, dur, defs);
+    },
+    update(st, t, shot) { return st.life ? updLife(st, t) : updForm(st, t); }
+  });
+
+  /* =========================================================== MODE FORMULA */
+  function buildForm(root, st, P, cl, dur, defs) {
+    const bet = str(P.bet, '10' + NB + '€'), rounds = str(P.rounds, '200'), edge = str(P.edge, '2,7' + NB + '%');
+    const staked = str(P.staked, '2' + NNB + '000' + NB + '€' + NB + 'MISÉS'), theo = str(P.theo, '≈' + NB + '54' + NB + '€');
+    const gifts = (Array.isArray(P.gifts) && P.gifts.length ? P.gifts : ['LE VERRE', 'LE REPAS', 'LA CHAMBRE', 'LE CRÉDIT']).slice(0, 6).map((x) => (typeof x === 'string' ? x : str(x && x.label, '')));
+    st.gifts = gifts;
+    /* repères */
+    const cues = { formula: cl('formula')[0], bet: cl('bet')[0], rounds: cl('rounds')[0], edge: cl('edge')[0], theo: cl('theo')[0] };
+    const ev = [];
+    for (const n of ['tonight', 'card', 'free', 'comps', 'barman']) for (const t of cl(n)) ev.push({ t, id: n });
+    ev.sort((a, b) => a.t - b.t);
+    const any = ev.length || Object.values(cues).some((x) => x != null);
+    if (!any) {
+      const k = Math.min(1, dur / 24), at = (x) => x * k;
+      Object.assign(cues, { formula: at(0.3), bet: at(1.3), rounds: at(2.2), edge: at(3.3), theo: at(4.4) });
+      [['tonight', 6], ['card', 10], ['free', 14.5], ['comps', 18], ['barman', 22]].forEach(([id, x]) => ev.push({ t: at(x), id }));
+    } else if (cues.formula == null) { cues.formula = -20; for (const n of ['bet', 'rounds', 'edge', 'theo']) if (cues[n] == null) cues[n] = -20; }
+    st.cues = cues; st.ev = ev;
+
+    /* tuiles */
+    const TW = 340, TH = 230, TY0 = 130, GAP = (1920 - 160 - 4 * TW) / 3;
+    const labs = ['MISE MOYENNE', 'NOMBRE DE TOURS', 'AVANTAGE DE LA MAISON', 'TON THÉO'], vals = [bet, rounds, edge, theo];
+    const lz = Math.min(26, ...labs.map((l) => fitMono(l, 26, TW - 44)));
+    st.tiles = [];
+    for (let i = 0; i < 4; i++) {
+      const x = 80 + i * (TW + GAP), cx = x + TW / 2, cy = TY0 + TH / 2;
+      const tg = g(root); const o = { g: tg, x, cx, cy, i };
+      shadowRect(tg, -TW / 2, -TH / 2, TW, TH, 10, 12);
+      o.plate = rect(tg, -TW / 2, -TH / 2, TW, TH, 10, i === 3 ? C.red : C.paper, C.ink, 8);
+      o.lab = MT(tg, labs[i], 0, -TH / 2 + 56, lz, i === 3 ? C.paper : C.ink, { anchor: 'middle' });
+      const z = fitSize(vals[i], 96, TW - 44), w = bw(vals[i], z);
+      o.vg = g(tg, { transform: `translate(0 ${f2(34)})` });
+      o.val = TY(o.vg, vals[i], -w / 2, z * 0.35, z, i === 3 ? C.paper : C.ink);
+      st.tiles.push(o);
+    }
+    st.GAP = GAP; st.TW = TW; st.TY0 = TY0; st.TH = TH;
+    st.signs = ['×', '×', '='].map((s, i) => {
+      const n = g(root);
+      BT(n, s, 0, 120 * 0.35, 120, C.ink, { anchor: 'middle' });
+      return { g: n, x: 80 + i * (TW + GAP) + TW + GAP / 2, y: TY0 + TH / 2 };
+    });
+    st.sub = g(root);
+    {
+      const lab = '= ' + staked, z = fitSize(lab, 36, 520), w = bw(lab, z) + 44, h = 54;
+      shadowRect(st.sub, -w / 2, -h / 2, w, h, 10, 7);
+      rect(st.sub, -w / 2, -h / 2, w, h, 10, C.paper, C.ink, 5);
+      BT(st.sub, lab, 0, z * 0.35, z, C.ink, { anchor: 'middle' });
+      st.subX = (80 + 80 + 2 * TW + GAP) / 2 + 0; st.subY = 394;
+    }
+    /* zone des panneaux */
+    const slot = g(root, { 'clip-path': `url(#${st.uid}s)` });
+    rect(sv('clipPath', { id: st.uid + 's' }, defs), 0, 428, 1920, 408, 0, '#000');
+    st.P = {};
+    st.P.tonight = pTonight(slot, st);
+    st.P.card = pCard(slot, st, bet, rounds, theo);
+    st.P.free = pFree(slot);
+    st.P.comps = pComps(slot, st, theo, gifts);
+    st.P.barman = pBarman(slot);
+    return st;
+  }
+
+  function pTonight(parent, st) {
+    const p = { g: g(parent) }, G = p.g, X0 = 210, X1 = 1710, AX = 560;
+    p.l1 = MT(G, 'CE SOIR', X0, 472, 30, C.ink, { anchor: 'start' });
+    p.axis = line(G, X0, AX, X1, AX, C.ink, 3, { 'stroke-dasharray': '14 12', 'stroke-linecap': 'butt' });
+    p.plus = MT(G, '+', 160, AX - 52, 46, C.ink, { anchor: 'middle' });
+    p.minus = MT(G, '−', 160, AX + 66, 46, C.ink, { anchor: 'middle' });
+    const r = rng(1307); let d = '', s = 1;
+    for (let i = 0; i <= 40; i++) {
+      const x = X0 + (X1 - X0) * i / 40, a = i === 0 ? 0 : (22 + r() * 56) * s * (0.55 + 0.45 * Math.sin(i * 0.55));
+      d += (i ? ' L ' : 'M ') + f2(x) + ' ' + f2(AX + a); s = -s;
+    }
+    p.trace = path(G, d, 'none', C.ink, 7, { pathLength: 1000, 'stroke-linejoin': 'round' });
+    p.l2 = MT(G, 'TON THÉO', X0, 694, 30, C.ink, { anchor: 'start' });
+    p.bar = rect(G, X0, 712, X1 - X0, 28, 0, C.red);
+    p.stk = g(G);
+    { const lab = 'NE BOUGE PAS', z = 30, w = mw(lab, z) + 36, h = 46; rect(p.stk, -w / 2, -h / 2, w, h, 8, C.ink); MT(p.stk, lab, 0, z * 0.33, z, C.paper, { anchor: 'middle' }); p.stkW = w; }
+    p.lock = g(G);
+    path(p.lock, 'M -17 -6 L -17 -22 Q -17 -42 0 -42 Q 17 -42 17 -22 L 17 -6', 'none', C.ink, 9);
+    rect(p.lock, -28, -8, 56, 44, 6, C.ink); circle(p.lock, 0, 12, 6, C.paper);
+    p.upd = (tau) => {
+      vis(p.l1, tau >= 0); vis(p.axis, tau >= 0); vis(p.plus, tau >= 0.1); vis(p.minus, tau >= 0.1);
+      const a = E.io2(prog(tau, 0.25, 1.7)); setA(p.trace, 'stroke-dasharray', `${f2(a * 1000)} 1100`); vis(p.trace, a > 0);
+      vis(p.l2, tau >= 1.9);
+      const b = E.out3(prog(tau, 1.9, 2.6)); setA(p.bar, 'width', f2(Math.max(0.01, 1500 * b))); vis(p.bar, b > 0);
+      const k = pop(tau, 2.6, 0.3); setA(p.lock, 'transform', `translate(1768 726) scale(${f2(sc(k))})`); vis(p.lock, k > 0.001);
+      const k2 = pop(tau, 2.9, 0.3); setA(p.stk, 'transform', `translate(${f2(1710 - p.stkW / 2)} 678) scale(${f2(sc(k2))})`); vis(p.stk, k2 > 0.001);
+    };
+    return p;
+  }
+
+  function pCard(parent, st, bet, rounds, theo) {
+    const p = { g: g(parent) }, G = p.g;
+    const nPts = Math.max(10, parseInt(String(rounds).replace(/\D/g, ''), 10) || 200);
+    MT(G, 'TU CROIS CUMULER :', 70, 470, 28, C.ink, { anchor: 'start' });
+    BT(G, 'DES POINTS', 70, 540, fitSize('DES POINTS', 64, 440), C.ink, { anchor: 'start' });
+    p.left = g(G);
+    shadowRect(p.left, 70, 580, 380, 84, 10, 8);
+    rect(p.left, 70, 580, 380, 84, 10, C.white, C.ink, 6);
+    p.cnt = MT(p.left, '0 PTS', 436, 636, 44, C.ink, { anchor: 'end' });
+    p.nPts = nPts;
+    /* lecteur + carte */
+    p.card = g(G);
+    rect(p.card, -125, 0, 250, 150, 14, C.white, C.ink, 6);
+    rect(p.card, -122, 3, 244, 32, 11, C.lime);
+    line(p.card, -122, 35, 122, 35, C.ink, 5, { 'stroke-linecap': 'butt' });
+    rect(p.card, -102, 48, 38, 26, 5, C.ink);
+    MT(p.card, 'CARTE DE FIDÉLITÉ', -102, 98, 20, C.ink, { anchor: 'start' });
+    p.rd = g(G);
+    shadowRect(p.rd, 575, 612, 250, 86, 14, 8);
+    rect(p.rd, 575, 612, 250, 86, 14, C.ink);
+    rect(p.rd, 592, 628, 216, 10, 4, C.lime);
+    MT(p.rd, 'LECTEUR', 700, 678, 18, C.paper, { anchor: 'middle' });
+    /* colonne de droite : deux fois plus grande */
+    MT(G, 'LE CASINO CUMULE :', 870, 470, 30, C.ink, { anchor: 'start' });
+    const dz = fitSize('DES DONNÉES', 84, 900);
+    BT(G, 'DES DONNÉES', 870, 552, dz, C.ink, { anchor: 'start' });
+    p.rows = [`MISE MOYENNE · ${bet}`, `TOURS · ${rounds}`, `THÉO · ${theo}`].map((s, i) => {
+      const y = 584 + i * 74, o = { s, i, y }; o.g = g(G);
+      shadowRect(o.g, 870, y, 960, 62, 8, 7);
+      rect(o.g, 870, y, 960, 62, 8, i === 2 ? C.red : C.white, C.ink, 5);
+      o.ty = TY(o.g, s, 896, y + 43, fitMono(s, 34, 900), C.ink, { mono: true });
+      return o;
+    });
+    p.upd = (tau) => {
+      const c = E.out3(prog(tau, 0, 0.7));
+      setA(p.card, 'transform', `translate(700 ${f2(440 + (497 - 440) * c)})`);
+      const q = Math.floor(clamp((tau - 0.9) / 1.6) * 6) / 6, n = tau >= 2.5 ? p.nPts : Math.round(p.nPts * E.in2(q));
+      const tx = n + NB + 'PTS'; if (p.cnt.__s !== tx) { p.cnt.__s = tx; p.cnt.textContent = tx; p.cnt.setAttribute('textLength', f2(mw(tx, 44))); }
+      vis(p.left, tau >= 0.1);
+      p.rows.forEach((o, i) => { const a = 1.1 + 0.6 * i; vis(o.g, tau >= a); tyShow(o.ty, (tau - a - 0.1) / 0.04); });
+    };
+    return p;
+  }
+
+  function pFree(parent) {
+    const p = { g: g(parent) }, G = p.g;
+    p.tab = g(G);
+    { const lab = 'UN CLIENT DU JEU', w = mw(lab, 26) + 40; rect(p.tab, 330, 438, w, 42, 6, C.ink); MT(p.tab, lab, 330 + w / 2, 467, 26, C.paper, { anchor: 'middle' }); }
+    p.bub = g(G);
+    const B = p.bub;
+    shadowRect(B, 330, 478, 1260, 132, 34, 10);
+    rect(B, 330, 478, 1260, 132, 34, C.white, C.ink, 6);
+    path(B, 'M 400 606 L 392 646 L 458 608', C.white, C.ink, 6);
+    line(B, 406, 606, 452, 606, C.white, 9, { 'stroke-linecap': 'butt' });
+    const lab = 'LA CARTE DE FIDÉLITÉ, C’EST GRATUIT', z = fitSize(lab, 64, 1130), w = bw(lab, z);
+    BT(B, lab, 960, 544 + z * 0.35, z, C.ink, { anchor: 'middle' });
+    p.strike = path(G, `M ${f2(960 - w / 2 - 26)} 556 L ${f2(960 + w / 2 + 26)} 534`, 'none', C.red, 18, { pathLength: 1000 });
+    const l2 = 'CE SONT TES MISES QUI LA PAIENT', z2 = fitSize(l2, 84, 1560);
+    p.t2 = g(G);
+    BT(p.t2, l2, 0, z2 * 0.35, z2, C.ink, { anchor: 'middle' });
+    const pre = 'CE SONT ', ux = -bw(l2, z2) / 2 + bw(pre, z2);
+    rect(p.t2, ux, z2 * 0.35 + 12, bw('TES MISES', z2), 12, 0, C.red);
+    p.t2y = 722;
+    p.upd = (tau) => {
+      const k = pop(tau, 0, 0.3); setA(p.bub, 'transform', `translate(960 544) scale(${f2(sc(k))}) translate(-960 -544)`); vis(p.bub, k > 0.001);
+      setA(p.tab, 'transform', `translate(0 0)`); vis(p.tab, tau >= 0.05);
+      const s = E.out2(prog(tau, 0.9, 1.3)); setA(p.strike, 'stroke-dasharray', `${f2(s * 1000)} 1100`); vis(p.strike, s > 0);
+      const k2 = pop(tau, 1.8, 0.3); setA(p.t2, 'transform', `translate(960 ${p.t2y}) scale(${f2(sc(k2))})`); vis(p.t2, k2 > 0.001);
+    };
+    return p;
+  }
+
+  function pComps(parent, st, theo, gifts) {
+    const p = { g: g(parent) }, G = p.g, n = Math.max(1, gifts.length);
+    const kinds = ['glass', 'plate', 'key', 'card'];
+    shadowRect(G, 210, 440, 1500, 110, 0, 10);
+    rect(G, 210, 440, 1500, 110, 0, C.red, C.ink, 6);
+    const bl = 'TON THÉO ' + theo;
+    BT(G, bl, 960, 495 + 64 * 0.35, 64, C.paper, { anchor: 'middle', len: f2(Math.min(bw(bl, 64), 1300)) });
+    const cw = Math.min(330, (1500 - (n - 1) * 40) / n), gap = n > 1 ? (1500 - n * cw) / (n - 1) : 0;
+    p.cards = gifts.map((s, i) => {
+      const x = 210 + i * (cw + gap), o = { x, cx: x + cw / 2, t0: 0.6 + 0.5 * i }; o.g = g(G);
+      shadowRect(o.g, 0, 0, cw, 150, 10, 8);
+      rect(o.g, 0, 0, cw, 150, 10, C.paper, C.ink, 6);
+      const pg = g(o.g, { transform: `translate(${f2(cw / 2)} 56) scale(0.58)` }); picto(pg, kinds[i % 4], false);
+      BT(o.g, s, cw / 2, 134, fitSize(s, 30, cw - 28), C.ink, { anchor: 'middle' });
+      o.sl = rect(G, 0, 0, 46, 42, 4, C.red, C.ink, 5);                          // la tranche qui se détache
+      return o;
+    });
+    p.leg = MT(G, 'UNE FRACTION, PRÉVUE, DE CE QUE TU VAS PERDRE', 210, 798, 28, C.ink, { anchor: 'start' });
+    p.stk = g(G);
+    { const lab = 'PAS UNE GÉNÉROSITÉ', z = 28, w = mw(lab, z) + 44, h = 52; rect(p.stk, -w / 2, -h / 2, w, h, 8, C.ink); MT(p.stk, lab, 0, z * 0.33, z, C.paper, { anchor: 'middle' }); }
+    p.upd = (tau) => {
+      p.cards.forEach((o) => {
+        const u = prog(tau, o.t0, o.t0 + 0.45), arrived = u >= 1;
+        const sx = 232, sy = 552, ex = o.cx, ey = 600;
+        const e = E.out2(u), fall = E.in2(u);
+        const x = sx + (ex - sx) * e, y = sy + (ey - sy) * fall - 30 * Math.sin(Math.PI * u) * (1 - u);
+        vis(o.sl, tau >= o.t0 && !arrived);
+        setA(o.sl, 'transform', `translate(${f2(x - 23)} ${f2(y)}) scale(${f2(1 - 0.2 * u)})`);
+        const k = arrived ? pop(tau, o.t0 + 0.45, 0.25) : 0;
+        setA(o.g, 'transform', `translate(${f2(o.cx)} 660) scale(${f2(sc(k))}) translate(${f2(-p.cw / 2)} -75)`);
+        vis(o.g, k > 0.001);
+      });
+      const tl = 0.6 + 0.5 * (p.cards.length - 1) + 0.8;
+      vis(p.leg, tau >= tl);
+      const k = pop(tau, tl + 0.3, 0.3); setA(p.stk, 'transform', `translate(1500 784) rotate(-3) scale(${f2(sc(k))})`); vis(p.stk, k > 0.001);
+    };
+    p.cw = cw;
+    return p;
+  }
+  
+  function pBarman(parent) {
+    const p = { g: g(parent) }, G = p.g;
+    shadowRect(G, 260, 700, 1400, 90, 0, 10);
+    rect(G, 260, 700, 1400, 90, 0, C.ink);
+    p.glass = g(G); const gg = g(p.glass, { transform: 'translate(760 570) scale(1.7)' }); picto(gg, 'glass', true);
+    p.tag = g(G);
+    const T = p.tag, lab = 'IL CONNAÎT TON THÉO', z = fitSize(lab, 52, 470);
+    shadowRect(T, -300, -56, 600, 112, 16, 9);
+    rect(T, -300, -56, 600, 112, 16, C.white, C.ink, 6);
+    circle(T, -268, 0, 11, C.paper, C.ink, 5);
+    BT(T, lab, 14, z * 0.35, z, C.ink, { anchor: 'middle' });
+    p.str = line(G, 838, 572, 952, 578, C.ink, 5);
+    p.upd = (tau) => {
+      const k = pop(tau, 0, 0.3); setA(p.glass, 'transform', `translate(760 700) scale(${f2(sc(k))}) translate(-760 -700)`); vis(p.glass, k > 0.001);
+      const k2 = pop(tau, 0.6, 0.35), bob = 8 * Math.sin(tau * 3.1);
+      setA(p.tag, 'transform', `translate(1220 ${f2(560 + bob)}) rotate(-4) scale(${f2(sc(k2))})`); vis(p.tag, k2 > 0.001);
+      setA(p.str, 'y2', f2(578.7 + bob)); vis(p.str, k2 > 0.5);
+    };
+    return p;
+  }
+
+  function updForm(st, t) {
+    const c = st.cues, tF = c.formula;
+    /* tuiles, signes */
+    st.tiles.forEach((o, i) => {
+      const t0 = tF == null ? Infinity : tF + i * 0.2, u = prog(t, t0, t0 + 0.4), on = t >= t0;
+      const e = E.back(u);
+      setA(o.g, 'transform', `translate(${f2(o.cx)} ${f2(o.cy - 520 * (1 - e))})`);
+      vis(o.g, on);
+      const tv = i === 0 ? c.bet : i === 1 ? c.rounds : i === 2 ? c.edge : c.theo;
+      if (i === 2) { const inv = tv != null && t >= tv; setA(o.plate, 'fill', inv ? C.ink : C.paper); setA(o.lab, 'fill', inv ? C.paper : C.ink); setA(o.val.tn, 'fill', inv ? C.lime : C.ink); }
+      if (tv == null || t < tv) { tyShow(o.val, 0); setA(o.vg, 'transform', 'translate(0 34)'); return; }
+      if (i === 3) {
+        const s = 1 + 0.12 * (1 - E.out3(prog(t, tv, tv + 0.3))), [dx, dy] = shakeAt(t, tv, 8, 0.4);
+        setA(o.vg, 'transform', `translate(${f2(dx)} ${f2(34 + dy)}) scale(${f2(s)})`); tyShow(o.val, 99);
+      } else tyShow(o.val, (t - tv) / 0.07 + 1);
+    });
+    st.signs.forEach((s, i) => {
+      const t0 = tF == null ? Infinity : tF + (i + 1) * 0.2 + 0.1, k = pop(t, t0, 0.25);
+      setA(s.g, 'transform', `translate(${f2(s.x)} ${f2(s.y)} ) scale(${f2(sc(k))})`); vis(s.g, k > 0.001);
+    });
+    {
+      const tr = c.rounds; const k = tr != null ? pop(t, tr + 0.07 * 3 + 0.2, 0.3) : 0;
+      setA(st.sub, 'transform', `translate(${f2(st.subX)} ${f2(st.subY)}) rotate(-2) scale(${f2(sc(k))})`); vis(st.sub, k > 0.001);
+    }
+    /* panneaux : le dernier cue remplace le précédent (sortie vers le bas 8 i, entrée par le haut 10 i) */
+    const ev = st.ev; let j = -1;
+    for (let i = 0; i < ev.length; i++) if (ev[i].t <= t) j = i;
+    for (const id in st.P) vis(st.P[id].g, false);
+    if (j >= 0) {
+      const cur = ev[j], prev = j > 0 ? ev[j - 1] : null, ex = prev && prev.id !== cur.id ? 8 / 30 : 0;
+      if (prev && prev.id !== cur.id && t < cur.t + ex) {
+        const pp = st.P[prev.id]; vis(pp.g, true);
+        setA(pp.g, 'transform', `translate(0 ${f2(430 * E.in2(prog(t, cur.t, cur.t + ex)))})`);
+        pp.upd(1e3);
+      } else if (t >= cur.t + ex) {
+        const cp = st.P[cur.id]; vis(cp.g, true);
+        setA(cp.g, 'transform', `translate(0 ${f2(-430 * (1 - E.out3(prog(t, cur.t + ex, cur.t + ex + 10 / 30))))})`);
+        cp.upd(t - (cur.t + ex + 0.2));
+      }
+    }
+  }
+
+  /* =========================================================== MODE LIFETIME */
+  function buildLife(root, st, P, cl, dur) {
+    const nights = clamp(Math.round(isNum(+P.nights) && P.nights != null ? +P.nights : 52), 1, 52), tn = isNum(+P.theo_night) && P.theo_night != null ? +P.theo_night : 54;
+    const total = str(P.total, '≈' + NB + '2' + NNB + '800' + NB + '€'), first = str(P.first, 'TA PREMIÈRE SOIRÉE : PAS GRAND-CHOSE'), you = str(P.you, 'TOI, SI.');
+    const steps = (Array.isArray(P.steps) && P.steps.length ? P.steps : ['LA CARTE DANS TA POCHE', 'L’HÔTE TE SALUE', 'LE VERRE ARRIVE TOUT SEUL', 'LA MISE MIN. TE PARAÎT PETITE']).slice(0, 6).map((s) => str(s, ''));
+    const amt = tn + NB + '€', theoTxt = '≈' + NB + amt;
+    const cues = { one: cl('one')[0], year: cl('year')[0], total: cl('total')[0], easier: cl('easier')[0], escalade: cl('escalade')[0] };
+    if (Object.values(cues).every((x) => x == null)) { const k = Math.min(1, dur / 13); Object.assign(cues, { one: 0.6 * k, year: 2.2 * k, total: 6.0 * k, easier: 8.0 * k, escalade: 10.8 * k }); }
+    st.cues = cues; st.nights = nights; st.tn = tn; st.total = total; st.amt = amt;
+    /* tuile du haut */
+    const tl = g(root);
+    shadowRect(tl, 90, 90, 450, 160, 10, 11);
+    rect(tl, 90, 90, 450, 160, 10, C.paper, C.ink, 8);
+    MT(tl, '1 SOIRÉE', 315, 138, 30, C.ink, { anchor: 'middle' });
+    { const z = fitSize(theoTxt, 96, 400); BT(tl, theoTxt, 315, 220 + (96 - z) * 0.1, z, C.ink, { anchor: 'middle' }); }
+    /* compteur */
+    st.cntSize = 140; st.cnt = g(root);
+    st.cntT = text(st.cnt, '', 0, 0, 140, C.ink, { anchor: 'end' });
+    /* stickers */
+    st.stkFirst = g(root);
+    { const z = fitSize(first, 28, 760), w = bw(first, z) + 40, h = 44; shadowRect(st.stkFirst, -w / 2, -h / 2, w, h, 8, 6); rect(st.stkFirst, -w / 2, -h / 2, w, h, 8, C.paper, C.ink, 5); BT(st.stkFirst, first, 0, z * 0.35, z, C.ink, { anchor: 'middle' }); st.stkFirstX = 90 + w / 2 + 6; }
+    st.stkYou = g(root);
+    { const z = fitSize(you, 64, 360), w = bw(you, z) + 56, h = 90; shadowRect(st.stkYou, -w / 2, -h / 2, w, h, 12, 9); rect(st.stkYou, -w / 2, -h / 2, w, h, 12, C.red, C.ink, 6); BT(st.stkYou, you, 0, z * 0.35, z, C.ink, { anchor: 'middle' }); }
+    /* grille */
+    const GX = 90, GY = 322, PX = 118, PY = 94;
+    st.cells = [];
+    for (let i = 0; i < nights; i++) {
+      const x = GX + (i % 13) * PX, y = GY + Math.floor(i / 13) * PY, o = { x, y };
+      o.r = rect(root, x, y, 104, 80, 6, C.paper, C.ink, 4);
+      o.l = MT(root, 'VEN.', x + 8, y + 22, 18, C.ink, { anchor: 'start' });
+      o.a = MT(root, amt, x + 52, y + 64, 26, C.ink, { anchor: 'middle' });
+      st.cells.push(o);
+    }
+    st.ring = g(root);
+    if (nights > 1) {
+      const c2 = st.cells[1];
+      rect(st.ring, c2.x - 10, c2.y - 10, 124, 100, 14, 'none', C.ink, 18);
+      rect(st.ring, c2.x - 10, c2.y - 10, 124, 100, 14, 'none', C.lime, 10);
+    }
+    /* étiquettes d'escalade */
+    const lz0 = 26;
+    let lz = lz0, widths = steps.map((s) => mw(s, lz) + 40);
+    const gapL = 26, avail = 1740;
+    const tot = () => widths.reduce((a, b) => a + b, 0) + gapL * (steps.length - 1);
+    while (tot() > avail && lz > 18) { lz -= 1; widths = steps.map((s) => mw(s, lz) + 40); }
+    let x = (1920 - tot()) / 2;
+    st.steps = steps.map((s, i) => {
+      const o = { x, w: widths[i], i }; o.g = g(root);
+      shadowRect(o.g, 0, 0, widths[i], 56, 8, 6);
+      rect(o.g, 0, 0, widths[i], 56, 8, C.paper, C.ink, 5);
+      MT(o.g, s, widths[i] / 2, 56 / 2 + lz * 0.33, lz, C.ink, { anchor: 'middle' });
+      x += widths[i] + gapL; return o;
+    });
+    /* flèche-escalier */
+    st.esc = g(root);
+    {
+      const n = st.steps.length, y0 = 745, dy = 12;
+      let d = `M ${f2(st.steps[0].x)} ${y0}`;
+      for (let i = 1; i < n; i++) { const bx = st.steps[i].x - gapL / 2; d += ` L ${f2(bx)} ${y0 - dy * (i - 1)} L ${f2(bx)} ${y0 - dy * i}`; }
+      const last = st.steps[n - 1], xe = last.x + last.w + 8, ye = y0 - dy * (n - 1);
+      d += ` L ${f2(xe)} ${ye}`;
+      st.escP = path(st.esc, d, 'none', C.ink, 20, { pathLength: 1000, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' });
+      st.escR = path(st.esc, d, 'none', C.red, 12, { pathLength: 1000, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' });
+      st.escH = g(st.esc);
+      path(st.escH, `M ${f2(xe + 46)} ${ye} L ${f2(xe)} ${ye - 22} L ${f2(xe)} ${ye + 22} Z`, C.red, C.ink, 6);
+      st.escXe = xe; st.escYe = ye;
+    }
+    st.stamp = g(root);
+    { const lab = 'L’ESCALADE', z = 38, w = bw(lab, z) + 44, h = 78; rect(st.stamp, -w / 2, -h / 2, w, h, 6, C.ink); rect(st.stamp, -w / 2 + 6, -h / 2 + 6, w - 12, h - 12, 3, 'none', C.paper, 3); BT(st.stamp, lab, 0, z * 0.35, z, C.paper, { anchor: 'middle' }); }
+    return st;
+  }
+
+  function updLife(st, t) {
+    const c = st.cues, n = st.nights, tn = st.tn;
+    const fillT = 3.0;
+    let filled = 0;                                                              // nombre de cases pleines (1re comprise)
+    if (c.one != null && t >= c.one) filled = 1;
+    let q = 0;                                                                   // état du compteur : nombre affiché
+    if (c.year != null && t >= c.year) { const p = prog(t - c.year, 0, fillT); filled = 1 + Math.floor((n - 1) * Math.pow(p, 2.1) + 1e-6); if (p >= 1) filled = n; q = p >= 1 ? n : Math.max(1, 1 + Math.floor((n - 1) * Math.pow(Math.floor(p * fillT * 6) / (fillT * 6), 2.1))); }
+    else if (filled) q = 1;
+    st.cells.forEach((o, i) => {
+      const on = i < filled;
+      setA(o.r, 'fill', on ? C.lime : C.paper);
+      vis(o.a, on);
+      if (i === 0 && c.one != null && t >= c.one && t < c.one + 0.3) { /* petit pop de la 1re case */ }
+    });
+    /* compteur */
+    let label = '', ts = 0;
+    const tT = c.total;
+    if (tT != null && t >= tT) { label = st.total; ts = tT; }
+    else if (q) label = st.amt + NB + '×' + NB + q;
+    const z = Math.min(140, 140 * 740 / Math.max(1, bw(label, 140)));
+    if (st.cntT.__s !== label || st.cntT.__z !== z) {
+      st.cntT.__s = label; st.cntT.__z = z; st.cntT.textContent = label;
+      setA(st.cntT, 'font-size', f2(z)); setA(st.cntT, 'textLength', f2(Math.max(1, bw(label, z))));
+    }
+    setA(st.cntT, 'fill', tT != null && t >= tT ? C.red : C.ink);
+    if (tT != null && t >= tT) {
+      const s = 1 + 0.15 * (1 - E.out3(prog(t, tT, tT + 0.3))), [dx, dy] = shakeAt(t, tT, 8, 0.4);
+      setA(st.cnt, 'transform', `translate(${f2(1820 + dx)} ${f2(232 + dy)}) translate(0 -50) scale(${f2(s)}) translate(0 50)`);
+    } else setA(st.cnt, 'transform', 'translate(1820 232)');
+    vis(st.cnt, !!label);
+    /* stickers */
+    const kf = c.one != null ? pop(t, c.one + 0.3, 0.3) : 0;
+    setA(st.stkFirst, 'transform', `translate(${f2(st.stkFirstX)} 292) rotate(-1) scale(${f2(sc(kf))})`); vis(st.stkFirst, kf > 0.001);
+    const ky = tT != null ? pop(t, tT + 0.15, 0.3) : 0;
+    setA(st.stkYou, 'transform', `translate(880 190) rotate(-6) scale(${f2(sc(ky))})`); vis(st.stkYou, ky > 0.001);
+    /* 2e case cerclée, étiquettes, escalade */
+    const tE = c.easier;
+    const kr = tE != null ? pop(t, tE, 0.3) : 0;
+    if (st.cells.length > 1) { const c2 = st.cells[1], cx = c2.x + 52, cy = c2.y + 40; setA(st.ring, 'transform', `translate(${cx} ${cy}) scale(${f2(sc(kr))}) translate(${-cx} ${-cy})`); }
+    vis(st.ring, kr > 0.001);
+    st.steps.forEach((o, i) => {
+      const t0 = tE == null ? Infinity : tE + 0.15 + 0.4 * i, u = prog(t, t0, t0 + 0.32), e = E.back(u);
+      setA(o.g, 'transform', `translate(${f2(o.x)} ${f2(760 - 90 * (1 - e))})`); vis(o.g, t >= t0);
+    });
+    const tX = c.escalade;
+    const a = tX != null ? E.io2(prog(t, tX, tX + 1.1)) : 0;
+    setA(st.escP, 'stroke-dasharray', `${f2(a * 1000)} 1100`); setA(st.escR, 'stroke-dasharray', `${f2(a * 1000)} 1100`);
+    vis(st.esc, a > 0.001);
+    vis(st.escH, a >= 1);
+    const [sx, sy] = tX != null ? shakeAt(t, tX + 1.1, 6, 0.35) : [0, 0];
+    setA(st.stamp, 'transform', `translate(${f2(1770 + sx)} ${f2(520 + sy)}) rotate(-8) scale(${f2(1 + 0.8 * (1 - E.out3(prog(t, (tX == null ? 0 : tX) + 1.1, (tX == null ? 0 : tX) + 1.4))))})`); vis(st.stamp, tX != null && t >= tX + 1.1);
+  }
 })();
 ;
 /* ==== tools/video/composition/components/tick-grid.js ==== */
@@ -14970,6 +16691,277 @@
           put(st.verdict, 0, 40 * (1 - p), 0, 1, 1, at(7) ? p : 0);
         }
       } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/volume-slice.js ==== */
+// Composant `volume-slice` (épisode 7) : « le pourcentage est minuscule, le volume fait le reste ». Voir EP7-COMPONENTS.md.
+// Un mur de blocs (la mise), une tranche red en haut de chaque bloc (la part de la maison), un compteur MISÉ / PERDU, une loupe,
+// la colonne des tranches réunies, puis la part d'un seul homme dans les recettes (barre graduée, 1/20). Fonction pure du temps ;
+// aplats, aucun dégradé / flou / filter. Cues : wagered, blocks, hand, unit (param text), sum, share, twentieth.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, put, fr } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : v != null && typeof v !== 'object' && String(v).length ? String(v) : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => n.setAttribute('visibility', on ? 'visible' : 'hidden');   // non mis en cache : ZV.put pose aussi cet attribut
+  const disp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');      // pour les groupes dont les enfants posent leur propre visibility
+  const WT = {};
+  '0:.67 1:.36 2:.61 3:.61 4:.64 5:.62 6:.66 7:.52 8:.66 9:.66 A:.71 B:.69 C:.69 D:.71 E:.63 F:.6 G:.73 H:.73 I:.3 J:.38 K:.7 L:.51 M:.96 N:.79 O:.73 P:.65 Q:.73 R:.69 S:.66 T:.58 U:.73 V:.68 W:1 X:.72 Y:.66 Z:.58 À:.71 Â:.71 É:.63 È:.63 Ê:.63 Î:.3 Ô:.73 Û:.73 Ç:.69 €:.75 %:.99 +:.53 ×:.53 −:.53 -:.36 .:.25 ,:.21 ::.26 ;:.24 \':.19 ’:.22 !:.3 ?:.43 |:.28 (:.33 ):.33 $:.65 ¢:.57 ≈:.55 →:1 ·:.25 /:.37 «:.48 »:.48 –:.55'.split(' ').forEach((p) => { WT[p[0]] = parseFloat(p.slice(2)); });
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += WT[ch] !== undefined ? WT[ch] : /\s/.test(ch) ? 0.22 : 0.6; return a * size; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const fitSize = (s, size, maxW, minS, mono) => Math.max(minS, Math.min(size, Math.floor(maxW / Math.max(0.01, mono ? mw(s, 1) : bw(s, 1)))));
+  const setTxt = (n, s, size) => { if (n.__s !== s) { n.__s = s; n.textContent = s; n.setAttribute('textLength', f2(Math.max(1, bw(s, size)))); } };
+  function typed(parent, defs, id, s, x, y, size, fill, o) {
+    o = o || {};
+    const w = o.mono ? mw(s, size) : bw(s, size), W = Math.min(w, o.maxW || 1e9);
+    const x0 = o.anchor === 'middle' ? x - W / 2 : x;
+    const cp = sv('clipPath', { id }, defs), cr = rect(cp, x0 - 6, y - size * 1.1, 0, size * 1.5, 0, '#000');
+    const t = text(parent, s, x0, y, size, fill, { mono: o.mono, len: f2(W) });
+    t.setAttribute('clip-path', `url(#${id})`);
+    const chars = Array.from(s), cum = [0]; let acc = 0;
+    for (const ch of chars) { acc += o.mono ? 0.6 : (WT[ch] !== undefined ? WT[ch] : 0.4); cum.push(acc); }
+    return { t, W, n: chars.length, set(k) { k = Math.max(0, Math.min(chars.length, Math.floor(k))); setA(cr, 'width', f2(k <= 0 ? 0 : k >= chars.length ? W + 12 : (cum[k] / acc) * W + 6)); vis(t, k > 0); } };
+  }
+  // « 1,43 MD$ » → { pre, suf, val, dec } ; null si illisible
+  function parseAmt(s) {
+    const m = /^([^0-9]*)([0-9]+(?:[\s\u00a0\u202f][0-9]{3})*(?:[.,][0-9]+)?)(.*)$/.exec(String(s)); if (!m) return null;
+    const raw = m[2].replace(/[\s  ]/g, ''), dm = /[.,]([0-9]+)$/.exec(raw);
+    const v = parseFloat(raw.replace(',', '.')); if (!isFinite(v)) return null;
+    return { pre: m[1], suf: m[3], val: v, dec: dm ? dm[1].length : 0 };
+  }
+  const fmtAmt = (a, v) => { const fx = Math.max(0, v).toFixed(a.dec), i = fx.indexOf('.'); return a.pre + fr(+(i < 0 ? fx : fx.slice(0, i))) + (i < 0 ? '' : ',' + fx.slice(i + 1)) + a.suf; };
+  const quant = (t) => Math.floor(t * 6 + 1e-6) / 6;                       // les compteurs changent au plus 6 fois par seconde
+
+  const X0 = 80, WWID = 1600, WY0 = 280, WH = 420, WY1 = 700;
+  const COLX = 1710, COLW = 120;
+  const BX = 160, BY = 380, BWID = 1600, BH = 160;                           // barre de la part
+
+  ZV.define('volume-slice', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 14;
+      const first = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r === null || b.t < r)) r = b.t; return r; };
+      const NAMES = ['wagered', 'blocks', 'hand', 'unit', 'sum', 'share', 'twentieth'];
+      const T = {}; NAMES.forEach((n) => { T[n] = first(n); });
+      const kicker = str(P.kicker, 'TERRANCE WATANABE · LAS VEGAS · 2007');
+      const wagered = str(P.wagered, '825 M$'), lost = str(P.lost, '127 M$');
+      const rate = clamp(num(P.rate, 0.154), 0.001, 0.6);
+      const rateText = str(P.rate_text, '≈ 15 ¢ PAR DOLLAR'), unit = str(P.unit, '1 $');
+      const n = clamp(Math.round(num(P.blocks, 12)), 1, 24);
+      const blockLabel = typeof P.block_label === 'string' && P.block_label ? P.block_label : null;
+      const sumLabel = str(P.sum_label, 'LE VOLUME FAIT LE RESTE');
+      const maxHand = typeof P.max_hand === 'string' && P.max_hand ? P.max_hand : null;
+      const share = clamp(num(P.share, 5.6), 0.1, 100), shareText = str(P.share_text, '5,6 %');
+      const shareLabel = str(P.share_label, 'RECETTES DE JEU DE SES HÔTES À LAS VEGAS'), shareNote = str(P.share_note, 'DANS LE RÉCIT DU JEU'), who = str(P.who, 'UN SEUL HOMME');
+      if (NAMES.every((k) => T[k] == null)) {
+        const k = Math.min(1, dur / 14);
+        const d = { wagered: 0.5, blocks: blockLabel ? 2.5 : null, hand: maxHand ? 3.3 : null, unit: 4.4, sum: 7.0, share: 10.0, twentieth: 12.6 };
+        NAMES.forEach((q) => { T[q] = d[q] == null ? null : d[q] * k; });
+      }
+      let unitText = null;
+      for (const b of beats) if (b && b.do === 'cue' && b.name === 'unit' && typeof b.text === 'string' && b.text) { unitText = b.text; break; }
+      const uid = 'vs' + (++UID);
+      const st = { T, n, rate, dur, wagered: parseAmt(wagered), lost: parseAmt(lost), wagTxt: wagered, lostTxt: lost, share, uid };
+      const defs = sv('defs', null, root);
+
+      /* ---- fond, kicker, compteurs ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      text(root, kicker, X0, 84, fitSize(kicker, 30, 1760, 18, true), C.paper, { mono: true, len: f2(Math.min(mw(kicker, 30), 1760)) });
+      text(root, 'MISÉ', X0, 128, 26, '#B9B5A8', { mono: true, spacing: 4, len: f2(mw('MISÉ', 26) + 3 * 4) });
+      text(root, 'PERDU', 780, 128, 26, '#B9B5A8', { mono: true, spacing: 4, len: f2(mw('PERDU', 26) + 4 * 4) });
+      st.cW = text(root, '', X0, 220, 110, C.paper, { anchor: 'start' });
+      st.cL = text(root, '', 780, 220, 110, C.red, { anchor: 'start' });
+
+      /* ---- le mur (groupe qui s'efface vers le bas) ---- */
+      st.wall = g(root);
+      const W = st.wall;
+      const bwid = WWID / n, hs = clamp(rate * WH, 4, 200);
+      st.hs = hs;
+      line(W, X0 - 20, WY1 + 3, X0 + WWID + 20, WY1 + 3, C.paper, 6);
+      st.ghost = []; st.blocks = []; st.slots = []; st.slices = []; st.labels = [];
+      for (let i = 0; i < n; i++) st.ghost.push(rect(W, X0 + i * bwid, WY0, bwid, WH, 0, 'none', '#303030', 3, { 'stroke-dasharray': '10 8' }));
+      for (let i = 0; i < n; i++) {
+        const x = X0 + i * bwid;
+        st.blocks.push(rect(W, x, WY1, bwid, 0, 0, C.paper, C.ink, 6));
+        st.slots.push(rect(W, x + 4, WY0 + 4, bwid - 8, Math.max(2, hs - 4), 0, 'none', '#5A5A5A', 3, { 'stroke-dasharray': '8 6' }));
+      }
+      for (let i = 0; i < n; i++) st.slices.push(rect(W, X0 + i * bwid, WY1, bwid, 0, 0, C.red, C.ink, hs < 14 ? 1.5 : 4));
+      if (blockLabel) {
+        const sz = fitSize(blockLabel, 24, bwid - 14, 12, true);
+        for (let i = 0; i < n; i++) { const t = text(W, blockLabel, 0, 0, sz, C.paper, { mono: true, anchor: 'middle', len: f2(Math.min(mw(blockLabel, sz), bwid - 10)) }); st.labels.push(t); }
+        st.labelSz = sz;
+      }
+      // sticker « plafond de la main »
+      st.hand = null;
+      if (maxHand) {
+        st.hand = g(W);
+        const sz = fitSize(maxHand, 26, 700, 16, true), w = Math.min(760, mw(maxHand, sz) + 44), h = 54;
+        rect(st.hand, -w / 2 + 8, -h / 2 + 8, w, h, 10, C.ink);
+        rect(st.hand, -w / 2, -h / 2, w, h, 10, C.lime, C.ink, 5);
+        text(st.hand, maxHand, 0, sz * 0.35, sz, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(maxHand, sz), w - 30)) });
+        st.handW = w;
+      }
+      // colonne des tranches réunies
+      st.hh = Math.min(hs, 440 / n);
+      st.colLab = typed(W, defs, uid + 'l', sumLabel, 960, 812, fitSize(sumLabel, 60, 1500, 34), C.paper, { anchor: 'middle', maxW: 1500 });
+      // loupe
+      st.lens = g(W);
+      {
+        line(st.lens, 40, 40, 112, 112, C.ink, 24); line(st.lens, 40, 40, 112, 112, C.paper, 10);
+        circle(st.lens, 0, 0, 58, 'none', C.ink, 22); circle(st.lens, 0, 0, 58, 'none', C.paper, 8);
+      }
+      st.lensX = X0 + Math.min(bwid, 140) / 2; st.lensY = WY0 + 14;
+      // pastille agrandie
+      st.pas = g(W);
+      {
+        const cp = sv('clipPath', { id: uid + 'c' }, defs); circle(cp, 0, 0, 212, '#000');
+        circle(st.pas, 14, 14, 220, C.grey);
+        circle(st.pas, 0, 0, 220, C.ink, C.paper, 8);
+        const ig = g(st.pas, { 'clip-path': `url(#${uid}c)` });
+        const hs2 = clamp(rate * 400, 14, 150);
+        rect(ig, -260, -112, 520, 360, 0, C.paper, C.ink, 6);
+        rect(ig, -262, -112, 524, hs2, 0, C.red, C.ink, hs2 < 24 ? 3 : 6);
+        const us = fitSize(unit, 76, 330, 36);
+        text(ig, unit, 0, 62, us, C.ink, { anchor: 'middle', len: f2(Math.min(bw(unit, us), 330)) });
+        const rs = fitSize(rateText, 30, 290, 16, true);
+        text(ig, rateText, 0, 134, rs, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(rateText, rs), 290)) });
+        const x6 = g(st.pas); x6.setAttribute('transform', 'translate(-168 -168) rotate(-8)');
+        rect(x6, -44 + 6, -28 + 6, 88, 56, 8, C.grey); rect(x6, -44, -28, 88, 56, 8, C.lime, C.ink, 5); text(x6, '×6', 0, 12, 34, C.ink, { mono: true, anchor: 'middle', len: f2(mw('×6', 34)) });
+        st.pasTxt = null;
+        if (unitText) {
+          st.pasTxt = g(st.pas);
+          const sz = fitSize(unitText, 42, 400, 24), w = Math.min(440, bw(unitText, sz) + 46), h = 70;
+          rect(st.pasTxt, -w / 2 + 8, -h / 2 + 8, w, h, 12, C.grey); rect(st.pasTxt, -w / 2, -h / 2, w, h, 12, C.red, C.ink, 6);
+          text(st.pasTxt, unitText, 0, sz * 0.35, sz, C.paper, { anchor: 'middle', len: f2(Math.min(bw(unitText, sz), w - 36)) });
+          st.pasTxtX = Math.min(200, 1880 - 1500 - w / 2);
+        }
+      }
+
+      /* ---- la part d'un seul homme ---- */
+      st.bar = g(root);
+      const B = st.bar;
+      rect(B, BX + 12, BY + 12, BWID, BH, 4, C.grey);
+      rect(B, BX, BY, BWID, BH, 4, C.paper, C.ink, 8);
+      st.fill = rect(B, BX + 4, BY + 4, 0, BH - 8, 0, C.lime);
+      st.ticks = [];
+      for (let k = 0; k <= 20; k++) {
+        const x = BX + BWID * k / 20, major = k % 5 === 0;
+        st.ticks.push(line(B, x, BY + BH + 8, x, BY + BH + (major ? 36 : 22), C.paper, major ? 5 : 3));
+      }
+      st.tk20 = line(B, BX + BWID / 20, BY + BH + 8, BX + BWID / 20, BY + BH + 44, C.red, 8);
+      st.redLine = rect(B, BX + BWID / 20 - 4, BY - 4, 8, BH + 8, 0, C.red);
+      text(B, '0', BX, BY + BH + 72, 22, C.paper, { mono: true, anchor: 'middle', len: f2(mw('0', 22)) });
+      text(B, '100 %', BX + BWID, BY + BH + 72, 22, C.paper, { mono: true, anchor: 'end', len: f2(mw('100 %', 22)) });
+      st.lab20 = text(B, '1/20', BX + BWID / 20, BY + BH + 78, 30, C.paper, { mono: true, anchor: 'middle', len: f2(mw('1/20', 30)) });
+      {
+        const ls = fitSize(shareLabel, 26, 1130, 14, true);
+        st.sLab = typed(B, defs, uid + 's', shareLabel, 330, BY - 24, ls, C.paper, { mono: true, maxW: 1130 });
+        const nsz = fitSize(shareNote, 22, 400, 14, true), nx = 330 + st.sLab.W + 36;
+        st.sNote = text(B, shareNote, Math.min(nx, 1760 - mw(shareNote, nsz)), BY - 24, nsz, '#B9B5A8', { mono: true, len: f2(Math.min(mw(shareNote, nsz), 1760 - nx)) });
+      }
+      {
+        const z = 52, a = shareText, b = '· ' + who, wa = bw(a, z), gap = 18, wb = Math.min(bw(b, z), 1760 - BX - wa - gap);
+        st.sTxtA = text(B, a, BX, 700, z, C.lime, { len: f2(wa) });
+        st.sTxtB = text(B, b, BX + wa + gap, 700, z, C.paper, { len: f2(wb) });
+      }
+      // flèche « plus d'un vingtième »
+      st.twG = g(root);
+      {
+        const lab = 'PLUS D\'UN VINGTIÈME DE LA CAISSE', sz = fitSize(lab, 46, 1500, 28);
+        text(st.twG, lab, BX, 300, sz, C.lime, { len: f2(Math.min(bw(lab, sz), 1500)) });
+        const x = BX + BWID / 20;
+        line(st.twG, x, 322, x, 354, C.lime, 16, { 'stroke-linecap': 'butt' });
+        sv('polygon', { points: `${x},378 ${x - 26},350 ${x + 26},350`, fill: C.lime }, st.twG);
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const T = st.T, n = st.n, W = st.wall;
+      const U = (k) => (T[k] == null ? -1 : t - T[k]);
+      const tw = T.wagered, tb = T.blocks, ts = T.sum, tsh = T.share;
+      const bwid = WWID / n, hs = st.hs;
+
+      /* ---- le mur ---- */
+      const wallOut = tsh != null && t >= tsh ? E.in3(prog(t - tsh, 0, 0.6)) : 0;
+      if (wallOut >= 1) disp(W, false); else { disp(W, true); setA(W, 'transform', `translate(0 ${f2(900 * wallOut)})`); }
+      let grown = 0;
+      for (let i = 0; i < n; i++) {
+        const u = tw == null ? -1 : t - (tw + i * 0.12);
+        const hgt = u < 0 ? 0 : WH * E.out3(prog(u, 0, 0.3));
+        const x = X0 + i * bwid, top = WY1 - hgt;
+        vis(st.ghost[i], hgt < WH - 0.5);
+        // tranche : détachée vers la colonne pendant `sum`
+        const pu = ts == null ? 0 : E.io2(prog(t - (ts + i * 0.05), 0, 0.7));
+        const detached = pu > 0;
+        const blk = st.blocks[i], sl = st.slices[i];
+        if (hgt <= 0.5) { vis(blk, false); vis(sl, false); vis(st.slots[i], false); if (st.labels[i]) vis(st.labels[i], false); continue; }
+        const slotH = detached ? Math.min(hs, hgt) : 0;
+        vis(blk, hgt - slotH > 0.5); setA(blk, 'y', f2(top + slotH)); setA(blk, 'height', f2(Math.max(0, hgt - slotH)));
+        vis(st.slots[i], detached && hgt >= WH - 0.5);
+        const sh0 = Math.min(hs, hgt);
+        const tx = COLX, ty = WY1 - (i + 1) * st.hh, th = st.hh;
+        const sx = x + (tx - x) * pu, sy = top + (ty - top) * pu - Math.sin(Math.PI * pu) * 70, sw = bwid + (COLW - bwid) * pu, sht = sh0 + (th - sh0) * pu;
+        vis(sl, true); setA(sl, 'x', f2(sx)); setA(sl, 'y', f2(sy)); setA(sl, 'width', f2(sw)); setA(sl, 'height', f2(Math.max(0.5, sht)));
+        if (hgt >= WH - 0.5) grown++;
+        if (st.labels[i]) {
+          const lu = tb == null ? -1 : t - (tb + i * 0.05), p = lu < 0 ? 0 : E.back(prog(lu, 0, 0.18));
+          put(st.labels[i], x + bwid / 2, WY1 + 40, 0, p, undefined, 1);
+        }
+      }
+      // sticker « plafond de la main »
+      if (st.hand) { const u = U('hand'); if (u < 0) vis(st.hand, false); else { const p = E.back(prog(u, 0, 0.25)); put(st.hand, X0 + 30 + st.handW / 2, 440, -3, p, undefined, 1); } }
+      // loupe + pastille
+      const uu = U('unit'), closing = ts != null && t >= ts ? E.in2(prog(t - ts, 0, 0.25)) : 0;
+      if (uu < 0 || closing >= 1) { vis(st.lens, false); vis(st.pas, false); } else {
+        const k = 1 - closing;
+        put(st.lens, st.lensX, st.lensY, -12, E.back(prog(uu, 0, 0.25)) * k, undefined, 1);
+        put(st.pas, 1500, 470, 0, E.back(prog(uu, 0.25, 0.65)) * k, undefined, 1);
+        if (st.pasTxt) { const q = E.back(prog(uu, 0.9, 1.15)); put(st.pasTxt, st.pasTxtX, 180, -3, q, undefined, 1); }
+      }
+      // légende de la somme
+      {
+        const u = U('sum'), k = u < 1.2 ? 0 : (u - 1.2) * 30;
+        st.colLab.set(k);
+      }
+
+      /* ---- compteurs ---- */
+      {
+        let s;
+        if (st.wagered == null) s = tw != null && t >= tw ? st.wagTxt : '0';
+        else if (tw == null || t < tw) s = fmtAmt(st.wagered, 0);
+        else { const dd = (n - 1) * 0.12 + 0.3, p = clamp((quant(t) - tw) / dd); s = p >= 1 || t >= tw + dd ? st.wagTxt : fmtAmt(st.wagered, st.wagered.val * E.in2(p)); }
+        setTxt(st.cW, s, 110);
+        if (st.lost == null) s = ts != null && t >= ts + 1.8 ? st.lostTxt : '0';
+        else if (ts == null || t < ts + 0.2) s = fmtAmt(st.lost, 0);
+        else { const p = clamp((quant(t) - ts - 0.2) / 1.6); s = p >= 1 || t >= ts + 1.8 ? st.lostTxt : fmtAmt(st.lost, st.lost.val * E.io2(p)); }
+        setTxt(st.cL, s, 110);
+      }
+
+      /* ---- la barre de la part ---- */
+      const us = tsh == null ? -1 : t - tsh;
+      if (us < 0.4) disp(st.bar, false); else {
+        disp(st.bar, true);
+        setA(st.bar, 'transform', `translate(0 ${f2(260 * (1 - E.out3(prog(us, 0.4, 0.9))))})`);
+        st.sLab.set((us - 0.9) * 30);
+        vis(st.sNote, us > 0.9 + st.sLab.n / 30);
+        st.ticks.forEach((tk, k) => vis(tk, us > 0.7 + k * 0.03));
+        const fp = E.out2(prog(us, 1.1, 2.0));
+        setA(st.fill, 'width', f2((BWID - 8) * (st.share / 100) * fp)); vis(st.fill, fp > 0);
+        const tt = us > 2.0 ? 1 : 0;
+        vis(st.sTxtA, tt > 0); vis(st.sTxtB, tt > 0);
+        const ut = tsh == null || T.twentieth == null ? -1 : t - T.twentieth;
+        vis(st.tk20, ut >= 0); vis(st.redLine, ut >= 0 && ut < 99);
+        setA(st.lab20, 'fill', ut >= 0 ? C.red : C.paper);
+      }
+      const ut2 = T.twentieth == null || tsh == null || us < 0.4 ? -1 : t - T.twentieth;
+      if (ut2 < 0.15) vis(st.twG, false); else { vis(st.twG, true); setA(st.twG, 'transform', `translate(0 ${f2(-60 * (1 - E.out3(prog(ut2, 0.15, 0.5))))})`); }
     }
   });
 })();

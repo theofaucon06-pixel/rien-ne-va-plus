@@ -12,6 +12,7 @@
   const arr = (v, d) => (Array.isArray(v) && v.length ? v : d);
   const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
   const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const dsp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
   const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
   const tr = (n, x, y, r, sx, sy) => { let s = `translate(${f2(x)} ${f2(y)})`; if (r) s += ` rotate(${f2(r)})`; if (sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) s += ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})`; setA(n, 'transform', s); };
   const setT = (n, s) => { if (n.__t !== s) { n.__t = s; n.textContent = s; } };
@@ -323,7 +324,7 @@
       const tot = 36 + 12 + sl.__w, left = -tot / 2;
       sl.setAttribute('x', f2(left + 48));
       path(sv2, `M${f2(left + 4)} 2 L${f2(left + 15)} 14 L${f2(left + 34)} -10`, 'none', C.ink, 8);
-      VIEWS.forEach((k) => vis(vg[k], false));
+      VIEWS.forEach((k) => dsp(vg[k], false));
 
       return { c, td, digits, numTxt, query, uid, vg, pg, pu, fieldTxt, caret, keyC, timer, strike, nfY, qTxt, tiles, btn, btnBody, btnL1, sv2,
         vEv: VIEWS.map((k) => ({ key: k, t: c[k] })).filter((e) => e.t != null).sort((a, b) => a.t - b.t).filter((e, i, a) => !i || a[i - 1].key !== e.key),
@@ -338,9 +339,9 @@
       const vp = vi >= 0 ? prog(t, st.vEv[vi].t, st.vEv[vi].t + 10 * I) : 1;
       VIEWS.forEach((k) => {
         const n = st.vg[k];
-        if (k === cur) { vis(n, true); tr(n, PX + (1 - E.out3(vp)) * PW, PY, 0); }
-        else if (k === prev && vp < 1) { vis(n, true); tr(n, PX - E.out3(vp) * PW, PY, 0); }
-        else vis(n, false);
+        if (k === cur) { dsp(n, true); tr(n, PX + (1 - E.out3(vp)) * PW, PY, 0); }
+        else if (k === prev && vp < 1) { dsp(n, true); tr(n, PX - E.out3(vp) * PW, PY, 0); }
+        else dsp(n, false);
       });
       // dial : numéro et touches
       let k = -1;
@@ -378,9 +379,9 @@
       const pp = pi >= 0 ? prog(t, st.pEv[pi].t, st.pEv[pi].t + 12 * I) : 1;
       PANELS.forEach((key) => {
         const n = st.pg[key];
-        if (key === ck) { vis(n, true); tr(n, (1 - E.out3(pp)) * 940, 0, 0); st.pu[key](t - st.pEv[pi].t); }
-        else if (key === pk && pp < 1) { vis(n, true); tr(n, -E.out3(pp) * 940, 0, 0); st.pu[key](t - st.pEv[pi - 1].t); }
-        else vis(n, false);
+        if (key === ck) { dsp(n, true); tr(n, (1 - E.out3(pp)) * 940, 0, 0); st.pu[key](t - st.pEv[pi].t); }
+        else if (key === pk && pp < 1) { dsp(n, true); tr(n, -E.out3(pp) * 940, 0, 0); st.pu[key](t - st.pEv[pi - 1].t); }
+        else dsp(n, false);
       });
     }
   });

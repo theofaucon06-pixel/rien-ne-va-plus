@@ -106,5 +106,20 @@
       <itunes:explicit>false</itunes:explicit>
       <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges" type="text/html" language="fr"/>
     </item>
+    <item>
+      <title>Le tapis rouge</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/le-tapis-rouge</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/le-tapis-rouge</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>La perte théorique, le « théo », dite simplement. Terrance Watanabe, un an dans une suite de Las Vegas. Harry Kakavas, ramené en jet privé à Melbourne. Pourquoi un casino veut moins ta soirée que ton retour.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/07-le-tapis-rouge.mp3" length="8736726" type="audio/mpeg"/>
+      <itunes:title>Le tapis rouge</itunes:title>
+      <itunes:episode>7</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>546</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-tapis-rouge" type="text/html" language="fr"/>
+    </item>
   </channel>
 </rss>

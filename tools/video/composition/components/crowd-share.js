@@ -174,7 +174,8 @@
         setT(st.cnt, (st.prefix ? st.prefix + ' ' : '') + fmt(v));
         setA(st.cnt, 'visibility', 'visible');
       } else setA(st.cnt, 'visibility', 'hidden');
-      if (!counting && th0 != null && t >= th0) { const s = lerp(1.5, 1, E.out3(prog(t, th0, th0 + 5 * FR))); put(st.tt, 160, 236, 0, s, s, 1); }
+      if (!counting && th0 == null && tc == null) put(st.tt, 160, 236, 0, 1, 1, 1);   // aucun cue de titre : le plan garde son titre
+      else if (!counting && th0 != null && t >= th0) { const s = lerp(1.5, 1, E.out3(prog(t, th0, th0 + 5 * FR))); put(st.tt, 160, 236, 0, s, s, 1); }
       else ZV.show(st.tt, false);
       if (counting && t >= tc + 2) { const s = Math.max(0.01, E.back(prog(t, tc + 2, tc + 2 + 6 * FR))); put(st.cl, 160, 284, 0, 1, s, 1); } else ZV.show(st.cl, false);
       if (st.ratioG) {
