@@ -94,8 +94,8 @@ test("numbers quoted in the scripts match their arithmetic", () => {
   // odds 1.55 / 4.20 / 5.80 add up to 105.6 %
   const o = 1 / 1.55 + 1 / 4.2 + 1 / 5.8;
   assert.equal(Math.round(o * 1000) / 10, 105.6);
-  assert.match(by("le-casino-dans-la-poche"), /105,6 %/);
-  assert.match(by("le-casino-dans-la-poche"), /5,6 %/);
+  assert.match(by("le-casino-dans-la-poche"), /cent cinq virgule six pour cent/);
+  assert.match(by("le-casino-dans-la-poche"), /cinq virgule six pour cent/);
   // craps: any-seven edge is about twelve times the pass line
   assert.equal(Math.round(16.67 / 1.41), 12);
   // slot machines: a legal return of at least 85 % lets the machine keep up to 15 centimes per euro

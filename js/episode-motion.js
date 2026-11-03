@@ -85,6 +85,253 @@
   window.ZV = { NS, W, H, C, F, D2R, clamp, prog, lerp, f2, E, rng, fr, sv, g, rect, circle, path, line, text, put, show, shakeAt, sticker, ORDER, RED, colorOf, REG, define, cue, cues, lastCue };
 })();
 ;
+/* ==== tools/video/composition/components/anna-ledger.js ==== */
+// Composant `anna-ledger` : le journal d'Anna (S3 de l'épisode 3, « celle qui attend »). Carnet ouvert (sténographie = gribouillis réguliers), colonne de pointage, horloge plate, puis « l'autre côté de la table » (chaise vide).
+// Cues : open, line-1, line-2, line-3, tally, clock, other-side. Fond pocket. Aucun dégradé, flou, lueur ni filter ; jamais de portrait (chaise vide seulement).
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, sticker } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+  function len(n, fallback) { try { const w = n.getComputedTextLength(); return w > 0 ? w : fallback; } catch (e) { return fallback; } }
+
+  const SPINE = 780;
+  const ROW0 = 170, ROWP = 205;
+  const TX = 1510, TY = 340, TW = 320, TH = 460;
+  const CLK = { x: 1670, y: 196, r: 100 };
+
+  // trait de sténographie : boucles régulières ; renvoie { pts, d }
+  function steno(r, x0, y0, w) {
+    const pts = [];
+    let x = x0;
+    while (x < x0 + w) {
+      const wl = 36 + r() * 90, end = Math.min(x + wl, x0 + w);
+      const om = 0.5 + r() * 0.3, A = 2.6 + r() * 2.2, B = 6 + r() * 7;
+      let s = 0;
+      while (x < end) {
+        x += 1.9; s += 1;
+        pts.push([x + A * Math.sin(om * s), y0 - B * Math.cos(om * s) + B]);
+      }
+      const gap = 14 + r() * 12; x += gap;
+      pts.push([x, y0 + 1]);
+    }
+    let d = `M${f2(pts[0][0])} ${f2(pts[0][1])}`;
+    for (let i = 1; i < pts.length; i++) d += `L${f2(pts[i][0])} ${f2(pts[i][1])}`;
+    return { pts, d };
+  }
+
+  ZV.define('anna-ledger', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const dur = isNum(shot && shot.dur) && shot.dur > 0 ? shot.dur : 12;
+      const cueT = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).sort((a, c) => a.t - c.t)[0]; return b ? b.t : null; };
+      const defL = ['LES OBJETS EN GAGE', 'L’ATTENTE', 'LES SERMENTS'];
+      const labels = defL.map((d, i) => str(Array.isArray(p.labels) ? p.labels[i] : null, d));
+      const title = str(p.title, 'LE JOURNAL D’ANNA');
+      const note = str(p.note, 'EN STÉNOGRAPHIE');
+      const r = ZV.rng(1867);
+      const st = { dur };
+      st.tO = cueT('open'); st.tOS = cueT('other-side'); st.tTally = cueT('tally'); st.tClock = cueT('clock');
+      st.tL = [cueT('line-1'), cueT('line-2'), cueT('line-3')];
+      st.open0 = st.tO == null ? -5 : st.tO;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.pocket);
+
+      /* ================= bureau (carnet + pointage + horloge) ================= */
+      st.dk = g(root);
+      const dk = st.dk;
+      // couverture
+      rect(dk, 80 + 14, 100 + 14, 1390, 720, 30, C.ink);
+      rect(dk, 80, 100, 1390, 720, 30, C.red, C.ink, 8);
+      // page de droite
+      rect(dk, SPINE + 10, 124, 656, 672, 14, C.paper, C.ink, 6);
+      // page de gauche (se déplie autour de la reliure)
+      st.lp = g(dk);
+      rect(st.lp, 104, 124, SPINE - 114, 672, 14, C.paper, C.ink, 6);
+      // titre (2 lignes) + note
+      let t1 = title, t2 = '';
+      if (title.length > 11) {
+        const w = title.split(/\s+/); let best = 1, bd = 1e9;
+        for (let j = 1; j < w.length; j++) { const d = Math.abs(w.slice(0, j).join(' ').length - w.slice(j).join(' ').length); if (d < bd) { bd = d; best = j; } }
+        t1 = w.slice(0, best).join(' '); t2 = w.slice(best).join(' ');
+      }
+      st.title = g(dk);
+      fit(text(st.title, t1, 150, 232, 88, C.ink), 560);
+      if (t2) fit(text(st.title, t2, 150, 322, 88, C.ink), 560);
+      st.noteG = g(dk);
+      {
+        const nt = text(st.noteG, note, 0, 12, 34, C.ink, { anchor: 'middle', mono: true });
+        fit(nt, 520);
+        const w = Math.min(560, len(nt, note.length * 21) + 50);
+        const bg = g(st.noteG);
+        st.noteG.insertBefore(bg, nt);
+        rect(bg, -w / 2 + 8, -34 + 8, w, 68, 10, C.ink);
+        rect(bg, -w / 2, -34, w, 68, 10, C.lime, C.ink, 5);
+      }
+      // gribouillis de remplissage (page de gauche) : fixes, réguliers
+      st.fill = g(st.lp);
+      for (let k = 0; k < 8; k++) {
+        const s = steno(r, 150, 470 + k * 38, k === 7 ? 260 : 560);
+        path(st.fill, s.d, 'none', C.ink, 3.5, { opacity: 0.5 });
+      }
+      // reliure
+      rect(dk, SPINE - 14, 100, 28, 720, 6, C.ink);
+      for (let y = 150; y < 790; y += 70) line(dk, SPINE, y, SPINE, y + 28, C.paper, 5);
+      // volet de couverture qui s'ouvre
+      st.flap = g(dk);
+      rect(st.flap, SPINE + 14, 100, 676, 720, 30, C.red, C.ink, 8);
+      rect(st.flap, SPINE + 60, 150, 584, 620, 18, 'none', C.ink, 5);
+
+      // lignes de sténo (page de droite)
+      st.rows = [0, 1, 2].map((i) => {
+        const y0 = ROW0 + i * ROWP;
+        // lignes à écrire (réglure fantôme)
+        line(dk, SPINE + 50, y0 + 96, SPINE + 640, y0 + 96, C.ink, 4, { opacity: 0.14 });
+        line(dk, SPINE + 50, y0 + 148, SPINE + 640, y0 + 148, C.ink, 4, { opacity: 0.14 });
+        // étiquette
+        const lg = g(dk);
+        const lt = text(lg, labels[i], 20, 12, 30, C.ink, { mono: true });
+        fit(lt, 520);
+        const lw = Math.min(570, len(lt, labels[i].length * 18) + 40);
+        const bg = g(lg);
+        lg.insertBefore(bg, lt);
+        rect(bg, 8, -28 + 8, lw, 56, 8, C.ink);
+        rect(bg, 0, -28, lw, 56, 8, i === 2 ? C.lime : C.white, C.ink, 5);
+        // gribouillis
+        const a = steno(r, SPINE + 50, y0 + 84, 580), b = steno(r, SPINE + 50, y0 + 136, 400);
+        const pa = path(dk, a.d, 'none', C.ink, 4.5, { pathLength: 1, 'stroke-dasharray': '0 1.01' });
+        const pb = path(dk, b.d, 'none', C.ink, 4.5, { pathLength: 1, 'stroke-dasharray': '0 1.01' });
+        return { lg, x: SPINE + 36, y: y0 + 22, a, b, pa, pb };
+      });
+      // crayon
+      st.pen = g(dk);
+      {
+        const pn = g(st.pen, { transform: 'rotate(-26)' });
+        path(pn, 'M0 0 L32 -10 L32 10Z', C.paper, C.ink, 4);
+        rect(pn, 32, -11, 124, 22, 3, C.lime, C.ink, 4);
+        rect(pn, 156, -11, 16, 22, 0, C.paper, C.ink, 4);
+        rect(pn, 172, -11, 26, 22, 6, C.red, C.ink, 4);
+      }
+
+      // colonne de pointage
+      st.tal = g(dk);
+      rect(st.tal, TX + 12, TY + 12, TW, TH, 12, C.ink);
+      rect(st.tal, TX, TY, TW, TH, 12, C.paper, C.ink, 6);
+      for (let k = 1; k < 4; k++) line(st.tal, TX + 20, TY + k * 112, TX + TW - 20, TY + k * 112, C.ink, 3, { opacity: 0.15 });
+      st.marks = [];
+      const M = 40;
+      for (let j = 0; j < M; j++) {
+        const grp = Math.floor(j / 5), k = j % 5, col = grp % 2, row = Math.floor(grp / 2);
+        const gx = TX + 40 + col * 146, gy = TY + 24 + row * 112;
+        let a;
+        if (k < 4) a = { x1: gx + k * 24, y1: gy, x2: gx + k * 24 + (k % 2 ? 2 : -1), y2: gy + 80 };
+        else a = { x1: gx - 12, y1: gy + 64, x2: gx + 100, y2: gy + 14 };
+        st.marks.push({ n: line(st.tal, a.x1, a.y1, a.x2, a.y2, C.ink, 7, { visibility: 'hidden' }), a, s: -1 });
+      }
+
+      // horloge
+      st.clk = g(dk);
+      circle(st.clk, CLK.x + 10, CLK.y + 10, CLK.r, C.ink);
+      circle(st.clk, CLK.x, CLK.y, CLK.r, C.paper, C.ink, 8);
+      for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; line(st.clk, CLK.x + Math.sin(a) * 78, CLK.y - Math.cos(a) * 78, CLK.x + Math.sin(a) * 90, CLK.y - Math.cos(a) * 90, C.ink, i % 3 === 0 ? 7 : 4); }
+      st.hh = line(st.clk, CLK.x, CLK.y, CLK.x, CLK.y - 50, C.ink, 11);
+      st.mh = line(st.clk, CLK.x, CLK.y, CLK.x, CLK.y - 74, C.ink, 7);
+      circle(st.clk, CLK.x, CLK.y, 10, C.red, C.ink, 4);
+
+      /* ================= l'autre côté de la table ================= */
+      st.chair = g(root);
+      const ch = st.chair;
+      rect(ch, -190 + 14, -300 + 14, 380, 270, 46, C.ink);
+      rect(ch, -190, -300, 380, 270, 46, C.paper, C.ink, 8);
+      for (const x of [-100, 0, 100]) rect(ch, x - 16, -262, 32, 190, 10, C.white, C.ink, 5);
+      for (const x of [-196, 160]) rect(ch, x, 70, 36, 262, 8, C.paper, C.ink, 8);
+      rect(ch, -190, 224, 380, 30, 6, C.paper, C.ink, 8);
+      rect(ch, -230, 0, 460, 80, 22, C.red, C.ink, 8);
+      st.legend = g(root);
+      sticker(st.legend, 860, 96, C.lime, '', 1, C.ink, { sh: 12 });
+      fit(text(st.legend, str(p.legend, 'L’AUTRE CÔTÉ DE LA TABLE'), 0, 20, 56, C.ink, { anchor: 'middle' }), 800);
+      return st;
+    },
+
+    update(st, t) {
+      const t0 = st.open0;
+      /* ---- ouverture du carnet ---- */
+      const op = E.io3(prog(t, t0, t0 + 0.8));
+      const fx = Math.cos(op * Math.PI);                  // 1 → -1 : le volet passe de droite à gauche
+      const flapOn = fx > 0.001;
+      setA(st.flap, 'visibility', flapOn ? 'visible' : 'hidden');
+      setA(st.flap, 'transform', `translate(${SPINE} 0) scale(${f2(Math.max(fx, 0.001))} 1) translate(${-SPINE} 0)`);
+      const lx = flapOn ? 0 : -fx;
+      setA(st.lp, 'visibility', lx > 0.001 ? 'visible' : 'hidden');
+      setA(st.lp, 'transform', `translate(${SPINE} 0) scale(${f2(Math.max(lx, 0.001))} 1) translate(${-SPINE} 0)`);
+      const tp = E.back(clamp((t - t0 - 0.7) / 0.35));
+      setA(st.title, 'visibility', tp > 0 ? 'visible' : 'hidden');
+      setA(st.title, 'transform', `translate(${f2((1 - Math.min(tp, 1)) * -40)} 0)`);
+      setA(st.title, 'opacity', f2(Math.min(tp, 1)));
+      const np = E.back(clamp((t - t0 - 0.95) / 0.35));
+      put(st.noteG, 440, 410, -2, np, np, np > 0 ? 1 : 0);
+
+      /* ---- lignes de sténo ---- */
+      let pen = null;
+      st.rows.forEach((R, i) => {
+        const tl = st.tL[i];
+        const lp = tl == null ? 0 : E.back(clamp((t - tl) / 0.25));
+        put(R.lg, R.x, R.y, i === 1 ? 1.2 : -1.2, lp, lp, lp > 0 ? 1 : 0);
+        const wd = tl == null ? 0 : clamp((t - tl - 0.2) / 1.7);
+        const pa = Math.min(1, wd / 0.6), pb = clamp((wd - 0.6) / 0.4);
+        setA(R.pa, 'stroke-dasharray', `${f2(pa)} 1.01`);
+        setA(R.pb, 'stroke-dasharray', `${f2(pb)} 1.01`);
+        setA(R.pa, 'visibility', pa > 0 ? 'visible' : 'hidden');
+        setA(R.pb, 'visibility', pb > 0 ? 'visible' : 'hidden');
+        if (wd > 0 && wd < 1) {
+          const L = pb > 0 ? R.b : R.a, q = pb > 0 ? pb : pa;
+          const pt = L.pts[Math.min(L.pts.length - 1, Math.floor(q * (L.pts.length - 1)))];
+          pen = pt;
+        }
+      });
+      setA(st.pen, 'visibility', pen ? 'visible' : 'hidden');
+      if (pen) setA(st.pen, 'transform', `translate(${f2(pen[0])} ${f2(pen[1])})`);
+
+      /* ---- pointage (monotone, ≤ 6 bâtons / s) ---- */
+      const tt = st.tTally;
+      st.marks.forEach((m, j) => {
+        const key = Math.round((tt == null ? 0 : clamp((t - tt - j * 0.17) / 0.12)) * 10), q = key / 10;
+        if (m.s === key) return;
+        m.s = key;
+        const a = m.a;
+        setA(m.n, 'visibility', q > 0 ? 'visible' : 'hidden');
+        setA(m.n, 'x2', f2(lerp(a.x1, a.x2, q))); setA(m.n, 'y2', f2(lerp(a.y1, a.y2, q)));
+      });
+
+      /* ---- horloge ---- */
+      let hrs = 3;
+      if (st.tClock != null) {
+        let nxt = st.dur;
+        if (st.tOS != null && st.tOS > st.tClock + 1.7) nxt = st.tOS;
+        const Dc = clamp(nxt - st.tClock - 0.3, 1.5, 4.5);
+        hrs = 3 + Dc * 1.2 * E.io2(prog(t, st.tClock, st.tClock + Dc));
+      }
+      const ha = (hrs / 12) * 360, ma = hrs * 360;
+      setA(st.hh, 'transform', `rotate(${f2(ha % 360)} ${CLK.x} ${CLK.y})`);
+      setA(st.mh, 'transform', `rotate(${f2(ma % 360)} ${CLK.x} ${CLK.y})`);
+
+      /* ---- l'autre côté de la table ---- */
+      const o = st.tOS == null ? 0 : E.io3(prog(t, st.tOS, st.tOS + 0.7));
+      const s = lerp(1, 0.5, o);
+      setA(st.dk, 'transform', `translate(${f2(lerp(960, 500, o))} ${f2(lerp(460, 470, o))}) scale(${f2(s)}) translate(-960 -460)`);
+      const cq = st.tOS == null ? 0 : clamp((t - st.tOS - 0.25) / 0.7);
+      put(st.chair, lerp(2350, 1400, E.back(cq)), 380, 0, 1, 1, cq > 0 ? 1 : 0);
+      const lg = st.tOS == null ? 0 : E.back(clamp((t - st.tOS - 0.95) / 0.3));
+      put(st.legend, 1400, 780, -2, lg, lg, lg > 0 ? 1 : 0);
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/big-number.js ==== */
 // Composant « big-number » : voir tools/video/composition/INTERFACE.md. Fonction pure du temps du plan, aplats seulement.
 (() => {
@@ -505,6 +752,214 @@
   function W_(st, s) { return st.W(s, st.S, { sp: SPN }); }
 })();
 ;
+/* ==== tools/video/composition/components/bilan-scale.js ==== */
+// Composant `bilan-scale` (épisode 3) : le bilan de la martingale. Une balance : à gauche ≈ 800 petites victoires (≈ 8 000 €), à droite 1 catastrophe (−10 230 €).
+// Fonction pure du temps ; aplats, bras ink, plateaux paper, aucun dégradé / flou / filter. Voir EP3-COMPONENTS.md.
+// Cues : wins, crash, net, odds.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, fr, shakeAt } = ZV;
+  let UID = 0;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' || ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≈−]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const PX = 960, PY = 465, L = 560, SL = 170, TH = 36;                          // pivot, demi-bras, longueur des suspentes, épaisseur de plateau
+  const GRID_W = 512, FILL_D = 2.6, FALL_D = 0.5;
+
+  ZV.define('bilan-scale', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 8;
+      const cue = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).map((x) => x.t).sort((a, b2) => a - b2); return b.length ? b[0] : null; };
+      const wins = clamp(Math.round(num(P.wins, 800)), 10, 2000);
+      const winAmt = typeof P.win_amount === 'string' ? P.win_amount : '8 000 €';
+      const lossAmt = typeof P.loss_amount === 'string' ? P.loss_amount : '−10 230 €';
+      const netAmt = typeof P.net === 'string' ? P.net : '−2 230 €';
+      const unit = winAmt.replace(/[\d\s  ≈,.\-−+]/g, '') || '€';
+      const winVal = +(winAmt.replace(/[^\d]/g, '')) || 8000;
+      const uid = 'bs' + (++UID);
+      const st = { dur, wins, winVal, unit };
+      st.c = { wins: cue('wins'), crash: cue('crash'), net: cue('net'), odds: cue('odds') };
+      if (Object.values(st.c).every((x) => x == null)) st.c = { odds: 0.3, wins: 1.0, crash: 4.2, net: 5.8 };
+
+      /* fond paper rayé */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, '#E9E5D9');
+      st.world = g(root);
+      const W = st.world;
+
+      /* pied de la balance */
+      path(W, `M${PX - 34} ${PY} L${PX + 34} ${PY} L${PX + 110} 800 L${PX - 110} 800Z`, C.ink, C.ink, 6);
+      rect(W, PX - 160, 796, 320, 30, 6, C.ink, C.ink, 6);
+
+      /* plateau gauche : cageot de 800 petits carrés lime */
+      st.pl = g(W);
+      const mkTray = (grp, w) => {
+        line(grp, 0, 0, -(w / 2 - 22), SL, C.ink, 6, { 'stroke-linecap': 'butt' });
+        line(grp, 0, 0, (w / 2 - 22), SL, C.ink, 6, { 'stroke-linecap': 'butt' });
+        circle(grp, 0, 0, 12, C.paper, C.ink, 6);
+      };
+      const wL = 580, wR = 480;
+      mkTray(st.pl, wL);
+      rect(st.pl, -wL / 2 + 9, SL + 9, wL, TH, 8, C.ink);
+      rect(st.pl, -wL / 2, SL, wL, TH, 8, C.paper, C.ink, 7);
+      const rows = clamp(Math.ceil(wins / 80), 1, 14), cols = Math.ceil(wins / rows);
+      const pitch = Math.min(12, GRID_W / cols), gw = cols * pitch, gh = rows * pitch;
+      const cH = gh + 20, cW = gw + 20;
+      st.gx = -gw / 2; st.gy = SL - cH + 10;
+      rect(st.pl, -cW / 2, SL - cH, cW, cH + 2, 4, C.ink, C.ink, 5);
+      const defs = sv('defs', null, root);
+      const sq = pitch * 0.74;
+      const mkPat = (id, fill) => {
+        const pt = sv('pattern', { id: uid + id, x: st.gx, y: st.gy, width: pitch, height: pitch, patternUnits: 'userSpaceOnUse' }, defs);
+        sv('rect', { x: (pitch - sq) / 2, y: (pitch - sq) / 2, width: sq, height: sq, fill }, pt);
+      };
+      mkPat('e', '#3a3a3a'); mkPat('l', C.lime);
+      rect(st.pl, st.gx, st.gy, gw, gh, 0, `url(#${uid}e)`);
+      st.fillA = rect(st.pl, st.gx, st.gy, 0.01, gh, 0, `url(#${uid}l)`);
+      st.fillB = rect(st.pl, st.gx, st.gy, pitch, 0.01, 0, `url(#${uid}l)`);
+      st.pitch = pitch; st.rows = rows; st.gh = gh;
+
+      /* plateau droit : plateau + bloc rouge (la catastrophe) */
+      st.pr = g(W);
+      mkTray(st.pr, wR);
+      rect(st.pr, -wR / 2 + 9, SL + 9, wR, TH, 8, C.ink);
+      rect(st.pr, -wR / 2, SL, wR, TH, 8, C.paper, C.ink, 7);
+      st.blk = g(st.pr);
+      {
+        const bwid = 400, bh = 140, lab = lossAmt;
+        rect(st.blk, -bwid / 2 + 10, -bh + 10, bwid, bh, 8, C.ink);
+        rect(st.blk, -bwid / 2, -bh, bwid, bh, 8, C.red, C.ink, 8);
+        const size = 66;
+        text(st.blk, lab, 0, -bh / 2 + size * 0.35, size, C.ink, { anchor: 'middle', len: f2(Math.min(bw(lab, size), bwid - 50)) });
+        rect(st.blk, -bwid / 2 + 14, -bh + 14, bwid - 28, 8, 0, C.ink);
+      }
+      st.blk.setAttribute('visibility', 'hidden');
+
+      /* bras et pivot */
+      st.beam = g(W);
+      rect(st.beam, -L - 30 + 8, -13 + 8, 2 * L + 60, 26, 13, '#8f8c82');
+      rect(st.beam, -L - 30, -13, 2 * L + 60, 26, 13, C.ink, C.ink, 6);
+      circle(st.beam, -L, 0, 15, C.paper, C.ink, 6);
+      circle(st.beam, L, 0, 15, C.paper, C.ink, 6);
+      circle(W, PX, PY, 30, C.lime, C.ink, 8);
+
+      /* intitulés fixes */
+      {
+        const t1 = `≈ ${wins} PETITES VICTOIRES`;
+        st.h1 = text(W, t1, 70, 192, 48, C.ink, { anchor: 'start', len: f2(Math.min(bw(t1, 48), 760)) });
+        rect(W, 70, 206, Math.min(bw(t1, 48), 760), 10, 0, C.ink);
+        const t2 = '1 CATASTROPHE';
+        text(W, t2, 1850, 192, 64, C.ink, { anchor: 'end', len: f2(bw(t2, 64)) });
+        rect(W, 1850 - bw(t2, 64), 206, bw(t2, 64), 10, 0, C.red);
+      }
+      /* compteur gauche */
+      st.cnt = g(W);
+      {
+        const w = 540, h = 96;
+        rect(st.cnt, 70 + 10, 240 + 10, w, h, 14, C.ink);
+        rect(st.cnt, 70, 240, w, h, 14, C.ink, C.ink, 6);
+        rect(st.cnt, 70 + 5, 240 + 5, w - 10, h - 10, 10, 'none', C.lime, 5);
+        st.cntT = text(st.cnt, '', 70 + w / 2, 240 + 66, 62, C.lime, { mono: true, anchor: 'middle' });
+      }
+      /* odds (en haut) */
+      st.odds = g(W);
+      {
+        const lab = '≈ 1 CHANCE SUR ' + wins, w = 560, h = 78, size = 44;
+        rect(st.odds, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+        rect(st.odds, -w / 2, -h / 2, w, h, 14, C.lime, C.ink, 6);
+        text(st.odds, lab, 0, size * 0.35, size, C.ink, { anchor: 'middle', len: f2(Math.min(bw(lab, size), w - 50)) });
+      }
+      /* tampon du bilan + sticker */
+      st.stamp = g(W);
+      {
+        const size = 82, w = Math.min(bw(netAmt, size), 400) + 64, h = 118;
+        rect(st.stamp, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+        rect(st.stamp, -w / 2, -h / 2, w, h, 14, C.ink, C.red, 12);
+        text(st.stamp, netAmt, 0, size * 0.35, size, C.red, { anchor: 'middle', len: f2(Math.min(bw(netAmt, size), 400)) });
+      }
+      st.stk = g(W);
+      {
+        const l1 = 'PLUS DE 2 000 €', l2 = 'DE PERTE', w = 400, h = 120;
+        rect(st.stk, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+        rect(st.stk, -w / 2, -h / 2, w, h, 14, C.lime, C.ink, 6);
+        text(st.stk, l1, 0, -4, 46, C.ink, { anchor: 'middle', len: f2(Math.min(bw(l1, 46), w - 40)) });
+        text(st.stk, l2, 0, 40, 46, C.ink, { anchor: 'middle', len: f2(Math.min(bw(l2, 46), w - 40)) });
+      }
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { c } = st;
+        const ph = (t0, d) => (t0 == null ? 0 : prog(t, t0, t0 + d));
+
+        /* remplissage de la grille (en accélérant) */
+        const fp = c.wins != null ? Math.pow(ph(c.wins, FILL_D), 1.8) : 0;
+        const K = Math.round(st.wins * fp);
+        const cFull = Math.floor(K / st.rows), rPart = K - cFull * st.rows;
+        setA(st.fillA, 'width', f2(Math.max(0.01, cFull * st.pitch)));
+        setA(st.fillB, 'x', f2(st.gx + cFull * st.pitch));
+        setA(st.fillB, 'height', f2(Math.max(0.01, rPart * st.pitch)));
+
+        /* compteur « ≈ 8 000 € » */
+        {
+          const v = Math.round(st.winVal * (K / st.wins));
+          const s = '≈' + NB + fr(v) + NB + st.unit;
+          if (st.cntT.__s !== s) { st.cntT.__s = s; st.cntT.textContent = s; st.cntT.setAttribute('textLength', f2(mw(s, 62))); }
+          const on = c.wins != null && t >= c.wins;
+          const p = on ? E.back(prog(t, c.wins, c.wins + 0.3)) : 0;
+          st.cnt.setAttribute('visibility', on ? 'visible' : 'hidden');
+          st.cnt.setAttribute('transform', `translate(340 288) scale(${f2(Math.max(p, 0.01))}) translate(-340 -288)`);
+        }
+
+        /* chute du bloc rouge puis ressort de la balance */
+        const tc = c.crash;
+        const tImp = tc != null ? tc + FALL_D : null;
+        const fall = tc != null ? E.in2(ph(tc, FALL_D)) : 0;
+        const s = tImp != null ? Math.max(0, t - tImp) : 0;
+        const r = tImp != null && t >= tImp ? 1 - Math.exp(-5 * s) * Math.cos(8 * s) : 0;
+        let th = -8 * E.io2(fp) + 18 * r;
+        th = clamp(th, -8, 13.5);
+        const cs = Math.cos(th * ZV.D2R), sn = Math.sin(th * ZV.D2R);
+        const exL = PX - L * cs, eyL = PY - L * sn, exR = PX + L * cs, eyR = PY + L * sn;
+        const sk = tImp != null ? shakeAt(t, tImp, 12, 0.4) : [0, 0];
+        setA(st.world, 'transform', `translate(${f2(sk[0])} ${f2(sk[1])})`);
+        setA(st.beam, 'transform', `translate(${PX} ${PY}) rotate(${f2(th)})`);
+        setA(st.pl, 'transform', `translate(${f2(exL)} ${f2(eyL)})`);
+        setA(st.pr, 'transform', `translate(${f2(exR)} ${f2(eyR)})`);
+        const bOn = tc != null && t >= tc;
+        setA(st.blk, 'visibility', bOn ? 'visible' : 'hidden');
+        setA(st.blk, 'transform', `translate(0 ${f2(SL - (1 - fall) * 700)})`);
+
+        /* odds */
+        {
+          const to = c.odds, on = to != null && t >= to, p = on ? E.back(prog(t, to, to + 0.3)) : 0;
+          put(st.odds, 960, 72, -1.5, Math.max(p, 0), Math.max(p, 0), on ? 1 : 0);
+        }
+        /* tampon + sticker */
+        {
+          const tn = c.net;
+          if (tn == null || t < tn) put(st.stamp, 960, 615, -8, 0, 0, 0);
+          else {
+            const q = prog(t, tn, tn + 0.22), sc = lerp(2.6, 1, E.out3(q));
+            const sh = shakeAt(t, tn + 0.2, 10, 0.3);
+            put(st.stamp, 960 + sh[0], 615 + sh[1], -8, Math.max(sc, 0.01), Math.max(sc, 0.01), Math.min(1, q * 4));
+          }
+          const ts = tn != null ? tn + 0.55 : null, on = ts != null && t >= ts, p = on ? E.back(prog(t, ts, ts + 0.28)) : 0;
+          put(st.stk, 960, 768, 2.5, Math.max(p, 0), Math.max(p, 0), on ? 1 : 0);
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/bit-overflow.js ==== */
 // Composant « bit-overflow » (épisode 2) : le compteur 32 bits qui déborde, 2³² centimes = 42 949 672,96 $ contre 42 949 672,76 $ affichés. Voir EP2-COMPONENTS.md.
 // Fonction pure du temps du plan ; aplats seulement.
@@ -670,6 +1125,250 @@
           put(st.gapS, 1620 + sg[0], 745 + sg[1], 4, t >= tg ? Math.max(0.01, pg) : 0, t >= tg ? Math.max(0.01, pg) : 0, t >= tg ? 1 : 0);
         }
       } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/calendar-26.js ==== */
+// Composant `calendar-26` : le délai de 26 jours (S2 de l'épisode 3). Feuille « CONTRAT » (clause), grille de 26 cases-jours qui se barrent, pile de feuilles manuscrites qui monte.
+// Cues : contract, grid, days, stack, done. Fond paper. Aucun dégradé, flou, lueur ni filter ; rien ne clignote (tout est monotone).
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, sticker, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  let UID = 0;
+
+  // ajuste un texte à une largeur max (mesure réelle), sans jamais jeter
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+  // gribouillis de manuscrit : `rows` lignes ondulées dans une boîte
+  function scribble(r, x0, y0, w, rows, gap) {
+    let d = '';
+    for (let k = 0; k < rows; k++) {
+      let x = x0, y = y0 + k * gap;
+      const end = x0 + w * (k === rows - 1 ? 0.55 : 0.9 + r() * 0.1);
+      d += `M${f2(x)} ${f2(y)}`;
+      while (x < end) {
+        const dx = 7 + r() * 11, up = (r() - 0.5) * 12;
+        d += ` q${f2(dx * 0.5)} ${f2(-8 - r() * 5)} ${f2(dx)} ${f2(up * 0.2)}`;
+        x += dx;
+      }
+    }
+    return d;
+  }
+
+  ZV.define('calendar-26', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const dur = isNum(shot && shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cueT = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).sort((a, c) => a.t - c.t)[0]; return b ? b.t : null; };
+      const N = clamp(Math.round(isNum(+p.days) && p.days != null ? +p.days : 26), 2, 40);
+      const cols = Math.ceil(N / 2);
+      const clause = typeof p.clause === 'string' && p.clause.trim() ? p.clause.trim() : 'S’IL RATE L’ÉCHÉANCE : TOUS SES FUTURS LIVRES';
+      const title = typeof p.title === 'string' && p.title.trim() ? p.title.trim() : 'LE JOUEUR';
+      const doneTxt = typeof p.done === 'string' && p.done.trim() ? p.done.trim() : 'RENDU À TEMPS';
+      const r = ZV.rng(2606);
+      const id = ++UID;
+      const st = { N, cols, dur };
+
+      /* ---- repères ---- */
+      const tContract = cueT('contract'), tGrid = cueT('grid'), tDays = cueT('days'), tStack = cueT('stack'), tDone = cueT('done');
+      st.tC = tContract == null ? -5 : tContract;
+      st.tG = tGrid != null ? tGrid : tDays != null ? Math.max(st.tC, tDays - 0.4) : tContract != null ? tContract + 1.6 : -5;
+      st.tStack = tStack; st.tDone = tDone;
+      // instants où chaque jour se barre (accélération progressive)
+      st.dayT = [];
+      const anchor = tDays != null ? tDays : (tStack != null ? tStack : (tDone != null ? tDone - 0.6 : null));
+      if (anchor != null) {
+        let nxt = dur - 0.4;
+        for (const c of [tStack, tDone]) if (c != null && c > anchor + 1.2) nxt = Math.min(nxt, c - 0.35);
+        const D = tDays != null ? clamp(nxt - anchor, 1.6, 6.5) : 0.6;
+        const m = 0.6;
+        for (let k = 1; k <= N; k++) { const x = k / N; st.dayT.push(anchor + 0.12 + D * (x * (1 - m) + m * (1 - (1 - x) * (1 - x)))); }
+      }
+      st.lastDay = st.dayT.length ? st.dayT[N - 1] : null;
+      // gros plan de la pile : de `stack` jusqu'à `done` (ou la fin)
+      st.zEnd = tStack != null ? (tDone != null && tDone > tStack + 0.3 ? tDone : 1e9) : null;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+
+      /* ---- bureau : contrat + grille + tampon (glisse hors cadre pendant le gros plan) ---- */
+      st.desk = g(root);
+
+      // contrat
+      st.cG = g(st.desk);
+      const cg = st.cG;
+      rect(cg, -645 + 14, -186 + 14, 1290, 372, 14, C.ink);
+      rect(cg, -645, -186, 1290, 372, 14, C.white, C.ink, 6);
+      path(cg, 'M-645 -116 L-645 -172 A14 14 0 0 1 -631 -186 L631 -186 A14 14 0 0 1 645 -172 L645 -116Z', C.ink);
+      text(cg, 'CONTRAT', -608, -128, 56, C.paper);
+      const tt = text(cg, `« ${title} »`, 608, -134, 34, C.lime, { anchor: 'end', mono: true });
+      fit(tt, 520);
+      // lignes de papier (très discrètes) + signature
+      line(cg, 180, 168, 590, 168, C.ink, 4, { opacity: 0.35 });
+      text(cg, '✕', 150, 172, 30, C.ink, { mono: true, anchor: 'middle' });
+      path(cg, 'M215 150 q18 -30 30 -4 q10 22 28 -16 q12 -20 22 6 q8 18 40 -4 q30 -16 60 3 q40 16 90 -8', 'none', C.ink, 4.5);
+      // clause (2 lignes, révélées par un masque)
+      let l1 = clause, l2 = '';
+      const ci = clause.indexOf(':');
+      if (ci > 0 && ci < clause.length - 2) { l1 = clause.slice(0, ci + 1).trim(); l2 = clause.slice(ci + 1).trim(); }
+      else { const w = clause.split(/\s+/); const h = Math.ceil(w.length / 2); l1 = w.slice(0, h).join(' '); l2 = w.slice(h).join(' '); }
+      st.clip = [];
+      const lineSpec = [{ s: l1, y: -30, bar: false, x0: -610 }, { s: l2, y: 85, bar: true, x0: -610 }];
+      lineSpec.forEach((L, i) => {
+        if (!L.s) return;
+        const cid = `cal26c${id}_${i}`;
+        const cp = sv('clipPath', { id: cid }, cg);
+        const cr = sv('rect', { x: -640, y: i === 0 ? -110 : 0, width: 0, height: 120 }, cp);
+        st.clip.push(cr);
+        const lg = g(cg, { 'clip-path': `url(#${cid})` });
+        if (L.bar) rect(lg, -625, 8, 1250, 108, 6, C.red, C.ink, 5);
+        const tn = text(lg, L.s, L.x0 + 6, L.y, 76, C.ink);
+        fit(tn, 1210);
+      });
+      st.nClip = st.clip.length;
+
+      // grille de jours
+      st.gridG = g(st.desk);
+      const pitch = Math.min(100, Math.floor(1290 / cols)), csz = pitch - 10;
+      const gx0 = 90, gy0 = 444, rowP = csz + 14;
+      st.cells = [];
+      for (let i = 0; i < N; i++) {
+        const cx = gx0 + (i % cols) * pitch + csz / 2, cy = gy0 + Math.floor(i / cols) * rowP + csz / 2;
+        const cell = g(st.gridG, { transform: `translate(${f2(cx)} ${f2(cy)})` });
+        rect(cell, -csz / 2 + 6, -csz / 2 + 6, csz, csz, 8, C.ink);
+        const body = g(cell);
+        rect(body, -csz / 2, -csz / 2, csz, csz, 8, C.white, C.ink, 5);
+        const bg = rect(body, -csz / 2, -csz / 2, csz, csz, 8, C.ink, C.ink, 5, { opacity: 0 });
+        const nt = text(body, String(i + 1), 0, 15, 42, C.ink, { anchor: 'middle', mono: true });
+        const hx = csz / 2 - 12;
+        const x1 = line(body, -hx, -hx, -hx, -hx, C.red, 6);
+        const x2 = line(body, hx, -hx, hx, -hx, C.red, 6);
+        st.cells.push({ cell, body, bg, nt, x1, x2, hx, s: -1 });
+      }
+
+      // tampon + sticker (fin)
+      st.stampG = g(st.desk);
+      rect(st.stampG, -270 + 12, -62 + 12, 540, 124, 14, C.ink);
+      rect(st.stampG, -270, -62, 540, 124, 14, C.lime, C.ink, 8);
+      rect(st.stampG, -252, -46, 504, 92, 8, 'none', C.ink, 3);
+      fit(text(st.stampG, doneTxt, 0, 24, 66, C.ink, { anchor: 'middle' }), 480);
+      st.stickG = g(st.desk);
+      sticker(st.stickG, 280, 84, C.ink, `${N} JOURS`, 52, C.lime, { sh: 9, r: 12 });
+
+      /* ---- compteur (reste visible pendant le gros plan) ---- */
+      st.cnt = g(root);
+      rect(st.cnt, -125 + 10, -46 + 10, 250, 92, 14, C.ink);
+      rect(st.cnt, -125, -46, 250, 92, 14, C.lime, C.ink, 6);
+      st.cntT = text(st.cnt, 'J 0', 0, 21, 62, C.ink, { anchor: 'middle', mono: true });
+
+      /* ---- pile de feuilles ---- */
+      st.pile = g(root);
+      const step = Math.min(14, 200 / Math.max(1, N - 1));
+      st.step = step;
+      rect(st.pile, -165 + 12, 146 + 12, 330, 28, 4, C.ink);
+      rect(st.pile, -165, 146, 330, 28, 4, C.pocket, C.ink, 5);
+      rect(st.pile, -140, -150, 280, 300, 8, 'none', C.ink, 4, { 'stroke-dasharray': '14 12', opacity: 0.35 });
+      st.sheets = [];
+      for (let i = 0; i < N; i++) {
+        const sg = g(st.pile);
+        rect(sg, -130, -150, 260, 300, 8, C.white, C.ink, 5);
+        path(sg, scribble(r, -100, -90, 190, 6, 34), 'none', C.ink, 4);
+        fit(text(sg, title, -104, -110, 30, C.ink), 200);
+        st.sheets.push({ sg, jx: (r() - 0.5) * 18, rot: (r() - 0.5) * 5, s: -1 });
+      }
+      return st;
+    },
+
+    update(st, t) {
+      const { N } = st;
+      /* ---- gros plan de la pile ---- */
+      let z = 0;
+      if (st.tStack != null) {
+        const span = Math.min(0.6, Math.max(0.2, (st.zEnd - st.tStack) / 2));
+        z = E.io3(prog(t, st.tStack, st.tStack + span));
+        if (st.zEnd < 1e8) z *= 1 - E.io3(prog(t, st.zEnd - 0.5, st.zEnd));
+      }
+      setA(st.desk, 'transform', `translate(${f2(-1900 * z)} 0)`);
+
+      /* ---- contrat ---- */
+      const cp = prog(t, st.tC, st.tC + 0.5);
+      const ce = E.back(cp);
+      put(st.cG, 735, lerp(-260, 222, ce), lerp(-6, -0.6, ce), 1, 1, cp > 0 ? 1 : 0);
+      const w1 = E.out2(prog(t, st.tC + 0.4, st.tC + 1.25)), w2 = E.out2(prog(t, st.tC + 1.25, st.tC + 2.2));
+      if (st.nClip > 0) setA(st.clip[0], 'width', f2(1290 * w1));
+      if (st.nClip > 1) setA(st.clip[1], 'width', f2(1290 * w2));
+
+      /* ---- grille ---- */
+      const gp = E.out3(prog(t, st.tG, st.tG + 0.45));
+      setA(st.gridG, 'visibility', gp > 0 ? 'visible' : 'hidden');
+      setA(st.gridG, 'opacity', f2(gp));
+      setA(st.gridG, 'transform', `translate(0 ${f2((1 - gp) * 40)})`);
+
+      // jours barrés : un bloc fixe d'aiguilles par case
+      let crossed = 0;
+      for (let i = 0; i < N; i++) {
+        const c = st.cells[i];
+        const dt = st.dayT.length ? st.dayT[i] : 1e9;
+        const key = Math.round(clamp((t - dt) / 0.14) * 20), q = key / 20;
+        if (q >= 1) crossed++;
+        if (c.s !== key) {
+          c.s = key;
+          const a = Math.min(1, q * 2), b = clamp(q * 2 - 1);
+          const hx = c.hx;
+          setA(c.x1, 'x2', f2(lerp(-hx, hx, a))); setA(c.x1, 'y2', f2(lerp(-hx, hx, a)));
+          setA(c.x2, 'x2', f2(lerp(hx, -hx, b))); setA(c.x2, 'y2', f2(lerp(-hx, hx, b)));
+          setA(c.x1, 'visibility', q > 0 ? 'visible' : 'hidden');
+          setA(c.x2, 'visibility', b > 0 ? 'visible' : 'hidden');
+          setA(c.bg, 'opacity', q > 0.5 ? 1 : 0); setA(c.nt, 'fill', q > 0.5 ? C.paper : C.ink);
+          const pop = q > 0 && q < 1 ? 1 + 0.12 * Math.sin(Math.PI * q) : 1;
+          setA(c.body, 'transform', `scale(${f2(pop)})`);
+        }
+      }
+
+      /* ---- compteur de jours (≤ 6 changements / s) ---- */
+      let tq = t;
+      if (st.lastDay == null || t < st.lastDay + 0.17) tq = Math.floor(t * 6) / 6;
+      let k = 0;
+      for (let i = 0; i < N; i++) if (st.dayT.length && st.dayT[i] + 0.14 <= tq) k++;
+      const ctxt = `J ${k}`;
+      if (st.cntT.textContent !== ctxt) st.cntT.textContent = ctxt;
+      const cvis = gp > 0 ? 1 : 0;
+      const ca = E.back(clamp((t - st.tG) / 0.4));
+      const bump = st.lastDay != null && t >= st.lastDay + 0.14 ? 1 + 0.12 * Math.sin(Math.PI * clamp((t - st.lastDay - 0.14) / 0.4)) : 1;
+      put(st.cnt, lerp(215, 560, z), lerp(770, 440, z), 0, lerp(1, 1.8, z) * ca * bump, lerp(1, 1.8, z) * ca * bump, cvis);
+
+      /* ---- pile ---- */
+      const pz = z;
+      const ps = lerp(1, 1.45, pz);
+      st.pile.setAttribute('transform', `translate(${f2(lerp(1640, 1250, pz))} ${f2(lerp(665, 585, pz))}) scale(${f2(ps)})`);
+      setA(st.pile, 'visibility', gp > 0 ? 'visible' : 'hidden');
+      for (let i = 0; i < N; i++) {
+        const s = st.sheets[i];
+        const dt = st.dayT.length ? st.dayT[i] : 1e9;
+        const key = Math.round(clamp((t - dt) / 0.2) * 20), q = key / 20;
+        if (s.s !== key) {
+          s.s = key;
+          const e = E.out3(q);
+          if (q <= 0) setA(s.sg, 'visibility', 'hidden');
+          else {
+            setA(s.sg, 'visibility', 'visible');
+            setA(s.sg, 'transform', `translate(${f2(s.jx + (1 - e) * 60)} ${f2(-st.step * i - (1 - e) * 280)}) rotate(${f2(s.rot + (1 - e) * 10)})`);
+          }
+        }
+      }
+
+      /* ---- tampon « rendu à temps » + sticker ---- */
+      const td = st.tDone;
+      const sp = td == null ? 0 : clamp((t - td) / 0.22);
+      const ss = sp > 0 ? 1 + 1.6 * (1 - E.out3(sp)) : 0;
+      const sh = td == null ? [0, 0] : shakeAt(t, td + 0.2, 7, 0.3);
+      put(st.stampG, 770 + sh[0], 770 + sh[1], -6, ss, ss, sp > 0 ? 1 : 0);
+      const kp = td == null ? 0 : E.back(clamp((t - td - 0.35) / 0.3));
+      put(st.stickG, 1250, 770, 4, kp, kp, kp > 0 ? 1 : 0);
     }
   });
 })();
@@ -4222,6 +4921,348 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/martingale-ladder.js ==== */
+// Composant `martingale-ladder` (épisode 3) : l'escalier de la martingale. Voir EP3-COMPONENTS.md.
+// Une colonne de lignes (tour, mise doublée, pastille rouge = ta mise, bille noire = perdu, cumul des pertes), un compteur géant,
+// deux murs (TON ARGENT / PLAFOND DE LA TABLE) et une 11e mise fantôme. Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+// Cues : rule, lose (× n), win, rush, total, eleventh, wall-money, wall-limit.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, text, put, rng, fr, shakeAt } = ZV;
+  let UID = 0;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  // largeur estimée d'un texte Bricolage 800 (sert de textLength, donc indépendante de la police de secours)
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' || ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const mw = (s, size) => String(s).length * size * 0.6;                       // Mono : 0,6 em par caractère
+  // texte dynamique en Mono : contenu + textLength mis à jour seulement si la chaîne change
+  const setTxt = (n, s, size) => { if (n.__s !== s) { n.__s = s; n.textContent = s; n.setAttribute('textLength', f2(Math.max(1, mw(s, size)))); } };
+
+  const RX = 330, RW = 800, RY0 = 170, RH = 100, PH = 86, VIS = 6, CLIP0 = 156, CLIP1 = 786;
+  const PX = 1635;                                                              // axe du panneau de droite
+
+  function mkRow(parent, i, bet, cumTxt, gainTxt, ghost) {
+    const o = { i, ghost };
+    o.g = g(parent);
+    o.sh = rect(o.g, RX + 9, 9, RW, PH, 10, C.ink);
+    o.pl = rect(o.g, RX, 0, RW, PH, 10, C.pocket, C.paper, 4);
+    const cy = PH / 2, base = cy + 18;
+    o.n = text(o.g, String(i), RX + 38, cy + 12, 32, '#B9B5A8', { mono: true, anchor: 'middle', len: f2(mw(String(i), 32)) });
+    o.bet = text(o.g, bet, RX + 322, base, 50, C.paper, { mono: true, anchor: 'end', len: f2(mw(bet, 50)) });
+    o.chip = circle(o.g, RX + 364, cy, 20, C.red, C.ink, 4);
+    o.slot = circle(o.g, RX + 430, cy, 27, 'none', C.paper, 4);
+    o.slot.setAttribute('stroke-dasharray', '8 7');
+    o.q = text(o.g, '?', RX + 430, cy + 11, 32, C.paper, { mono: true, anchor: 'middle', len: f2(mw('?', 32)) });
+    o.ball = circle(o.g, RX + 430, cy, 27, C.ink, C.paper, 4);
+    o.tag = text(o.g, '', RX + 476, cy + 9, 26, C.paper, { mono: true, anchor: 'start' });
+    o.cum = text(o.g, cumTxt, RX + RW - 24, cy + 14, 40, C.red, { mono: true, anchor: 'end', len: f2(mw(cumTxt, 40)) });
+    o.gain = text(o.g, gainTxt, RX + RW - 24, cy + 14, 40, C.ink, { mono: true, anchor: 'end', len: f2(mw(gainTxt, 40)) });
+    return o;
+  }
+
+  ZV.define('martingale-ladder', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((a, b) => a - b);
+      const start = Math.max(1, num(P.start, 10));
+      const cur = typeof P.currency === 'string' ? P.currency : '€';
+      const maxRows = clamp(Math.round(num(P.max_rows, 10)), 1, 12);
+      const limit = num(P.table_limit, 5000), bank = num(P.bankroll, 2500);
+      const money = (v) => fr(v) + NB + cur;
+      const uid = 'ml' + (++UID);
+      const st = { dur, start, cur, maxRows, money, uid };
+
+      /* ---- repères ---- */
+      let c = { rule: cl('rule')[0], lose: cl('lose'), win: cl('win')[0], rush: cl('rush')[0], total: cl('total')[0], eleventh: cl('eleventh')[0], wm: cl('wall-money')[0], wl: cl('wall-limit')[0] };
+      const none = [c.rule, c.win, c.rush, c.total, c.eleventh, c.wm, c.wl].every((x) => x == null) && !c.lose.length;
+      if (none) c = { rule: 0.3, lose: [1.0, 1.6, 2.1], win: null, rush: 2.7, total: 6.0, eleventh: 7.2, wm: 8.6, wl: 10.0 };
+      let lossT = c.lose.slice();
+      if (c.rush != null) {
+        lossT = lossT.filter((x) => x < c.rush);
+        let tt = c.rush + 0.15, gap = 0.55;                                      // les lignes s'enchaînent en accélérant (≥ 0,17 s : photosensibilité)
+        while (lossT.length < maxRows) { lossT.push(tt); tt += gap; gap = Math.max(0.17, gap * 0.82); }
+      }
+      if (c.win != null) lossT = lossT.filter((x) => x < c.win);
+      lossT = lossT.slice(0, maxRows);
+      const tWin = c.win != null && lossT.length < maxRows ? c.win : null;
+      const firstEv = [lossT[0], tWin].filter((x) => x != null);
+      const tStart = c.rule != null ? c.rule : firstEv.length ? Math.max(0, Math.min(...firstEv) - 0.3) : null;
+      const nRows = tStart == null ? 0 : Math.min(lossT.length + 1, maxRows);
+      const a = [];                                                              // a[i] = instant d'apparition de la ligne i (1-based) ; nRows+1 = fantôme
+      for (let i = 1; i <= nRows; i++) a[i] = i === 1 ? tStart : lossT[i - 2];
+      const winRow = tWin != null && nRows >= 1 ? lossT.length + 1 : 0;
+      if (winRow) a[winRow] = Math.min(a[winRow], tWin - 0.25);
+      const tGhost = c.eleventh != null ? c.eleventh : (c.wl != null ? c.wl : null);
+      const ghostI = nRows + 1;
+      if (tGhost != null) a[ghostI] = tGhost;
+      Object.assign(st, { c, lossT, tWin, tStart, nRows, a, winRow, ghostI, tGhost, nTot: tGhost != null ? ghostI : nRows });
+      const cum = (k) => start * (Math.pow(2, k) - 1);                           // cumul après k pertes
+      st.cum = cum; st.cumAll = cum(maxRows);
+
+      /* ---- décor ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+      const defs = sv('defs', null, root);
+      const pt = sv('pattern', { id: uid + 'h', width: 26, height: 26, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+      sv('rect', { x: 0, y: 0, width: 26, height: 26, fill: C.ink }, pt);
+      sv('rect', { x: 0, y: 0, width: 12, height: 26, fill: C.lime }, pt);
+      const clip = sv('clipPath', { id: uid + 'c' }, defs);
+      rect(clip, 0, CLIP0, 1920, CLIP1 - CLIP0, 0, '#000');
+      st.world = g(root);
+      const W = st.world;
+
+      /* ---- zone gauche : compteur de tour (remplacé par le mur du plafond) ---- */
+      st.tour = g(W);
+      text(st.tour, 'TOUR', 170, 300, 34, C.paper, { mono: true, anchor: 'middle', spacing: 6 });
+      st.tourN = text(st.tour, '1', 170, 470, 190, C.lime, { anchor: 'middle', len: f2(bw('1', 190)) });
+      rect(st.tour, 70, 500, 200, 12, 0, C.lime);
+
+      /* ---- bandeau de la règle ---- */
+      st.rule = g(W);
+      {
+        const lab = 'JE DOUBLE À CHAQUE PERTE', size = 48, w = 800, h = 80;
+        rect(st.rule, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.paper);
+        rect(st.rule, -w / 2, -h / 2, w, h, 14, C.lime, C.paper, 6);
+        text(st.rule, lab, 0, size * 0.35, size, C.ink, { anchor: 'middle', len: f2(Math.min(bw(lab, size), 740)) });
+      }
+
+      /* ---- ×2 dans le couloir de droite (couvert par le mur d'argent) ---- */
+      st.x2 = g(W);
+      rect(st.x2, -75 + 8, -50 + 8, 150, 100, 16, C.ink);
+      rect(st.x2, -75, -50, 150, 100, 16, C.paper, C.ink, 6);
+      text(st.x2, '×2', 0, 26, 76, C.ink, { anchor: 'middle', len: f2(bw('×2', 76)) });
+
+      /* ---- lignes (dans un groupe écrêté) ---- */
+      const cg = g(W, { 'clip-path': `url(#${uid}c)` });
+      st.rows = [];
+      for (let i = 1; i <= nRows; i++) {
+        const gain = '+' + NB + money(start);
+        st.rows[i] = mkRow(cg, i, money(start * Math.pow(2, i - 1)), money(cum(i)), gain, false);
+      }
+      if (tGhost != null) {
+        const r = mkRow(cg, 11, money(start * Math.pow(2, maxRows)), '', '', true);
+        r.n.textContent = String(maxRows + 1); r.n.setAttribute('textLength', f2(mw(String(maxRows + 1), 32)));
+        r.pl.setAttribute('stroke-dasharray', '16 10');
+        r.chip.setAttribute('visibility', 'hidden'); r.slot.setAttribute('visibility', 'hidden'); r.q.setAttribute('visibility', 'hidden'); r.ball.setAttribute('visibility', 'hidden');
+        r.cum.setAttribute('visibility', 'hidden'); r.gain.setAttribute('visibility', 'hidden');
+        st.rows[ghostI] = r;
+      }
+
+      /* ---- panneau de droite : compteur géant, stickers ---- */
+      st.ct = g(W);
+      rect(st.ct, PX - 255 + 10, 180 + 10, 510, 240, 16, C.ink);
+      st.ctPl = rect(st.ct, PX - 255, 180, 510, 240, 16, C.pocket, C.paper, 6);
+      text(st.ct, 'TES PERTES', PX, 236, 34, C.paper, { mono: true, anchor: 'middle', spacing: 6, len: f2(mw('TES PERTES', 34) + 9 * 6) });
+      st.ctNum = text(st.ct, '', PX, 366, 92, C.paper, { mono: true, anchor: 'middle' });
+      st.stk = g(W);
+      {
+        const lab = `POUR GAGNER ${money(start)}`, w = 470, h = 86;
+        rect(st.stk, -w / 2 + 10, -h / 2 + 10, w, h, 16, C.ink);
+        rect(st.stk, -w / 2, -h / 2, w, h, 16, C.paper, C.ink, 6);
+        text(st.stk, lab, 0, 16, 46, C.ink, { anchor: 'middle', len: f2(Math.min(bw(lab, 46), w - 50)) });
+      }
+      st.win = g(W);
+      {
+        const w = 480, h = 210;
+        rect(st.win, -w / 2 + 10, -h / 2 + 10, w, h, 16, C.ink);
+        rect(st.win, -w / 2, -h / 2, w, h, 16, C.lime, C.ink, 7);
+        const l1 = 'TOUTES TES PERTES', l2 = 'RÉCUPÉRÉES', l3 = '+ ' + money(start);
+        text(st.win, l1, 0, -42, 40, C.ink, { anchor: 'middle', len: f2(Math.min(bw(l1, 40), w - 50)) });
+        text(st.win, l2, 0, 2, 40, C.ink, { anchor: 'middle', len: f2(Math.min(bw(l2, 40), w - 50)) });
+        text(st.win, l3, 0, 76, 76, C.ink, { anchor: 'middle', len: f2(Math.min(bw(l3, 76), w - 50)) });
+      }
+
+      /* ---- murs ---- */
+      const mkWall = (cx, l1, s1, l2, s2) => {
+        const wg = g(W), w = 200, h = 690;
+        rect(wg, -w / 2 + 12, -h / 2 + 12, w, h, 6, C.red);
+        rect(wg, -w / 2, -h / 2, w, h, 6, C.ink, C.lime, 8);
+        rect(wg, -w / 2 + 4, -h / 2 + 4, w - 8, 30, 0, `url(#${uid}h)`);
+        rect(wg, -w / 2 + 4, h / 2 - 34, w - 8, 30, 0, `url(#${uid}h)`);
+        const tg = g(wg, { transform: 'rotate(-90)' });
+        text(tg, l1, 0, -14, s1, C.paper, { anchor: 'middle', len: f2(Math.min(bw(l1, s1), 580)) });
+        text(tg, l2, 0, 62, s2, C.lime, { anchor: 'middle', mono: true, len: f2(mw(l2, s2)) });
+        return { g: wg, cx };
+      };
+      st.wm = mkWall(1255, 'TON ARGENT', 68, money(bank), 56);
+      st.wl = mkWall(170, 'PLAFOND DE LA TABLE', 48, money(limit), 56);
+
+      /* ---- éclats de l'écrasement ---- */
+      const rr = rng(4242);
+      st.deb = [];
+      for (let k = 0; k < 9; k++) {
+        const s = 8 + rr() * 10;
+        const n = rect(root, -s / 2, -s / 2, s, s, 1, [C.red, C.paper, C.lime][k % 3], C.ink, 3);
+        n.setAttribute('visibility', 'hidden');
+        st.deb.push({ n, vx: 120 + rr() * 260, vy: -160 - rr() * 260, rot: rr() * 360 });
+      }
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { c, a, rows, lossT } = st;
+        const ph = (t0, d) => (t0 == null ? 0 : prog(t, t0, t0 + d));
+
+        /* secousse globale (écrasement contre le plafond) */
+        const tCrash = c.wl != null && st.tGhost != null ? c.wl + 0.45 : null;
+        const sh = tCrash != null ? shakeAt(t, tCrash, 12, 0.35) : [0, 0];
+        setA(st.world, 'transform', `translate(${f2(sh[0])} ${f2(sh[1])})`);
+
+        /* défilement : la colonne monte quand il y a plus de VIS lignes */
+        let off = 0;
+        for (let i = VIS + 1; i <= st.nTot; i++) if (a[i] != null) off += E.out3(ph(a[i], 0.35));
+
+        /* état de chaque ligne */
+        let shown = 0;
+        for (let i = 1; i <= st.nTot; i++) {
+          const r = rows[i];
+          if (!r) continue;
+          const ai = a[i];
+          const on = ai != null && t >= ai;
+          const y0 = RY0 + (i - 1) * RH - off * RH;
+          if (!on || y0 + PH < CLIP0 + 8 || y0 > CLIP1 + 20) { vis(r.g, false); setA(r.g, 'opacity', 0); setA(r.g, 'transform', 'translate(0 0)'); if (on && !r.ghost) shown = i; continue; }
+          if (!r.ghost) shown = i;
+          const p = E.out3(prog(t, ai, ai + 0.25));
+          vis(r.g, true);
+          setA(r.g, 'opacity', f2(p));
+          if (r.ghost) {
+            const crashed = tCrash != null && t >= tCrash;
+            const dx = crashed ? 0 : 0;
+            setA(r.g, 'transform', `translate(${dx} ${f2(y0 + (1 - p) * 34)})`);
+            setA(r.pl, 'stroke', crashed ? C.red : C.paper);
+            setA(r.pl, 'stroke-width', crashed ? 6 : 4);
+            setTxt(r.tag, crashed ? 'REFUSÉE' : 'TA 11e MISE', 26);
+            setA(r.tag, 'fill', crashed ? C.red : C.paper);
+            setA(r.sh, 'fill', C.ink);
+            continue;
+          }
+          const lostT = i <= lossT.length ? lossT[i - 1] : null;
+          const lost = lostT != null && t >= lostT;
+          const won = i === st.winRow && t >= st.tWin;
+          const s = lost ? 'lost' : won ? 'won' : 'pend';
+          const sk = lost ? shakeAt(t, lostT, 4, 0.22) : [0, 0];
+          setA(r.g, 'transform', `translate(${f2(sk[0])} ${f2(y0 + (1 - p) * 34 + sk[1])})`);
+          setA(r.pl, 'fill', s === 'won' ? C.lime : s === 'pend' ? C.paper : C.pocket);
+          setA(r.pl, 'stroke', s === 'pend' ? C.ink : s === 'won' ? C.ink : C.paper);
+          setA(r.pl, 'stroke-width', s === 'lost' ? 4 : 6);
+          setA(r.sh, 'fill', s === 'pend' ? C.lime : C.ink);
+          setA(r.bet, 'fill', s === 'lost' ? C.paper : C.ink);
+          setA(r.n, 'fill', s === 'lost' ? '#B9B5A8' : C.ink);
+          vis(r.slot, s === 'pend'); vis(r.q, s === 'pend');
+          setA(r.slot, 'stroke', C.ink); setA(r.q, 'fill', C.ink);
+          const bp = s === 'pend' ? 0 : E.back(prog(t, s === 'lost' ? lostT : st.tWin, (s === 'lost' ? lostT : st.tWin) + 0.22));
+          vis(r.ball, s !== 'pend');
+          setA(r.ball, 'fill', s === 'won' ? C.red : C.ink);
+          setA(r.ball, 'stroke', s === 'won' ? C.ink : C.paper);
+          setA(r.ball, 'r', f2(27 * Math.max(0.01, bp)));
+          setTxt(r.tag, s === 'lost' ? 'PERDU' : s === 'won' ? 'ROUGE !' : 'SUR LE ROUGE', 26);
+          setA(r.tag, 'fill', s === 'lost' ? C.red : C.ink);
+          vis(r.cum, s === 'lost'); vis(r.gain, s === 'won');
+        }
+
+        /* règle (bandeau) */
+        {
+          const p = c.rule != null ? E.back(ph(c.rule, 0.3)) : 0;
+          put(st.rule, 730, 98, -1.5, Math.max(p, 0), Math.max(p, 0), c.rule != null && t >= c.rule ? 1 : 0);
+        }
+
+        /* compteur de tour (zone gauche) */
+        {
+          const ts = st.tStart;
+          const wl = c.wl != null ? E.in3(ph(c.wl, 0.45)) : 0;
+          const n = Math.max(1, Math.min(shown, st.maxRows));
+          const s = String(n);
+          if (st.tourN.__s !== s) { st.tourN.__s = s; st.tourN.textContent = s; st.tourN.setAttribute('textLength', f2(bw(s, 190))); }
+          vis(st.tour, ts != null && t >= ts && wl < 0.5);
+        }
+
+        /* ×2 (couloir de droite) */
+        {
+          const wm = c.wm != null ? E.in3(ph(c.wm, 0.45)) : 0;
+          const p = c.rule != null ? E.back(ph(c.rule + 0.2, 0.3)) : (st.tStart != null ? E.back(ph(st.tStart, 0.3)) : 0);
+          put(st.x2, 1255, 150, 4, Math.max(p, 0), Math.max(p, 0), wm < 0.5 && p > 0 ? 1 : 0);
+        }
+
+        /* compteur géant du cumul */
+        {
+          let v = 0, lastK = 0;
+          for (let k = 0; k < lossT.length; k++) if (t >= lossT[k]) lastK = k + 1;
+          if (lastK > 0) {
+            const t0 = lossT[lastK - 1];
+            v = st.cum(lastK - 1) + (st.cum(lastK) - st.cum(lastK - 1)) * E.out3(prog(t, t0, t0 + 0.3));
+          }
+          const tt = c.total;
+          if (tt != null && t >= tt) v = Math.max(v, st.cum(lastK) + (st.cumAll - st.cum(lastK)) * E.out3(prog(t, tt, tt + 0.5)));
+          const on = v > 0;
+          const hot = tt != null && t >= tt;
+          const sTxt = st.money(Math.round(v));
+          const size = Math.min(92, 440 / (sTxt.length * 0.6));
+          if (st.ctNum.__s !== sTxt) { st.ctNum.__s = sTxt; st.ctNum.textContent = sTxt; }
+          setA(st.ctNum, 'font-size', f2(size)); setA(st.ctNum, 'textLength', f2(mw(sTxt, size)));
+          setA(st.ctNum, 'fill', hot ? C.red : C.paper);
+          setA(st.ctPl, 'stroke', hot ? C.red : C.paper);
+          const q = hot ? prog(t, tt, tt + 0.22) : 1;
+          const scl = hot ? 1 + 0.14 * (1 - E.out3(q)) : 1;
+          const sk2 = hot ? shakeAt(t, tt + 0.1, 10, 0.4) : [0, 0];
+          setA(st.ct, 'transform', `translate(${f2(PX + sk2[0])} ${f2(300 + sk2[1])}) scale(${f2(scl)}) translate(${-PX} -300)`);
+          vis(st.ct, on);
+        }
+
+        /* sticker « POUR GAGNER 10 € » */
+        {
+          const tt = c.total != null ? c.total + 0.3 : null;
+          const p = tt != null ? E.back(ph(tt, 0.28)) : 0;
+          put(st.stk, PX, 505, 2.5, Math.max(p, 0), Math.max(p, 0), tt != null && t >= tt ? 1 : 0);
+        }
+
+        /* bandeau de victoire */
+        {
+          const tw = st.tWin != null ? st.tWin + 0.3 : null;
+          const p = tw != null ? E.back(ph(tw, 0.3)) : 0;
+          put(st.win, PX, 685, -2.5, Math.max(p, 0), Math.max(p, 0), tw != null && t >= tw ? 1 : 0);
+        }
+
+        /* mur de l'argent (tombe de la droite) */
+        {
+          const tm = c.wm;
+          const p = tm != null ? E.in3(ph(tm, 0.45)) : 0;
+          const s2 = tm != null ? shakeAt(t, tm + 0.45, 9, 0.35) : [0, 0];
+          put(st.wm.g, st.wm.cx + (1 - p) * 900 + s2[0], 450 + s2[1], 0, 1, 1, tm != null && t >= tm ? 1 : 0);
+        }
+        /* plafond de la table (tombe de la gauche) */
+        {
+          const tm = c.wl;
+          const p = tm != null ? E.in3(ph(tm, 0.45)) : 0;
+          const s2 = tm != null ? shakeAt(t, tm + 0.45, 9, 0.35) : [0, 0];
+          put(st.wl.g, st.wl.cx - (1 - p) * 600 + s2[0], 450 + s2[1], 0, 1, 1, tm != null && t >= tm ? 1 : 0);
+        }
+
+        /* éclats de l'écrasement : la 11e mise contre le plafond */
+        {
+          const gr = st.rows[st.ghostI];
+          const q = tCrash != null ? t - tCrash : -1;
+          const ok = gr && q >= 0 && q < 0.6;
+          const gy = RY0 + (st.ghostI - 1) * RH - ((() => { let o = 0; for (let i = VIS + 1; i <= st.nTot; i++) if (a[i] != null) o += E.out3(prog(t, a[i], a[i] + 0.35)); return o; })()) * RH + PH / 2;
+          for (const d of st.deb) {
+            if (!ok) { vis(d.n, false); continue; }
+            vis(d.n, true);
+            d.n.setAttribute('transform', `translate(${f2(RX + 4 + d.vx * q * 0.5)} ${f2(gy + d.vy * q + 700 * q * q)}) rotate(${f2(d.rot + q * 300)})`);
+            setA(d.n, 'opacity', f2(1 - E.in2(q / 0.6)));
+          }
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/newspaper.js ==== */
 // Composant `newspaper` : unes de journaux (spin), couverture de partition (sheet), partition qui danse contre tertre immobile (split).
 (() => {
@@ -4491,6 +5532,194 @@
         else if (st.mode === 'split') tickSplit(st, t);
         else tickSpin(st, t);
       } catch (e) { if (window.ZV_DEBUG) console.error(e); }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/no-lose-loop.js ==== */
+// Composant `no-lose-loop` (épisode 3) : le piège logique, un schéma qui ne peut pas donner tort.
+// MON SYSTÈME → JE GAGNE → LE SYSTÈME MARCHE ; MON SYSTÈME → JE PERDS → JE M'ÉTAIS EMBALLÉ → le MÊME « LE SYSTÈME MARCHE ». Voir EP3-COMPONENTS.md.
+// Fonction pure du temps ; flèches plates épaisses ink / lime / red ; aucun dégradé / flou / filter.
+// Cues : system, win, lose, excuse, works, verdict.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, text, put, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≈−]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+
+  const YT = 175, YC = 380, YB = 575;                                           // rangées : haut, centre, bas
+  const XS = 230, XW = 700, XL = 700, XE = 1290, XK = 1650;                     // colonnes : système, gagne/perds, excuse, marche
+  const NODE = {
+    sys: { x: XS, y: YC, w: 340, h: 170 }, win: { x: XW, y: YT, w: 330, h: 110 }, lose: { x: XL, y: YB, w: 330, h: 110 },
+    exc: { x: XE, y: YB, w: 540, h: 110 }, works: { x: XK, y: YC, w: 460, h: 200 }
+  };
+
+  // met un libellé sur 1 ou 2 lignes dans la largeur `maxW` ; renvoie { lines, size }
+  function fit(s, size, maxW, two) {
+    const one = bw(s, size);
+    const sp = [];
+    for (let i = 0; i < s.length; i++) if (s[i] === ' ') sp.push(i);
+    if (!sp.length || (!two && one <= maxW)) return { lines: [s], size: Math.min(size, size * maxW / Math.max(1, one)) };
+    let best = sp[0], bd = 1e9;
+    for (const i of sp) { const d = Math.abs(bw(s.slice(0, i), size) - bw(s.slice(i + 1), size)); if (d < bd) { bd = d; best = i; } }
+    const a = s.slice(0, best), b = s.slice(best + 1);
+    const m = Math.max(bw(a, size), bw(b, size));
+    return { lines: [a, b], size: Math.min(size, size * maxW / Math.max(1, m)) };
+  }
+
+  function mkNode(parent, n, fill, textFill, label, size, o) {
+    o = o || {};
+    const d = { n };
+    d.g = g(parent);
+    rect(d.g, -n.w / 2 + 10, -n.h / 2 + 10, n.w, n.h, 16, C.ink);
+    rect(d.g, -n.w / 2, -n.h / 2, n.w, n.h, 16, fill, C.ink, 7);
+    const f = fit(label, size, n.w - 56, !!o.two);
+    const lh = f.size * 1.05, y0 = f.lines.length === 1 ? f.size * 0.35 : -lh / 2 + f.size * 0.35;
+    f.lines.forEach((ln, i) => text(d.g, ln, 0, y0 + i * lh, f.size, textFill, { anchor: 'middle', len: f2(bw(ln, f.size)) }));
+    return d;
+  }
+  // pastille ronde : coche (ok) ou croix (non)
+  function mkBadge(parent, kind, r) {
+    const b = g(parent);
+    circle(b, 5, 5, r, C.ink);
+    circle(b, 0, 0, r, kind === 'ok' ? C.lime : C.red, C.ink, 7);
+    if (kind === 'ok') path(b, `M${-r * 0.42} ${r * 0.04} L${-r * 0.1} ${r * 0.38} L${r * 0.46} ${-r * 0.36}`, 'none', C.ink, r * 0.2);
+    else { path(b, `M${-r * 0.36} ${-r * 0.36} L${r * 0.36} ${r * 0.36}`, 'none', C.ink, r * 0.2); path(b, `M${r * 0.36} ${-r * 0.36} L${-r * 0.36} ${r * 0.36}`, 'none', C.ink, r * 0.2); }
+    return b;
+  }
+  // flèche plate épaisse : tracé (pathLength 1) + pointe ; pts = [[x,y],…], tip = [x,y], ang = direction de la pointe (deg)
+  function mkArrow(parent, pts, color, tip, ang) {
+    const d = 'M' + pts.map((p) => p[0] + ' ' + p[1]).join(' L');
+    const a = { color };
+    const common = { d, fill: 'none', pathLength: 1, 'stroke-linejoin': 'round', 'stroke-linecap': 'butt', visibility: 'hidden' };
+    a.out = sv('path', Object.assign({ stroke: C.ink, 'stroke-width': 34 }, common), parent);
+    a.fill = sv('path', Object.assign({ stroke: color, 'stroke-width': color === C.ink ? 22 : 17 }, common), parent);
+    a.head = g(parent, { visibility: 'hidden' });
+    path(a.head, 'M0 0 L-36 -32 L-36 32Z', color, C.ink, 7);
+    a.tip = tip; a.ang = ang;
+    return a;
+  }
+
+  ZV.define('no-lose-loop', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 8;
+      const cue = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).map((x) => x.t).sort((a, b2) => a - b2); return b.length ? b[0] : null; };
+      const st = { dur };
+      let T = { system: cue('system'), win: cue('win'), lose: cue('lose'), excuse: cue('excuse'), works: cue('works'), verdict: cue('verdict') };
+      const all = Object.values(T);
+      if (all.every((x) => x == null)) T = { system: 0.3, win: 1.4, lose: 3.2, excuse: 4.6, works: 6.0, verdict: 7.6 };
+      else {
+        const others = [T.win, T.lose, T.excuse, T.works].filter((x) => x != null);
+        if (T.system == null && others.length) T.system = Math.max(0, Math.min(...others) - 0.4);   // le point de départ précède toujours ses branches
+        if (T.lose == null && T.excuse != null) T.lose = Math.max(0, T.excuse - 0.8);              // l'excuse suit forcément une perte
+      }
+      st.T = T;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, '#E9E5D9');
+      st.world = g(root);
+      const W = st.world;
+
+      /* flèches (sous les nœuds) */
+      st.A = {
+        win1: mkArrow(W, [[400, YC - 30], [440, YC - 30], [440, YT], [506, YT]], C.ink, [535, YT], 0),
+        win2: mkArrow(W, [[870, YT], [XK, YT], [XK, 250]], C.lime, [XK, 285], 90),
+        lose1: mkArrow(W, [[400, YC + 40], [480, YC + 40], [480, YB], [506, YB]], C.ink, [535, YB], 0),
+        lose2: mkArrow(W, [[870, YB], [986, YB]], C.red, [1020, YB], 0),
+        end: mkArrow(W, [[1565, YB], [XK, YB], [XK, 522]], C.red, [XK, 485], -90)
+      };
+      /* le MÊME « LE SYSTÈME MARCHE » : fantôme pointillé, puis plein */
+      st.ghost = rect(W, XK - 230, YC - 100, 460, 200, 16, 'none', C.ink, 6, { 'stroke-dasharray': '18 12' });
+      st.ghost.setAttribute('visibility', 'hidden');
+
+      const nodes = {};
+      nodes.sys = mkNode(W, NODE.sys, C.ink, C.lime, str(P.system, 'MON SYSTÈME'), 64, { two: true });
+      nodes.win = mkNode(W, NODE.win, C.lime, C.ink, str(P.win, 'JE GAGNE'), 48);
+      nodes.lose = mkNode(W, NODE.lose, C.red, C.ink, str(P.lose, 'JE PERDS'), 48);
+      nodes.exc = mkNode(W, NODE.exc, C.white, C.ink, str(P.excuse, 'JE M’ÉTAIS EMBALLÉ'), 44);
+      nodes.works = mkNode(W, NODE.works, C.lime, C.ink, str(P.works, 'LE SYSTÈME MARCHE'), 58, { two: true });
+      st.N = nodes;
+      st.bWin = mkBadge(W, 'ok', 36); st.bLose = mkBadge(W, 'no', 36); st.bWorks = mkBadge(W, 'ok', 42);
+
+      /* verdict */
+      st.verdict = g(W);
+      {
+        const lab = str(P.verdict, 'AUCUN RÉSULTAT NE PEUT LUI DONNER TORT'), w = 1640, h = 104, size0 = 58;
+        const size = Math.min(size0, size0 * (w - 90) / Math.max(1, bw(lab, size0)));
+        rect(st.verdict, -w / 2 + 12, -h / 2 + 12, w, h, 14, C.red);
+        rect(st.verdict, -w / 2, -h / 2, w, h, 14, C.ink, C.ink, 7);
+        text(st.verdict, lab, 0, size * 0.35, size, C.paper, { anchor: 'middle', len: f2(Math.min(bw(lab, size), w - 90)) });
+      }
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { T, A, N } = st;
+        const ph = (t0, d) => (t0 == null ? 0 : prog(t, t0, t0 + d));
+        const pop = (grp, n, t0, extra) => {
+          const on = t0 != null && t >= t0;
+          const p = on ? E.back(prog(t, t0, t0 + 0.3)) : 0;
+          const sk = on && extra ? shakeAt(t, t0 + 0.25, extra, 0.35) : [0, 0];
+          put(grp, n.x + sk[0], n.y + sk[1], 0, Math.max(p, 0), Math.max(p, 0), on ? 1 : 0);
+        };
+        const arrow = (a, t0, d) => {
+          const p = t0 == null ? 0 : E.io2(prog(t, t0, t0 + d));
+          const on = p > 0;
+          for (const n of [a.out, a.fill]) { setA(n, 'visibility', on ? 'visible' : 'hidden'); setA(n, 'stroke-dasharray', p >= 1 ? '1.01 1.01' : `${f2(p)} 1.01`); }
+          const hp = t0 == null ? 0 : E.back(prog(t, t0 + d * 0.8, t0 + d + 0.15));
+          setA(a.head, 'visibility', hp > 0 ? 'visible' : 'hidden');
+          setA(a.head, 'transform', `translate(${a.tip[0]} ${a.tip[1]}) rotate(${a.ang}) scale(${f2(Math.max(hp, 0.01))})`);
+        };
+
+        /* secousse du « marche » */
+        const tW = T.works;
+        const tEnd = T.excuse != null && tW != null ? Math.max(tW, T.excuse + 0.6) : null;   // la flèche du bas arrive après l'excuse
+        const tWf = tW != null ? tW + 0.35 : null;                                             // le nœud claque quand les flèches arrivent
+
+        pop(N.sys.g, NODE.sys, T.system);
+        arrow(A.win1, T.win, 0.4);
+        pop(N.win.g, NODE.win, T.win != null ? T.win + 0.35 : null);
+        arrow(A.win2, T.win != null ? T.win + 0.7 : null, 0.9);
+        arrow(A.lose1, T.lose, 0.4);
+        pop(N.lose.g, NODE.lose, T.lose != null ? T.lose + 0.35 : null);
+        arrow(A.lose2, T.excuse != null ? T.excuse : null, 0.35);
+        pop(N.exc.g, NODE.exc, T.excuse != null ? T.excuse + 0.3 : null, 6);
+        arrow(A.end, tEnd, 0.45);
+        pop(N.works.g, NODE.works, tWf, 12);
+
+        /* fantôme du nœud d'arrivée */
+        {
+          const first = [T.win, T.lose, T.excuse].filter((x) => x != null);
+          const t0 = first.length ? Math.min(...first) + 0.5 : null;
+          setA(st.ghost, 'visibility', t0 != null && t >= t0 && !(tWf != null && t >= tWf) ? 'visible' : 'hidden');
+        }
+
+        /* coches / croix */
+        const badge = (b, x, y, t0, r) => {
+          const on = t0 != null && t >= t0, p = on ? E.back(prog(t, t0, t0 + 0.28)) : 0;
+          put(b, x, y, 0, Math.max(p, 0), Math.max(p, 0), on ? 1 : 0);
+        };
+        badge(st.bWin, NODE.win.x + NODE.win.w / 2 - 6, NODE.win.y - NODE.win.h / 2 + 2, T.win != null ? T.win + 0.7 : null);
+        badge(st.bLose, NODE.lose.x + NODE.lose.w / 2 - 6, NODE.lose.y - NODE.lose.h / 2 + 2, T.lose != null ? T.lose + 0.7 : null);
+        badge(st.bWorks, NODE.works.x + NODE.works.w / 2 - 16, NODE.works.y - NODE.works.h / 2 - 2, tWf != null ? tWf + 0.3 : null);
+
+        /* verdict */
+        {
+          const tv = T.verdict;
+          if (tv == null || t < tv) put(st.verdict, 960, 770, -1.2, 0, 0, 0);
+          else {
+            const p = E.out3(prog(t, tv, tv + 0.3)), sh = shakeAt(t, tv + 0.25, 8, 0.3);
+            put(st.verdict, 960 + sh[0], lerp(900, 770, p) + sh[1], -1.2, 1, 1, 1);
+          }
+        }
+      } catch (e) { /* jamais d'exception */ }
     }
   });
 })();
@@ -4850,6 +6079,279 @@
     const sp = prog(t, st.tSettle + 0.5, st.tSettle + 0.85);
     wrapPill(st.stat, st.X(st.N) - 190, st.Y(0.5) - 96, -3, sp);
   }
+})();
+;
+/* ==== tools/video/composition/components/pawn-counter.js ==== */
+// Composant `pawn-counter` : le comptoir du mont-de-piété (Baden-Baden, S3 de l'épisode 3), puis la forge sous leur chambre.
+// Cues : ring, earrings, dress, coat, forge, alarm, empty. Objets plats posés un à un puis étiquetés « EN GAGE » ; scène forge (enclume, marteau ≈ 2 coups/s, éclats plats, réveil barré 5 H) ; comptoir vide.
+// Fond paper (comptoir) / red (forge). Aucun dégradé, flou, lueur ni filter ; rien ne clignote (le marteau est un mouvement, les éclats sont des formes plates).
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, sticker, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+
+  const KEYS = ['ring', 'earrings', 'dress', 'coat'];
+  const DEF = { ring: 'L’ALLIANCE', earrings: 'LES BOUCLES D’OREILLES', dress: 'LA ROBE', coat: 'SON MANTEAU' };
+  const SLOT_X = [250, 600, 950, 1300];
+  const TOP = 556;            // dessus du comptoir
+  const TAGY = 716;           // centre des étiquettes
+  const PIV = { x: 1250, y: 350 }, HL = 470, A_UP = -28, A_DN = 17, TH = 0.5; // marteau
+
+  /* ---- objets plats (origine = milieu du bas de l'objet) ---- */
+  function drawRing(o) {
+    path(o, 'M-92 0 L-72 -38 L72 -38 L92 0Z', C.ink, C.ink, 6);
+    circle(o, 0, -112, 66, 'none', C.ink, 42);
+    circle(o, 0, -112, 66, 'none', C.paper, 26);
+    path(o, 'M0 -214 L26 -186 L0 -158 L-26 -186Z', C.lime, C.ink, 6);
+  }
+  function drawEarrings(o) {
+    rect(o, -104, -22, 208, 22, 4, C.ink);
+    rect(o, -7, -250, 14, 230, 3, C.ink);
+    rect(o, -112, -262, 224, 16, 6, C.ink);
+    for (const sx of [-68, 68]) {
+      line(o, sx, -246, sx, -206, C.ink, 5);
+      path(o, `M${sx} -206 q-14 -4 -14 -18`, 'none', C.ink, 5);
+      circle(o, sx, -150, 44, C.paper, C.ink, 7);
+      circle(o, sx, -150, 17, C.lime, C.ink, 5);
+    }
+  }
+  function drawDress(o) {
+    line(o, 0, -258, 0, -282, C.ink, 5);
+    path(o, 'M0 -282 q22 -2 22 -18 q0 -18 -22 -18 q-22 0 -22 18', 'none', C.ink, 5);
+    path(o, 'M-44 -252 L-24 -252 L0 -224 L24 -252 L44 -252 L32 -150 L128 -2 Q0 18 -128 -2 L-32 -150Z', C.red, C.ink, 7);
+    rect(o, -33, -160, 66, 16, 2, C.ink);
+    path(o, 'M-60 -60 Q-40 -40 -66 -20 M60 -60 Q40 -40 66 -20', 'none', C.ink, 4);
+  }
+  function drawCoat(o) {
+    const body = 'M-50 -246 L-26 -258 L0 -236 L26 -258 L50 -246 L108 -196 L92 -78 L58 -86 L58 0 L-58 0 L-58 -86 L-92 -78 L-108 -196Z';
+    path(o, body, C.ink, C.ink, 14);
+    path(o, body, C.ink, C.paper, 5, { transform: 'translate(0 -122) scale(0.9) translate(0 122)' });
+    path(o, 'M-26 -256 L0 -150 L26 -256', 'none', C.paper, 5);
+    line(o, 0, -150, 0, -6, C.paper, 5);
+    for (const y of [-120, -80, -40]) circle(o, 14, y, 6, C.paper);
+    path(o, 'M-44 -50 L-18 -50 M18 -50 L44 -50', 'none', C.paper, 5);
+  }
+  const DRAW = { ring: drawRing, earrings: drawEarrings, dress: drawDress, coat: drawCoat };
+
+  function drawClock(parent) {
+    const c = g(parent);
+    for (const s of [-1, 1]) {
+      circle(c, s * 66, -100, 38, C.lime, C.ink, 7);
+      line(c, s * 40, -80, s * 52, -64, C.ink, 7);
+    }
+    line(c, 0, -118, 0, -128, C.ink, 8);
+    line(c, -60, 90, -80, 124, C.ink, 9); line(c, 60, 90, 80, 124, C.ink, 9);
+    circle(c, 0, 0, 104, C.ink);
+    circle(c, 0, 0, 104, C.paper, C.ink, 8);
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; line(c, Math.sin(a) * 80, -Math.cos(a) * 80, Math.sin(a) * 92, -Math.cos(a) * 92, C.ink, i % 3 === 0 ? 7 : 4); }
+    const ha = 150 * Math.PI / 180;
+    line(c, 0, 0, Math.sin(ha) * 50, -Math.cos(ha) * 50, C.ink, 11);
+    line(c, 0, 0, 0, -74, C.ink, 7);
+    circle(c, 0, 0, 10, C.red, C.ink, 4);
+    return c;
+  }
+
+  ZV.define('pawn-counter', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const dur = isNum(shot && shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cueT = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).sort((a, c) => a.t - c.t)[0]; return b ? b.t : null; };
+      const labels = Object.assign({}, DEF, p.labels && typeof p.labels === 'object' ? p.labels : {});
+      const tagTxt = str(p.tag, 'EN GAGE');
+      const st = { dur, tag: tagTxt, tc: {}, n: -1 };
+      KEYS.forEach((k) => { st.tc[k] = cueT(k); });
+      st.tF = cueT('forge'); st.tA = cueT('alarm'); st.tE = cueT('empty');
+      st.eAfter = st.tF != null && st.tE != null && st.tE > st.tF + 0.5;
+      st.rng = ZV.rng(1866);
+
+      /* ================= scène comptoir ================= */
+      st.cs = g(root);
+      const cs = st.cs;
+      rect(cs, 0, 0, 1920, 1080, 0, C.paper);
+      // mur : plinthe et traits
+      rect(cs, 0, 300, 1920, 10, 0, C.ink, null, 0, { opacity: 0.12 });
+      rect(cs, 0, 318, 1920, 4, 0, C.ink, null, 0, { opacity: 0.12 });
+      // enseigne et plaque de compte
+      const sg = g(cs, { transform: 'translate(430 112) rotate(-2)' });
+      sticker(sg, 640, 104, C.lime, '', 1, C.ink, { sh: 10 });
+      fit(text(sg, 'MONT-DE-PIÉTÉ', 0, 20, 62, C.ink, { anchor: 'middle' }), 580);
+      st.plaque = g(cs);
+      sticker(st.plaque, 700, 96, C.white, '', 1, C.ink, { sh: 10, r: 14 });
+      st.plaqueT = text(st.plaque, 'OBJETS EN GAGE : 0', 0, 15, 44, C.ink, { anchor: 'middle', mono: true });
+      // comptoir
+      rect(cs, -10, TOP, 1940, 64, 0, C.ink);
+      line(cs, 0, TOP + 12, 1920, TOP + 12, C.paper, 4, { opacity: 0.55 });
+      rect(cs, -10, TOP + 64, 1940, 500, 0, C.pocket, C.ink, 6);
+      for (let x = 100; x < 1920; x += 240) line(cs, x, TOP + 76, x, 1080, C.ink, 5);
+      // tiroir ouvert (à droite)
+      st.drawer = g(cs);
+      path(st.drawer, 'M1556 636 L1848 636 L1894 700 L1510 700Z', C.lime, C.ink, 6);
+      path(st.drawer, 'M1556 636 L1848 636 L1894 700 L1510 700Z', 'none', C.ink, 6);
+      line(st.drawer, 1540, 662, 1864, 662, C.ink, 4, { opacity: 0.25 });
+      rect(st.drawer, 1510, 700, 384, 108, 6, C.pocket, C.paper, 6);
+      rect(st.drawer, 1640, 740, 124, 18, 9, C.paper, C.ink, 4);
+
+      // objets
+      st.items = KEYS.map((k, i) => {
+        const og = g(cs);
+        DRAW[k](og);
+        return { k, og, x: SLOT_X[i] };
+      });
+      // étiquettes
+      st.tags = KEYS.map((k, i) => {
+        const tg = g(cs);
+        rect(tg, -160 + 10, -84 + 10, 320, 168, 10, C.ink);
+        rect(tg, -160, -84, 320, 168, 10, C.white, C.ink, 6);
+        path(tg, 'M-160 -30 L-160 -74 A10 10 0 0 1 -150 -84 L150 -84 A10 10 0 0 1 160 -74 L160 -30Z', C.red, C.ink, 6);
+        fit(text(tg, tagTxt, 0, -40, 40, C.ink, { anchor: 'middle', mono: true }), 290);
+        const lab = str(labels[k], DEF[k]);
+        let a = lab, b = '';
+        if (lab.length > 13) {
+          const w = lab.split(/\s+/); let best = 1, bd = 1e9;
+          for (let j = 1; j < w.length; j++) { const d = Math.abs(w.slice(0, j).join(' ').length - w.slice(j).join(' ').length); if (d < bd) { bd = d; best = j; } }
+          a = w.slice(0, best).join(' '); b = w.slice(best).join(' ');
+        }
+        if (b) { fit(text(tg, a, 0, 14, 36, C.ink, { anchor: 'middle' }), 290); fit(text(tg, b, 0, 56, 36, C.ink, { anchor: 'middle' }), 290); }
+        else fit(text(tg, a, 0, 38, 40, C.ink, { anchor: 'middle' }), 290);
+        return { tg, x: SLOT_X[i], rot: (i % 2 ? 2.5 : -2.5) };
+      });
+      // « PLUS RIEN »
+      st.empty = g(cs);
+      rect(st.empty, -390 + 12, -100 + 12, 780, 200, 18, C.ink);
+      rect(st.empty, -390, -100, 780, 200, 18, C.red, C.ink, 8);
+      circle(st.empty, -340, 0, 14, C.paper, C.ink, 5);
+      fit(text(st.empty, 'PLUS RIEN', 20, 38, 116, C.ink, { anchor: 'middle' }), 640);
+
+      /* ================= scène forge ================= */
+      st.fs = g(root);
+      const fs = st.fs;
+      rect(fs, 0, 0, 1920, 1080, 0, C.red);
+      rect(fs, 0, 760, 1920, 330, 0, C.ink);
+      line(fs, 0, 764, 1920, 764, C.paper, 6);
+      const fl = g(fs, { transform: 'translate(390 110) rotate(-2)' });
+      sticker(fl, 640, 92, C.white, '', 1, C.ink, { sh: 10 });
+      fit(text(fl, str(p.forge_label, 'AU-DESSUS D’UNE FORGE'), 0, 15, 44, C.ink, { anchor: 'middle' }), 580);
+      // enclume
+      st.anvil = g(fs);
+      const an = 'M430 556 L560 536 L1010 536 L1032 582 L960 592 Q902 602 902 656 L962 720 L1042 720 L1042 762 L520 762 L520 720 L600 720 L660 656 Q660 602 602 592 L560 584 Q482 578 430 556Z';
+      path(st.anvil, an, C.ink, C.paper, 7);
+      rect(st.anvil, 568, 536, 440, 14, 0, C.paper);
+      // bras (silhouette plate) + marteau
+      path(fs, 'M1250 308 L1960 138 L1960 256 L1250 396Z', C.ink, C.paper, 6);
+      st.sparks = [];
+      for (let i = 0; i < 9; i++) {
+        const s = g(fs);
+        path(s, 'M0 -12 L9 8 L-9 8Z', i % 2 ? C.lime : C.paper, C.ink, 3);
+        st.sparks.push({ s, ang: (-160 + i * 17.5 + (st.rng() - 0.5) * 8) * Math.PI / 180, sp: 330 + st.rng() * 280 });
+      }
+      st.ham = g(fs);
+      rect(st.ham, -HL, -15, HL + 120, 30, 8, C.paper, C.ink, 6);
+      rect(st.ham, -HL - 42, -68, 84, 136, 10, C.ink, C.paper, 6);
+      rect(st.ham, -HL + 8, -68, 10, 136, 0, C.lime);
+      circle(st.ham, 0, 0, 44, C.ink, C.paper, 6);
+      // réveil
+      st.clock = g(fs);
+      st.clockG = drawClock(st.clock);
+      st.strike = g(st.clock);
+      line(st.strike, -120, -120, 120, 120, C.ink, 30);
+      line(st.strike, 120, -120, -120, 120, C.ink, 30);
+      st.k1 = line(st.strike, -120, -120, 120, 120, C.red, 16);
+      st.k2 = line(st.strike, 120, -120, -120, 120, C.red, 16);
+      st.h5 = g(fs);
+      sticker(st.h5, 200, 110, C.lime, '5 H', 76, C.ink, { sh: 10, mono: true });
+      return st;
+    },
+
+    update(st, t) {
+      const { tF, tA, tE, eAfter } = st;
+      /* ---- glissement entre scènes ---- */
+      const pf = tF == null ? 0 : E.io3(prog(t, tF, tF + 0.5));
+      const pe = eAfter ? E.io3(prog(t, tE, tE + 0.5)) : 0;
+      const cx = -1920 * pf + 1920 * pe, fx = 1920 * (1 - pf) + 1920 * pe;
+      setA(st.cs, 'transform', `translate(${f2(cx)} 0)`);
+      setA(st.cs, 'visibility', Math.abs(cx) >= 1920 ? 'hidden' : 'visible');
+      setA(st.fs, 'transform', `translate(${f2(fx)} 0)`);
+      setA(st.fs, 'visibility', Math.abs(fx) >= 1920 || tF == null ? 'hidden' : 'visible');
+
+      /* ---- comptoir : objets ---- */
+      let itemK = 1;
+      if (tE != null) itemK = eAfter ? (t >= tE ? 0 : 1) : 1 - E.in2(prog(t, tE, tE + 0.3));
+      let n = 0;
+      st.items.forEach((it, i) => {
+        const tc = st.tc[it.k];
+        const q = tc == null ? 0 : prog(t, tc, tc + 0.55);
+        const on = q > 0 && itemK > 0;
+        const off = (1 - E.bounce(q)) * -460;
+        put(it.og, it.x, TOP + off, 0, itemK, itemK, on ? 1 : 0);
+        // étiquette
+        const tg = st.tags[i];
+        const tq = tc == null ? 0 : prog(t, tc + 0.5, tc + 0.72);
+        if (tq >= 1 && itemK > 0) n++;
+        const sc = tq > 0 ? 1 + 1.3 * (1 - E.out3(tq)) : 0;
+        put(tg.tg, it.x, TAGY, tg.rot * (1 + (1 - E.out3(tq))), sc * itemK, sc * itemK, tq > 0 && itemK > 0 ? 1 : 0);
+      });
+      const nAll = KEYS.reduce((a, k) => a + (st.tc[k] != null && t >= st.tc[k] + 0.72 ? 1 : 0), 0);
+      const shown = nAll;
+      const txt = `OBJETS EN GAGE : ${shown}`;
+      if (st.plaqueT.textContent !== txt) st.plaqueT.textContent = txt;
+      let lastTag = null;
+      for (const k of KEYS) { const tc = st.tc[k]; if (tc != null && t >= tc + 0.5 && (lastTag == null || tc > lastTag)) lastTag = tc; }
+      const bump = lastTag == null ? 1 : 1 + 0.14 * Math.sin(Math.PI * clamp((t - lastTag - 0.5) / 0.35));
+      put(st.plaque, 1450, 112, 1.5, bump, bump, 1);
+
+      // comptoir vide
+      const eq = tE == null ? 0 : prog(t, tE + (eAfter ? 0.5 : 0.15), tE + (eAfter ? 0.5 : 0.15) + 0.4);
+      const es = eq > 0 ? E.back(eq) : 0;
+      put(st.empty, 960, 410, -3, es, es, eq > 0 ? 1 : 0);
+
+      /* ---- forge ---- */
+      if (tF != null) {
+        const t0 = tF + 0.5;
+        const nS = t < t0 ? -1 : Math.floor((t - t0) / TH + 1e-9);
+        const lastS = nS < 0 ? null : t0 + nS * TH;
+        // angle du marteau
+        const nextS = t <= t0 ? t0 : t0 + Math.ceil((t - t0) / TH - 1e-9) * TH;
+        const d = nextS - t;
+        let a;
+        if (d <= 0.1) a = lerp(A_UP, A_DN, E.in3(1 - d / 0.1));
+        else { const e = lastS == null ? 9 : t - lastS; a = lerp(A_DN, A_UP, E.out2(prog(e, 0, 0.28))); }
+        st.ham.setAttribute('transform', `translate(${PIV.x} ${PIV.y}) rotate(${f2(-a)})`);
+        const age = lastS == null ? 9 : t - lastS;
+        setA(st.anvil, 'transform', `translate(0 ${f2(age < 0.12 ? 5 * (1 - age / 0.12) : 0)})`);
+        // éclats plats
+        const flip = nS % 2 ? -1 : 1;
+        st.sparks.forEach((s, i) => {
+          if (age >= 0.42 || lastS == null) { setA(s.s, 'visibility', 'hidden'); return; }
+          const x = 800 + Math.cos(s.ang) * s.sp * age * flip, y = 530 + Math.sin(s.ang) * s.sp * age + 1300 * age * age;
+          const sc = 1 - E.in2(age / 0.42);
+          setA(s.s, 'visibility', 'visible');
+          setA(s.s, 'transform', `translate(${f2(x)} ${f2(y)}) rotate(${f2(age * 500 * flip + i * 40)}) scale(${f2(Math.max(0.01, sc))})`);
+        });
+        // réveil
+        const ap = tA == null ? 0 : prog(t, tA, tA + 0.3);
+        const ring = tA != null && t >= tA && t < tA + 1.6 ? 1 : 0;
+        const rs = ring ? Math.sin((t - tA) * 2 * Math.PI * 5) : 0;
+        const ck = ap > 0 ? E.back(ap) : 0;
+        put(st.clock, 1560, 590, ring ? rs * 5 : 0, ck, ck, ap > 0 ? 1 : 0);
+        const kp = tA == null ? 0 : prog(t, tA + 1.6, tA + 2.0);
+        setA(st.strike, 'visibility', kp > 0 ? 'visible' : 'hidden');
+        const k1 = Math.min(1, kp * 2), k2 = clamp(kp * 2 - 1);
+        setA(st.k1, 'x2', f2(lerp(-120, 120, k1))); setA(st.k1, 'y2', f2(lerp(-120, 120, k1)));
+        setA(st.k2, 'visibility', k2 > 0 ? 'visible' : 'hidden');
+        setA(st.k2, 'x2', f2(lerp(120, -120, k2))); setA(st.k2, 'y2', f2(lerp(-120, 120, k2)));
+        const hp = tA == null ? 0 : E.back(clamp((t - tA - 0.3) / 0.3));
+        put(st.h5, 1790, 600, 5, hp, hp, hp > 0 ? 1 : 0);
+      } else {
+        put(st.clock, 0, 0, 0, 0, 0, 0); put(st.h5, 0, 0, 0, 0, 0, 0);
+      }
+    }
+  });
 })();
 ;
 /* ==== tools/video/composition/components/pictos.js ==== */
@@ -7461,6 +8963,210 @@
       setA(st.handG, 'visibility', hp > 0 ? 'visible' : 'hidden');
       const k = 1 - hp;
       st.hand.setAttribute('transform', `translate(${f2(1768 + 150 * k)} ${f2(770 + 36 + 420 * k + (hp >= 0.97 ? 6 : 0))}) rotate(-12)`);
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/ticket-choice.js ==== */
+// Composant `ticket-choice` : l'expérience d'Ellen Langer (1975, S5 de l'épisode 3). Deux blocs de six billets de loterie : « ILS CHOISISSENT » (une main entoure un billet) / « ON LEUR DONNE » (un billet glisse dans la main).
+// Cues : setup, choose, give, same, offer, price-left, price-right, illusion. Fond pocket. Aucun dégradé, flou, lueur ni filter ; aucun chiffre de prix ; mains plates sans visage.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, sticker, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+
+  const TW = 250, TH = 116, GAPX = 22, GAPY = 22, TOPY = 250;
+  const BLOCK_X = [90, 1308];                  // gauche, droite
+  const CHOSEN = 4, GIVEN = 5;                  // billets visés (rangée du bas)
+  const GIVE_END = { x: 1700, y: 706 };
+
+  // billet cranté, centré sur (0,0)
+  function ticketPath(w, h) {
+    const hw = w / 2, hh = h / 2, br = 7, rc = 14;
+    let d = `M${-hw} ${-hh}`;
+    for (let x = -hw + 30; x <= hw - 30; x += 30) d += `L${x - br} ${-hh}A${br} ${br} 0 0 0 ${x + br} ${-hh}`;
+    d += `L${hw} ${-hh}L${hw} ${-rc}A${rc} ${rc} 0 0 0 ${hw} ${rc}L${hw} ${hh}`;
+    for (let x = hw - 30; x >= -hw + 30; x -= 30) d += `L${x + br} ${hh}A${br} ${br} 0 0 0 ${x - br} ${hh}`;
+    d += `L${-hw} ${hh}L${-hw} ${rc}A${rc} ${rc} 0 0 0 ${-hw} ${-rc}Z`;
+    return d;
+  }
+  function split2(s) {
+    const w = s.split(/\s+/); if (w.length < 2) return [s, ''];
+    let best = 1, bd = 1e9;
+    for (let j = 1; j < w.length; j++) { const d = Math.abs(w.slice(0, j).join(' ').length - w.slice(j).join(' ').length); if (d < bd) { bd = d; best = j; } }
+    return [w.slice(0, best).join(' '), w.slice(best).join(' ')];
+  }
+  function drawPointer(parent) {
+    const h = g(parent);
+    rect(h, -62, 120, 150, 150, 40, C.paper, C.ink, 6);
+    for (let k = 0; k < 3; k++) rect(h, 26, 110 + k * 36, 52 - k * 4, 34, 17, C.paper, C.ink, 6);
+    sv('ellipse', { cx: -64, cy: 190, rx: 19, ry: 46, fill: C.paper, stroke: C.ink, 'stroke-width': 6, transform: 'rotate(24 -64 190)' }, h);
+    rect(h, -20, 0, 40, 160, 20, C.paper, C.ink, 6);
+    rect(h, -14, 128, 28, 40, 0, C.paper);
+    rect(h, -66, 270, 158, 52, 4, C.red, C.ink, 6);
+    rect(h, -52, 322, 130, 420, 4, C.paper, C.ink, 6);
+    return h;
+  }
+  function drawPalm(parent) {
+    const h = g(parent);
+    for (let k = 0; k < 4; k++) rect(h, -250 + k * 8, 2 + k * 15, 120 - k * 4, 14, 7, C.paper, C.ink, 4);
+    rect(h, -170, 0, 330, 74, 32, C.paper, C.ink, 6);
+    rect(h, 142, -6, 52, 78, 4, C.red, C.ink, 6);
+    rect(h, 194, 0, 400, 66, 4, C.paper, C.ink, 6);
+    return h;
+  }
+
+  ZV.define('ticket-choice', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const cueT = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).sort((a, c) => a.t - c.t)[0]; return b ? b.t : null; };
+      const r = ZV.rng(1975);
+      const st = {};
+      for (const k of ['choose', 'give', 'same', 'offer', 'price-left', 'price-right', 'illusion']) st[k] = cueT(k);
+      const ts = cueT('setup');
+      st.tS = ts == null ? -5 : ts;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.pocket);
+
+      /* ---- bandeau « même loterie » ---- */
+      st.ban = g(root);
+      rect(st.ban, -800 + 12, -45 + 12, 1600, 90, 14, C.ink);
+      rect(st.ban, -800, -45, 1600, 90, 14, C.lime, C.ink, 7);
+      circle(st.ban, -730, 0, 46, C.paper, C.ink, 6);
+      rect(st.ban, -754, -17, 48, 11, 3, C.ink);
+      rect(st.ban, -754, 6, 48, 11, 3, C.ink);
+      fit(text(st.ban, str(p.banner, 'MÊME LOTERIE · MÊMES CHANCES'), 50, 19, 54, C.ink, { anchor: 'middle' }), 1380);
+
+      /* ---- en-têtes ---- */
+      st.heads = [str(p.left, 'ILS CHOISISSENT'), str(p.right, 'ON LEUR DONNE')].map((s, i) => {
+        const hg = g(root);
+        sticker(hg, 520, 80, i ? C.white : C.lime, '', 1, C.ink, { sh: 9, r: 14 });
+        fit(text(hg, s, 0, 17, 48, C.ink, { anchor: 'middle' }), 470);
+        return hg;
+      });
+
+      /* ---- billets ---- */
+      const d = ticketPath(TW, TH);
+      st.tk = [];
+      for (let side = 0; side < 2; side++) {
+        for (let i = 0; i < 6; i++) {
+          const col = i % 2, row = Math.floor(i / 2);
+          const x = BLOCK_X[side] + col * (TW + GAPX) + TW / 2, y = TOPY + row * (TH + GAPY) + TH / 2;
+          const ghost = path(root, d, 'none', C.paper, 4, { 'stroke-dasharray': '10 10', opacity: 0.5, visibility: 'hidden', transform: `translate(${f2(x)} ${f2(y)})` });
+          const tg = g(root);
+          path(tg, d, C.ink, null, 0, { transform: 'translate(7 7)' });
+          const body = g(tg);
+          const bp = path(body, d, C.paper, C.ink, 5);
+          line(body, -TW / 2 + 70, -TH / 2 + 14, -TW / 2 + 70, TH / 2 - 14, C.ink, 3, { 'stroke-dasharray': '6 8' });
+          for (let b = 0; b < 4; b++) rect(body, -TW / 2 + 16 + b * 13, -22 + (b % 2) * 6, 6 + (b % 3) * 2, 44 - (b % 2) * 12, 1, C.ink);
+          const num = String(1000 + Math.floor(r() * 8999));
+          text(body, num, 34, 17, 48, C.ink, { anchor: 'middle', mono: true });
+          st.tk.push({ tg, body, bp, ghost, x, y, side, i, rot: (r() - 0.5) * 4, num });
+        }
+      }
+      // marqueur rouge autour du billet choisi
+      const ct = st.tk[CHOSEN];
+      st.mark = sv('ellipse', { cx: ct.x, cy: ct.y, rx: 168, ry: 84, fill: 'none', stroke: C.red, 'stroke-width': 9, pathLength: 1, 'stroke-dasharray': '0 1.01', 'stroke-linecap': 'round', transform: `rotate(-6 ${ct.x} ${ct.y})` }, root);
+
+      /* ---- mains ---- */
+      st.hand1 = g(root);
+      st.hand1i = drawPointer(st.hand1);
+      st.hand2 = g(root);
+      st.hand2i = drawPalm(st.hand2);
+
+      /* ---- milieu : offre, prix, tampon ---- */
+      st.offerG = g(root);
+      sticker(st.offerG, 620, 112, C.white, '', 1, C.ink, { sh: 11 });
+      fit(text(st.offerG, str(p.offer, 'JE TE LE RACHÈTE ?'), 0, 19, 56, C.ink, { anchor: 'middle' }), 560);
+      st.pl = g(root);
+      rect(st.pl, -180 + 12, -75 + 12, 360, 150, 16, C.ink);
+      rect(st.pl, -180, -75, 360, 150, 16, C.red, C.ink, 8);
+      {
+        const s = str(p.price_left, 'BEAUCOUP PLUS CHER'); const w = split2(s);
+        if (w[1]) { fit(text(st.pl, w[0], 0, -8, 56, C.ink, { anchor: 'middle' }), 320); fit(text(st.pl, w[1], 0, 52, 56, C.ink, { anchor: 'middle' }), 320); }
+        else fit(text(st.pl, s, 0, 18, 56, C.ink, { anchor: 'middle' }), 320);
+      }
+      st.pr = g(root);
+      rect(st.pr, -110 + 8, -40 + 8, 220, 80, 12, C.ink);
+      rect(st.pr, -110, -40, 220, 80, 12, C.white, C.ink, 6);
+      fit(text(st.pr, str(p.price_right, 'BIEN MOINS'), 0, 12, 34, C.ink, { anchor: 'middle' }), 190);
+      st.stamp = g(root);
+      rect(st.stamp, -280 + 12, -85 + 12, 560, 170, 14, C.ink);
+      rect(st.stamp, -280, -85, 560, 170, 14, C.red, C.ink, 9);
+      rect(st.stamp, -262, -67, 524, 134, 8, 'none', C.ink, 4);
+      {
+        const s = str(p.stamp, 'ILLUSION DE CONTRÔLE'); const w = split2(s);
+        if (w[1]) { fit(text(st.stamp, w[0], 0, -6, 62, C.ink, { anchor: 'middle' }), 480); fit(text(st.stamp, w[1], 0, 54, 62, C.ink, { anchor: 'middle' }), 480); }
+        else fit(text(st.stamp, s, 0, 20, 64, C.ink, { anchor: 'middle' }), 480);
+      }
+      return st;
+    },
+
+    update(st, t) {
+      /* ---- bandeau ---- */
+      const bq = st.same == null ? 0 : clamp((t - st.same) / 0.45);
+      const by = lerp(-160, 73, E.back(bq));
+      put(st.ban, 960, by, 0, 1, 1, bq > 0 ? 1 : 0);
+
+      /* ---- en-têtes + billets ---- */
+      st.heads.forEach((h, i) => {
+        const q = E.back(clamp((t - st.tS - i * 0.05) / 0.3));
+        put(h, i ? 1569 : 351, 190, i ? 1.5 : -1.5, q, q, q > 0 ? 1 : 0);
+      });
+      const tkC = st.tk[CHOSEN], tkG = st.tk[GIVEN];
+      st.tk.forEach((k) => {
+        const idx = k.i * 2 + k.side;
+        const q = clamp((t - st.tS - 0.12 - idx * 0.05) / 0.28);
+        let x = k.x, y = k.y, rot = k.rot, sc = E.back(q), lime = false, vis = q > 0;
+        if (k.side === 0 && k.i === CHOSEN && st.choose != null) {
+          const lp = E.out3(clamp((t - st.choose - 0.5) / 0.25));
+          y -= 14 * lp; lime = lp > 0.01; rot = lerp(rot, 0, lp);
+        }
+        let ghost = false;
+        if (k.side === 1 && k.i === GIVEN && st.give != null) {
+          const gp = E.io3(clamp((t - st.give - 0.35) / 0.9));
+          ghost = gp > 0.001;
+          x = lerp(k.x, GIVE_END.x, gp); y = lerp(k.y, GIVE_END.y, gp); rot = lerp(k.rot, -5, gp);
+        }
+        put(k.tg, x, y, rot, sc, sc, vis ? 1 : 0);
+        setA(k.bp, 'fill', lime ? C.lime : C.paper);
+        if (k.side === 1 && k.i === GIVEN) {
+          // la case vide reste en pointillés à sa place d'origine
+          setA(k.ghost, 'visibility', ghost ? 'visible' : 'hidden');
+        }
+      });
+
+      /* ---- main qui choisit ---- */
+      const hp = st.choose == null ? 0 : E.out3(clamp((t - st.choose) / 0.5));
+      setA(st.hand1, 'visibility', hp > 0 ? 'visible' : 'hidden');
+      st.hand1.setAttribute('transform', `translate(${f2(tkC.x)} ${f2(tkC.y + TH / 2 + 10 + (1 - hp) * 330)}) rotate(${f2(-4 * hp)})`);
+      const mk = st.choose == null ? 0 : E.io2(clamp((t - st.choose - 0.6) / 0.55));
+      setA(st.mark, 'visibility', mk > 0 ? 'visible' : 'hidden');
+      setA(st.mark, 'stroke-dasharray', `${f2(mk)} 1.01`);
+
+      /* ---- main qui reçoit ---- */
+      const gq = st.give == null ? 0 : E.out3(clamp((t - st.give) / 0.5));
+      setA(st.hand2, 'visibility', gq > 0 ? 'visible' : 'hidden');
+      st.hand2.setAttribute('transform', `translate(${f2(GIVE_END.x - 12 + (1 - gq) * 360)} ${f2(GIVE_END.y + 56 + (1 - gq) * 50)})`);
+
+      /* ---- offre, prix, tampon ---- */
+      const oq = st.offer == null ? 0 : E.back(clamp((t - st.offer) / 0.35));
+      put(st.offerG, 960, 310, -3, oq, oq, oq > 0 ? 1 : 0);
+      let ps = 0;
+      if (st['price-left'] != null) { const q = clamp((t - st['price-left']) / 1.3); ps = q > 0 ? 0.35 + 0.77 * E.out3(q) + 0.08 * Math.sin(Math.PI * clamp(q * 1.6)) * (1 - q) : 0; }
+      put(st.pl, 840, 480, -2, ps, ps, ps > 0 ? 1 : 0);
+      const rq = st['price-right'] == null ? 0 : E.back(clamp((t - st['price-right']) / 0.3));
+      put(st.pr, 1182, 480, 2, rq, rq, rq > 0 ? 1 : 0);
+      const iq = st.illusion == null ? 0 : clamp((t - st.illusion) / 0.22);
+      const is = iq > 0 ? 1 + 1.6 * (1 - E.out3(iq)) : 0;
+      const sh = st.illusion == null ? [0, 0] : shakeAt(t, st.illusion + 0.2, 7, 0.3);
+      put(st.stamp, 960 + sh[0], 690 + sh[1], -5, is, is, iq > 0 ? 1 : 0);
     }
   });
 })();

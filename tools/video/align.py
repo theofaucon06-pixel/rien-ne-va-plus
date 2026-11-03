@@ -23,7 +23,7 @@ import sys
 # Constantes configurables
 # --------------------------------------------------------------------------------------------
 LEAD_IN = 2.2          # s avant le premier mot
-GAP_PARAGRAPH = 0.9    # s entre le dernier mot d'un paragraphe et le premier du suivant
+GAP_PARAGRAPH = float(os.environ.get('ZV_PARA_GAP', '0.9'))  # s entre le dernier mot d'un paragraphe et le premier du suivant (ZV_PARA_GAP : épisodes débat plus nerveux, ex. 0.5)
 GAP_SECTION = 3.2      # s entre le dernier mot d'une section et le premier de la suivante
 TAIL = 14.0            # s après le dernier mot (carte de fin)
 EDGE_PAD = 0.12        # s de silence naturel conservé en tête/queue de chaque morceau avant insertion
