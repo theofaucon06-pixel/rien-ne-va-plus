@@ -1699,6 +1699,322 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/chase-meter.js ==== */
+// Composant `chase-meter` : la règle graduée de « se refaire » (mode ruler) et la perte « provisoire » qui devient « vraie » (mode pending).
+// ruler  : cues start, quote, aside, back, accel, promise, green. pending : cues pending, stand, real.
+// Aplats, bordures, ombres dures ; aucun dégradé / flou / filter. Rien ne clignote : tout est un mouvement unique.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const num = (v, d) => (isNum(v) ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const measure = (n, size) => { try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ } return (n.textContent || '').length * size * 0.62; };
+  function fitText(n, size, maxW, y0) {
+    const w = measure(n, size);
+    if (w > maxW) { const s = size * maxW / w; n.setAttribute('font-size', f2(s)); if (y0 !== undefined) n.setAttribute('y', f2(y0 * s / size)); return maxW; }
+    return w;
+  }
+  // étiquette plate centrée sur (0,0), ombre dure
+  function mkTag(parent, s, size, o) {
+    o = o || {};
+    const grp = g(parent);
+    const tx = text(grp, s, 0, size * 0.35, size, o.tfill || C.ink, { anchor: 'middle', mono: o.mono });
+    const w = fitText(tx, size, o.maxW || 900, size * 0.35);
+    const bw = w + 2 * (o.padX === undefined ? 26 : o.padX), bh = o.h || size * 1.75, sh = o.sh === undefined ? 8 : o.sh, r = o.r === undefined ? 12 : o.r;
+    const a = rect(grp, -bw / 2 + sh, -bh / 2 + sh, bw, bh, r, o.shFill || C.ink);
+    const b = rect(grp, -bw / 2, -bh / 2, bw, bh, r, o.fill || C.paper, o.stroke || C.ink, o.sw || 6);
+    grp.insertBefore(a, tx); grp.insertBefore(b, tx);
+    return { g: grp, w: bw, h: bh, tx };
+  }
+
+  const RY = 470, X0 = 140, XZ = 1640, PX = 10; // règle
+  const X = (v) => clamp(XZ + v * PX, X0 + 60, XZ);
+
+  /* ====================== mode ruler ====================== */
+  function initRuler(root, shot, p, st) {
+    const value = num(p.value, -40), cur = str(p.currency, '€');
+    st.xv = X(value); st.xd = X(num(p.drift_to, -110));
+    st.clockFrom = num(p.clock_from, 12); st.clockTo = num(p.clock_to, 19);
+    st.from = p.from === 'start' || p.from === 'accel' ? p.from : 'none';
+    const gs = (v) => (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('fr-FR').replace(/ | /g, ' ');
+    const cc = ZV.cue;
+    st.t = { start: cc(shot, 'start'), quote: cc(shot, 'quote'), aside: cc(shot, 'aside'), back: cc(shot, 'back'), accel: cc(shot, 'accel'), promise: cc(shot, 'promise'), green: cc(shot, 'green') };
+
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    // règle
+    st.fadeG = g(root); // éléments qui s'effacent au cue green
+    const rl = g(root);
+    rect(rl, X0, RY - 4, XZ - X0 + 4, 8, 0, C.paper);
+    for (let k = 0; k <= 15; k++) { const x = X0 + k * 100; line(rl, x, RY + 6, x, RY + 28, C.paper, 5, { 'stroke-linecap': 'butt' }); }
+
+    // drapeau du zéro
+    st.flag = g(root);
+    rect(st.flag, -75 + 9, -75 + 9, 150, 150, 0, C.ink);
+    rect(st.flag, -75, -75, 150, 150, 0, C.lime, C.ink, 6);
+    text(st.flag, '0', 0, 38, 110, C.ink, { anchor: 'middle' });
+
+    // flèche de l'intention (centre au milieu entre le jeton et le drapeau)
+    const ax0 = st.xv, ax1 = 1700, L = Math.max(240, ax1 - ax0), cx = (ax0 + ax1) / 2, AY = 600;
+    st.arrow = g(st.fadeG, { transform: `translate(${f2(cx)} ${AY})` });
+    st.flipG = g(st.arrow);
+    st.dashG = g(st.flipG);
+    st.dashEls = [];
+    const hl = 78, segW = 40, gap = 14, nSeg = Math.max(3, Math.floor((L - hl) / (segW + gap)));
+    for (let i = 0; i < nSeg; i++) st.dashEls.push(rect(st.dashG, -L / 2 + i * (segW + gap), -9, segW, 18, 3, C.paper, C.ink, 4));
+    st.dashEls.push(path(st.dashG, `M${f2(L / 2 - hl)} -34 L${f2(L / 2)} 0 L${f2(L / 2 - hl)} 34Z`, C.paper, C.ink, 5));
+    st.solid = path(st.flipG, `M${f2(-L / 2)} -10 L${f2(L / 2 - hl)} -10 L${f2(L / 2 - hl)} -36 L${f2(L / 2)} 0 L${f2(L / 2 - hl)} 36 L${f2(L / 2 - hl)} 10 L${f2(-L / 2)} 10Z`, C.red, C.ink, 6);
+    st.arrowCx = cx;
+    st.lbBack = mkTag(st.fadeG, str(p.back, 'MARCHE ARRIÈRE'), 34, { mono: true, maxW: 520, h: 62, fill: C.paper });
+    st.lbAcc = mkTag(st.fadeG, str(p.accel, 'ACCÉLÉRATEUR'), 34, { mono: true, maxW: 520, h: 62, fill: C.red });
+    // bulles
+    const mkBubble = (s) => {
+      const b = g(st.fadeG);
+      const tx = text(b, '', 170, 0, 52, C.ink);
+      const words = s.split(/\s+/).filter(Boolean);
+      const spans = words.map((w, i) => { if (i) tx.appendChild(document.createTextNode(' ')); const sp = sv('tspan', null, tx); sp.textContent = w; return sp; });
+      let size = 52; tx.setAttribute('font-size', size);
+      const w0 = measure(tx, size);
+      if (w0 > 880) { size = 52 * 880 / w0; tx.setAttribute('font-size', f2(size)); }
+      const W = Math.max(380, Math.min(960, measure(tx, size) + 60));
+      tx.setAttribute('y', f2(160 + size * 0.35));
+      const sh = rect(b, 140 + 10, 100 + 10, W, 120, 0, C.ink);
+      const poly = path(b, 'M0 0', C.paper, C.ink, 6);
+      const body = rect(b, 140, 100, W, 120, 0, C.paper, C.ink, 6);
+      const seam = rect(b, 0, 216, 10, 7, 0, C.paper);
+      [sh, poly, body, seam].forEach((n) => b.insertBefore(n, tx));
+      return { g: b, spans, poly, seam, W, n: words.length };
+    };
+    st.bq = mkBubble(str(p.quote, 'JE SUIS À −40. JE M\'ARRÊTE À ZÉRO.'));
+    st.bp = mkBubble(str(p.promise, 'ENCORE 10 € ET JE RENTRE'));
+    // horloge
+    st.clock = g(st.fadeG.parentNode === root ? root : root);
+    circle(st.clock, 0, 0, 70, C.paper, C.ink, 6);
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; line(st.clock, Math.sin(a) * 56, -Math.cos(a) * 56, Math.sin(a) * 63, -Math.cos(a) * 63, C.ink, i % 3 ? 3 : 5, { 'stroke-linecap': 'butt' }); }
+    st.hh = line(st.clock, 0, 0, 0, -38, C.ink, 9);
+    st.mh = line(st.clock, 0, 0, 0, -54, C.ink, 6);
+    circle(st.clock, 0, 0, 7, C.ink);
+    const mid = st.clockFrom === 12 ? 'MIDI' : `${st.clockFrom} H`;
+    st.cl0 = text(root, mid, 1720, 280, 26, C.paper, { anchor: 'middle', mono: true });
+    st.cl1 = text(root, `${st.clockTo} H`, 1720, 280, 26, C.paper, { anchor: 'middle', mono: true });
+    st.aside = mkTag(root, str(p.aside, 'IL EST LÀ DEPUIS MIDI'), 30, { mono: true, maxW: 400, h: 56, padX: 22 });
+    // jeton
+    st.tok = g(root);
+    circle(st.tok, 6, 7, 46, C.ink);
+    circle(st.tok, 0, 0, 46, C.white, C.ink, 6);
+    for (let i = 0; i < 8; i++) { const a = i * 45; rect(st.tok, -6, -40, 12, 20, 2, C.lime, C.ink, 3, { transform: `rotate(${a})` }); }
+    circle(st.tok, 0, 0, 14, C.white, C.ink, 4);
+    st.lbVal = mkTag(root, `${gs(value)} ${cur}`, 44, { mono: true, maxW: 360, h: 74 });
+    st.lbFar = mkTag(root, 'PLUS LOIN DE ZÉRO', 36, { mono: true, maxW: 470, h: 70 });
+    st.lbVal.tx.parentNode.setAttribute('class', 'lbv');
+    // petite étiquette rouge « −10 € »
+    st.ten = mkTag(root, `−10 ${cur}`, 32, { mono: true, h: 54, fill: C.red, padX: 18 });
+    // vert
+    st.green = mkTag(root, str(p.green, 'IL EST VERT. IL NE REND RIEN.'), 38, { maxW: 700, h: 60, fill: C.ink, tfill: C.lime, stroke: C.lime, sw: 5, shFill: C.pocket, padX: 28 });
+    st.gw = st.green.w;
+    // la flèche va sous l'horloge/légende : ordre des couches
+    root.appendChild(st.flag); root.appendChild(st.green.g);
+  }
+
+  function updRuler(st, t) {
+    const T = st.t, fs = st.from !== 'none', fa = st.from === 'accel';
+    const tS = T.start, tG = T.green;
+    const gp = tG == null ? 0 : prog(t, tG, tG + 0.3);
+    /* ---- position du jeton ---- */
+    let x = fa ? st.xd : st.xv, hop = 0;
+    if (!fa && T.accel != null) {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) { const s0 = T.accel + 0.1 + 0.5 * k, q = prog(t, s0, s0 + 0.14); sum += E.out2(q); if (q > 0 && q < 1) hop = Math.sin(Math.PI * q) * 12; }
+      x = st.xv + (st.xd - st.xv) * sum / 4;
+    }
+    if (T.promise != null) { const s0 = T.promise + 0.8, q = prog(t, s0, s0 + 0.2); x -= 100 * E.out2(q); if (q > 0 && q < 1) hop = Math.max(hop, Math.sin(Math.PI * q) * 12); x = Math.max(x, 200); }
+    let ty = 420 - hop, tokOn = fs || tS == null || t >= tS;
+    if (!fs && tS != null && t >= tS) { const q = prog(t, tS, tS + 0.5); ty = 420 - (1 - E.bounce(q)) * 380 - hop; }
+    put(st.tok, x, ty, 0, 1, 1, tokOn ? 1 : 0);
+
+    /* ---- étiquette du jeton ---- */
+    const far = fa || (T.accel != null && t >= T.accel + 0.05);
+    const lt0 = fs || tS == null ? -9 : tS + 0.45;
+    const lq = prog(t, lt0, lt0 + 0.2), lq2 = T.accel != null && !fa ? prog(t, T.accel + 0.05, T.accel + 0.25) : 1;
+    const lsc = far ? 1 + 0.3 * (1 - E.out3(lq2)) : 1 + 0.35 * (1 - E.out3(lq));
+    const lon = lq > 0;
+    const ly = 300 - hop * 0.5;
+    put(st.lbVal.g, x, ly, -3, lsc, lsc, lon && !far ? 1 : 0);
+    put(st.lbFar.g, x, ly, -3, lsc, lsc, lon && far ? 1 : 0);
+
+    /* ---- bulles ---- */
+    const bubble = (b, t0, t1) => {
+      const q = t0 == null ? 0 : prog(t, t0, t0 + 0.16);
+      let o = q > 0 ? 1 : 0;
+      if (t1 != null) o = t >= t1 ? 0 : o;
+      o *= 1 - gp;
+      const sc = 0.92 + 0.08 * E.out3(q);
+      b.g.setAttribute('transform', `translate(140 160) scale(${f2(sc)}) translate(-140 -160)`);
+      vis(b.g, o > 0.01);
+      const perW = Math.min(0.22, 1.8 / Math.max(1, b.n));
+      b.spans.forEach((sp, i) => setA(sp, 'fill-opacity', t >= t0 + 0.12 + i * perW ? 1 : 0));
+      setA(b.g, 'opacity', f2(o));
+      const tipX = clamp(x - 40, 170, 1800), tipY = 262;
+      const x1 = clamp(tipX - 40, 170, 140 + b.W - 100);
+      setA(b.poly, 'd', `M${f2(x1)} 214 L${f2(x1 + 80)} 214 L${f2(tipX)} ${tipY}Z`);
+      setA(b.seam, 'x', f2(x1 + 3)); setA(b.seam, 'width', 56);
+    };
+    bubble(st.bq, T.quote, T.promise);
+    bubble(st.bp, T.promise == null ? null : T.promise + 0.1, null);
+
+    /* ---- horloge et aparté ---- */
+    const cA = fa ? 1 : T.aside == null ? 0 : prog(t, T.aside, T.aside + 0.3);
+    const cs = cA > 0 ? E.back(cA) : 0;
+    put(st.clock, 1720, 180, 0, cs, cs, cA > 0 ? 1 : 0);
+    const a0 = (st.clockFrom % 12) * 30;
+    let span = ((st.clockTo - st.clockFrom) % 12 + 12) % 12; if (span === 0 && st.clockTo !== st.clockFrom) span = 12;
+    const pp = T.promise == null ? 0 : E.io2(prog(t, T.promise, T.promise + 2));
+    setA(st.hh, 'transform', `rotate(${f2(a0 + span * 30 * pp)})`);
+    setA(st.mh, 'transform', `rotate(${f2(1080 * pp)})`);
+    const done = T.promise != null && t >= T.promise + 2;
+    vis(st.cl0, cA > 0.5 && !done); vis(st.cl1, cA > 0.5 && done);
+    const aq = fa ? 1 : T.aside == null ? 0 : prog(t, T.aside + 0.25, T.aside + 0.5);
+    put(st.aside.g, 1600 - st.aside.w / 2 + 40 * (1 - E.out3(aq)), 150, 2, 1, 1, aq > 0 ? 1 : 0);
+
+    /* ---- flèche ---- */
+    const bq = T.back == null ? 0 : prog(t, T.back, T.back + 0.4);
+    const accOn = fa || (T.accel != null && t >= T.accel);
+    const nEl = st.dashEls.length;
+    st.dashEls.forEach((e, i) => vis(e, bq > 0 && Math.floor(bq * nEl + 1e-6) >= i + 1 || bq >= 1));
+    vis(st.dashG, bq > 0 && !accOn);
+    vis(st.solid, accOn);
+    const fp = !fa && T.accel != null ? prog(t, T.accel, T.accel + 0.27) : 1;
+    const sx = accOn ? Math.cos(Math.PI * E.io2(fp)) : 1;
+    setA(st.flipG, 'transform', `scale(${f2(Math.abs(sx) < 0.04 ? 0.04 * (sx < 0 ? -1 : 1) : sx)} 1)`);
+    const arrOn = (bq > 0 || accOn) && gp < 1;
+    setA(st.arrow, 'opacity', f2(1 - gp)); vis(st.arrow, arrOn);
+    const lb0 = T.back == null ? 0 : prog(t, T.back + 0.3, T.back + 0.5);
+    const lsB = 1 + 0.3 * (1 - E.out3(lb0));
+    put(st.lbBack.g, st.arrowCx, 706, 0, lsB, lsB, lb0 > 0 && !accOn && gp < 1 ? 1 - gp : 0);
+    const la = fa ? 1 : T.accel == null ? 0 : prog(t, T.accel + 0.1, T.accel + 0.3);
+    const lsA = 1 + 0.3 * (1 - E.out3(la));
+    put(st.lbAcc.g, st.arrowCx, 706, 0, lsA, lsA, la > 0 && accOn && gp < 1 ? 1 - gp : 0);
+
+    /* ---- étiquette « −10 € » ---- */
+    if (T.promise != null) {
+      const q = prog(t, T.promise + 0.5, T.promise + 1.05), e = E.out2(q);
+      const x0 = fa || T.accel != null ? st.xd : st.xv;
+      const sx0 = x0, sx1 = x0 + 110, ay = lerp(380, 408, E.in2(q)) - 110 * Math.sin(Math.PI * q);
+      put(st.ten.g, lerp(sx0, sx1, e), ay, lerp(0, 5, e), 1, 1, q > 0 ? 1 : 0);
+    } else put(st.ten.g, 0, 0, 0, 0, 0, 0);
+
+    /* ---- drapeau et « vert » ---- */
+    const fsc = 1 + 0.25 * E.back(gp);
+    put(st.flag, 1715, 470, 0, fsc, fsc, 1);
+    const gq = tG == null ? 0 : prog(t, tG + 0.1, tG + 0.4);
+    const gs = gq > 0 ? E.back(gq) : 0;
+    put(st.green.g, 1790 - st.gw / 2, 222, 0, gs, gs, gq > 0 ? 1 : 0);
+  }
+
+  /* ====================== mode pending ====================== */
+  function initPending(root, shot, p, st) {
+    const cc = ZV.cue;
+    st.t = { pending: cc(shot, 'pending'), stand: cc(shot, 'stand'), real: cc(shot, 'real') };
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    const loss = str(p.loss, '−40 €');
+    // montant : mesure
+    const mk = (fill, stroke, sw, extra) => { const n = text(root, loss, 720, 510, 260, fill, { anchor: 'middle' }); n.setAttribute('fill', fill); if (stroke) { n.setAttribute('stroke', stroke); n.setAttribute('stroke-width', sw); n.setAttribute('stroke-linejoin', 'round'); } if (extra) for (const k in extra) n.setAttribute(k, extra[k]); return n; };
+    st.shadow = mk(C.paper, null);
+    st.real = mk(C.red, C.ink, 20, { 'paint-order': 'stroke' });
+    st.out = mk('none', C.paper, 12, { 'stroke-dasharray': '24 14' });
+    st.cover = mk(C.ink, null);
+    let size = 260; const w0 = measure(st.out, 260);
+    if (w0 > 900) { size = 260 * 900 / w0; [st.shadow, st.real, st.out, st.cover].forEach((n) => { n.setAttribute('font-size', f2(size)); n.setAttribute('y', f2(420 + size * 0.35)); }); }
+    st.size = size; st.baseY = 420 + size * 0.35;
+    const wid = Math.min(measure(st.out, size), 900);
+    st.clipRect = rect(sv('clipPath', { id: 'cm-clip' }, sv('defs', null, root)), 720 - wid / 2 - 30, 0, 0, 1080, 0, '#000');
+    st.out.setAttribute('clip-path', 'url(#cm-clip)'); root.appendChild(st.cover); root.insertBefore(st.out, st.cover);
+    st.cw = wid + 60; st.cx0 = 720 - wid / 2 - 30;
+    st.legend = text(root, str(p.label, 'PROVISOIRE · EN ATTENTE'), 720, 600, 34, C.paper, { anchor: 'middle', mono: true });
+    st.legend2 = text(root, str(p.real, 'ELLE DEVIENT VRAIE'), 720, 600, 34, C.red, { anchor: 'middle', mono: true });
+    fitText(st.legend, 34, 900); fitText(st.legend2, 34, 900);
+    // tampon
+    const stp = mkTag(root, str(p.stamp, 'DÉFINITIVE'), 74, { maxW: 560, h: 104, fill: C.paper, tfill: C.red, sw: 7, sh: 10, r: 8, padX: 34 });
+    st.stamp = stp.g;
+    // sol, table, chaise, silhouette
+    line(root, 1180, 702, 1800, 702, C.paper, 6);
+    st.chair = g(root);
+    const ch = st.chair;
+    [[1460, 590, 26, 112], [1596, 590, 26, 112]].forEach((r) => rect(ch, r[0], r[1], r[2], r[3], 2, C.paper, C.ink, 5));
+    rect(ch, 1596, 372, 30, 222, 4, C.paper, C.ink, 6);
+    rect(ch, 1430, 556, 196, 38, 4, C.paper, C.ink, 6);
+    st.fig = g(root);
+    const limb = (a, b, w) => { const l = line(st.fig, 0, 0, 0, 0, C.paper, w + 8); const m = line(st.fig, 0, 0, 0, 0, C.pocket, w); return { l, m, a, b }; };
+    // poses assise / debout (hanche, genou, pied, épaule, tête, main)
+    st.pose0 = { hip: [1530, 540], knee: [1432, 548], foot: [1424, 668], sh: [1538, 434], head: [1542, 366], hand: [1408, 512] };
+    st.pose1 = { hip: [1520, 470], knee: [1514, 574], foot: [1508, 668], sh: [1524, 352], head: [1526, 286], hand: [1516, 476] };
+    st.limbs = { thigh: limb('hip', 'knee', 54), shin: limb('knee', 'foot', 44), torso: limb('hip', 'sh', 70), arm: limb('sh', 'hand', 28) };
+        st.headO = circle(st.fig, 0, 0, 38, C.paper); st.headI = circle(st.fig, 0, 0, 34, C.pocket);
+    // table (devant la silhouette)
+    st.table = g(root);
+    rect(st.table, 1262, 520, 150, 28, 2, C.ink, C.paper, 4);
+    rect(st.table, 1282, 548, 26, 154, 0, C.ink, C.paper, 4);
+  }
+
+  function updPending(st, t) {
+    const T = st.t, { size, baseY } = st;
+    const tp = T.pending, tr = T.real, ts = T.stand;
+    // contour (visible dès le début si pas de cue)
+    const q = tp == null ? 1 : prog(t, tp, tp + 0.47);
+    const realOn = tr != null && t >= tr;
+    const shake = tr == null ? [0, 0] : shakeAt(t, tr, 10, 0.4);
+    setA(st.clipRect, 'width', f2(st.cw * q));
+    setA(st.out, 'stroke-dashoffset', f2(-t * 40));
+    vis(st.out, q > 0 && !realOn); vis(st.cover, q > 0 && !realOn);
+    // l'état « réel » : fond paper en ombre dure, rouge par-dessus
+    const rq = tr == null ? 0 : E.out3(prog(t, tr, tr + 0.2));
+    vis(st.real, realOn); vis(st.shadow, realOn);
+    const sk = 14 * rq;
+    st.real.setAttribute('transform', `translate(${f2(shake[0])} ${f2(shake[1])})`);
+    st.shadow.setAttribute('transform', `translate(${f2(shake[0] + sk)} ${f2(shake[1] + sk)})`);
+    setA(st.shadow, 'stroke', C.paper); setA(st.shadow, 'stroke-width', 20); setA(st.shadow, 'stroke-linejoin', 'round');
+    vis(st.legend, !realOn); vis(st.legend2, realOn);
+    const ly = realOn ? lerp(600, 735, E.out3(prog(t, tr, tr + 0.25))) : 600;
+    setA(st.legend2, 'y', f2(ly));
+    setA(st.legend, 'opacity', f2(tp == null ? 1 : prog(t, tp + 0.35, tp + 0.6)));
+    // tampon
+    const sq = tr == null ? 0 : prog(t, tr + 0.25, tr + 0.4);
+    const ss = sq > 0 ? 1 + 1.2 * (1 - E.out3(sq)) : 0;
+    put(st.stamp, 720 + shake[0] * 0.3, 616, -8, ss, ss, sq > 0 ? 1 : 0);
+    // silhouette qui se lève
+    const sp = ts == null ? 0 : prog(t, ts, ts + 0.6);
+    const rise = E.out2(clamp(sp / 0.35)), walk = E.in2(clamp((sp - 0.3) / 0.7));
+    const dx = 520 * walk;
+    const P = (k) => { const a = st.pose0[k], b = st.pose1[k]; return [lerp(a[0], b[0], rise) + dx, lerp(a[1], b[1], rise)]; };
+    const hand = P('hand');
+    for (const n in st.limbs) {
+      const L = st.limbs[n]; const a = P(L.a), b = P(L.b);
+      [L.l, L.m].forEach((e) => { setA(e, 'x1', f2(a[0])); setA(e, 'y1', f2(a[1])); setA(e, 'x2', f2(b[0])); setA(e, 'y2', f2(b[1])); });
+    }
+    const hd = P('head');
+    setA(st.headO, 'cx', f2(hd[0])); setA(st.headO, 'cy', f2(hd[1])); setA(st.headI, 'cx', f2(hd[0])); setA(st.headI, 'cy', f2(hd[1]));
+    vis(st.fig, sp < 1);
+    const cp = ts == null ? 0 : E.out2(prog(t, ts + 0.1, ts + 0.5));
+    setA(st.chair, 'transform', `translate(${f2(30 * cp)} 0)`);
+  }
+
+  ZV.define('chase-meter', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const st = { mode: p.mode === 'pending' ? 'pending' : 'ruler' };
+      shot = shot || { beats: [] }; if (!Array.isArray(shot.beats)) shot = Object.assign({}, shot, { beats: [] });
+      try { (st.mode === 'pending' ? initPending : initRuler)(root, shot, p, st); } catch (e) { st.err = e; if (window.console) console.error(e); }
+      return st;
+    },
+    update(st, t) {
+      if (!st || st.err) return;
+      try { (st.mode === 'pending' ? updPending : updRuler)(st, t); } catch (e) { if (window.console) console.error(e); }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/chip-stacks.js ==== */
 // Composant `chip-stacks` : piles de jetons vues de face, hauteur exacte (1 jeton = même hauteur partout), compteur, étiquettes, écart `diff`.
 (() => {
@@ -2238,6 +2554,324 @@
         else if (st.mode === 'grid' || st.mode === 'row') tickRows(st, t);
         else tickSingle(st, t);
       } catch (e) { if (window.ZV_DEBUG) console.error(e); }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/criteria-sheet.js ==== */
+// Composant `criteria-sheet` (épisode 4) : la fiche officielle des critères. Voir EP4-COMPONENTS.md.
+// Fond ink, feuille paper inclinée, 9 lignes de critère illisibles (barres) dont UNE écrite en clair et surlignée.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+// Cues : sheet, count, focus, ink, one-sign. Prop `from` : none | focus.
+(() => {
+  'use strict';
+  const { C, F, E, clamp, prog, f2, sv, g, rect, path, text, put, rng } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const sstr = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const NEVER = -1e6;
+
+  // mesure réelle d'un texte (repli : estimation) ; la sonde est retirée après l'init
+  function mkMeasure(root) {
+    const n = sv('text', { x: 0, y: 0, visibility: 'hidden' }, root);
+    const m = (s, size, mono) => {
+      try {
+        n.setAttribute('font-family', mono ? F.mono : F.display); n.setAttribute('font-weight', 800); n.setAttribute('font-size', size);
+        n.textContent = s;
+        const w = n.getComputedTextLength();
+        if (w > 0) return w;
+      } catch (e) { /* repli */ }
+      return String(s).length * size * (mono ? 0.6 : 0.62);
+    };
+    m.done = () => { try { root.removeChild(n); } catch (e) { /* rien */ } };
+    return m;
+  }
+  // coupe une liste de mots en 2 lignes de largeur la plus équilibrée
+  function split2(words, meas, size) {
+    if (words.length < 2) return [words.join(' '), ''];
+    let best = null;
+    for (let k = 1; k < words.length; k++) {
+      const a = words.slice(0, k).join(' '), b = words.slice(k).join(' ');
+      const w = Math.max(meas(a, size), meas(b, size));
+      if (!best || w < best.w) best = { a, b, w };
+    }
+    return [best.a, best.b];
+  }
+
+  const SX0 = 360, SX1 = 1560, SY0 = 60, SY1 = 800, FOLD = 54;
+  const LM = 430;                                   // marge gauche du contenu (numéros)
+  const ROW0 = 215, ROWMAX = 785;                   // zone des lignes
+  const HLH = 116, NORMH = 56;
+  const NAMES = ['sheet', 'count', 'focus', 'ink', 'one-sign'];
+  const OPTIONAL = { 3: true };                     // `ink` n'est jamais impliqué par un cue plus tardif
+
+  ZV.define('criteria-sheet', {
+    init(root, shot) {
+      const P = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const dur = isNum(shot && shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cueT = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r == null || b.t < r)) r = b.t; return r; };
+      const from = P.from === 'focus' ? 'focus' : 'none';
+      const fromIdx = from === 'focus' ? 3 : 0;
+
+      /* ---- calendrier des étapes ---- */
+      const raw = NAMES.map(cueT);
+      let T = [];
+      if (from === 'none' && raw.every((x) => x == null)) {
+        const k = Math.min(1, (dur * 0.92) / 8.6);
+        T = [0.3 * k, 1.4 * k, 3.2 * k, 5.6 * k, 7.0 * k];
+      } else {
+        for (let k = 0; k < NAMES.length; k++) {
+          if (k < fromIdx) T[k] = NEVER;
+          else if (raw[k] != null) T[k] = raw[k];
+          else if (!OPTIONAL[k] && raw.slice(k + 1).some((x) => x != null)) T[k] = NEVER;
+          else T[k] = null;
+        }
+      }
+
+      /* ---- props ---- */
+      const header = sstr(P.header, 'MANUEL DE RÉFÉRENCE DES PSYCHIATRES AMÉRICAINS · 5ᵉ ÉDITION · 2013');
+      const title = sstr(P.title, "TROUBLE LIÉ AU JEU D'ARGENT");
+      const count = clamp(Math.round(num(P.count, 9)), 1, 12);
+      const hl = clamp(Math.round(num(P.highlight, 6)), 1, count);
+      const criterion = sstr(P.criterion, "APRÈS AVOIR PERDU DE L'ARGENT AU JEU, RETOURNER SOUVENT JOUER POUR SE REFAIRE");
+      const note = sstr(P.note, 'EN SUBSTANCE');
+      const big = sstr(P.big, '9 CRITÈRES');
+      const ink = sstr(P.ink, 'NOIR SUR BLANC');
+      const sign = sstr(P.sign, 'UN SEUL SIGNE MÉRITE DÉJÀ UNE CONVERSATION');
+
+      const uid = 'cs' + (++UID);
+      const st = { T, dur, count, hl };
+      const meas = mkMeasure(root);
+
+      /* ---- fond : ink + bandes pocket (l'ombre dure ink reste lisible) ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+      const defs = sv('defs', null, root);
+      const mkClip = (id, x, y, h) => { const cp = sv('clipPath', { id: uid + id }, defs); return rect(cp, x, y, 0, h, 0, '#000'); };
+      st.clipH = mkClip('h', LM, 70, 60);
+      st.clipT = mkClip('t', LM, 115, 90);
+
+      /* ---- la feuille (groupe incliné) ---- */
+      st.sheetOut = g(root);
+      const sheet = g(st.sheetOut, { transform: 'rotate(-1.5 960 430)' });
+      const poly = (dx) => `M${SX0 + FOLD + dx} ${SY0 + dx} L${SX1 + dx} ${SY0 + dx} L${SX1 + dx} ${SY1 + dx} L${SX0 + dx} ${SY1 + dx} L${SX0 + dx} ${SY0 + FOLD + dx} Z`;
+      path(sheet, poly(16), C.ink);
+      path(sheet, poly(0), C.paper, C.ink, 8);
+      path(sheet, `M${SX0} ${SY0 + FOLD} L${SX0 + FOLD} ${SY0} L${SX0 + FOLD} ${SY0 + FOLD} Z`, '#CFCABA', C.ink, 6);
+
+      // en-tête et titre (révélés par un balayage)
+      let hs = 22, hw = meas(header, hs, true);
+      if (hw > 1070) { hs = Math.floor(hs * 1070 / hw * 10) / 10; }
+      st.head = text(sheet, header, LM, 108, hs, C.ink, { mono: true });
+      st.head.setAttribute('clip-path', `url(#${uid}h)`);
+      let ts = 52, tw = meas(title, ts);
+      if (tw > 1070) ts = Math.floor(ts * 1070 / tw);
+      st.titleT = text(sheet, title, LM, 168, ts, C.ink);
+      st.titleT.setAttribute('clip-path', `url(#${uid}t)`);
+      st.filet = rect(sheet, LM, 187, 1080, 6, 0, C.ink);
+
+      /* ---- lignes ---- */
+      const rowH = count > 1 ? Math.min(NORMH, (ROWMAX - ROW0 - HLH) / (count - 1)) : NORMH;
+      const r = rng(2013);
+      st.rows = [];
+      let y = ROW0;
+      const rowY = [], rowHt = [];
+      for (let i = 0; i < count; i++) { rowY[i] = y; rowHt[i] = i === hl - 1 ? HLH : rowH; y += rowHt[i]; }
+      st.endY = y;
+      for (let i = 0; i < count; i++) {
+        const o = { y0: rowY[i], h: rowHt[i], hl: i === hl - 1 };
+        o.g = g(sheet);
+        const cy = o.y0 + o.h / 2;
+        const lateRow = i >= count - 2;
+        if (i < count - 1 || count === 1) rect(o.g, LM, o.y0 + o.h - 1, 1080, 2, 0, '#CFCABA');
+        const num2 = String(i + 1).padStart(2, '0');
+        text(o.g, num2, LM, cy + 10, 28, C.ink, { mono: true });
+        o.box = rect(o.g, 490, cy - 17, 34, 34, 0, C.paper, C.ink, 4);
+        o.bars = g(o.g);
+        const two = o.hl || r() > 0.38;
+        const max1 = lateRow ? 650 : 940, min1 = lateRow ? 330 : 520;
+        const w1 = min1 + r() * (max1 - min1);
+        const bh = 14;
+        const by = two ? (o.hl ? cy - 22 : cy - 17) : cy - bh / 2;
+        rect(o.bars, 556, by, w1, bh, bh / 2, C.ink);
+        if (two) rect(o.bars, 556, by + 22 + (o.hl ? 8 : 0), (lateRow ? 120 : 160) + r() * (lateRow ? 330 : 520), bh, bh / 2, C.ink);
+        if (o.hl) {
+          o.hlRect = rect(o.g, 548, o.y0 + 4, 0, o.h - 8, 4, C.lime);
+          o.g.insertBefore(o.hlRect, o.g.firstChild);
+          // texte en clair, mot par mot
+          const words = criterion.split(/\s+/).filter(Boolean);
+          let size = 34;
+          const maxW = 788 - 36;
+          let lines = split2(words, meas, size);
+          while (size > 24 && Math.max(meas(lines[0], size), meas(lines[1], size)) > maxW) { size -= 1; lines = split2(words, meas, size); }
+          const gap = size * 0.3;
+          o.words = [];
+          const hy0 = o.y0 + 4;
+          const lh = size * 1.35;
+          const base1 = hy0 + (o.h - 8 - (size * 0.72 + lh)) / 2 + size * 0.72;
+          lines.forEach((ln, li) => {
+            let x = 566;
+            const wl = ln.split(/\s+/).filter(Boolean);
+            wl.forEach((wd) => {
+              const w = meas(wd, size);
+              const tn = text(o.g, wd, x, base1 + li * lh, size, C.ink, { len: f2(w) });
+              tn.setAttribute('visibility', 'hidden');
+              o.words.push(tn);
+              x += w + gap;
+            });
+            if (li === 1) { o.lineEnd = x - gap; o.line2y = base1 + li * lh; }
+          });
+          o.size = size;
+          o.under = rect(o.g, 566, o.line2y + 10, 0, 8, 0, C.ink);
+          o.underW = Math.max(40, o.lineEnd - 566);
+          // petit sticker « en substance »
+          const nw = meas(note, 20, true) + 30;
+          o.note = g(sheet);
+          rect(o.note, -nw / 2 + 5, -17 + 5, nw, 34, 6, C.ink);
+          rect(o.note, -nw / 2, -17, nw, 34, 6, C.white, C.ink, 4);
+          text(o.note, note, 0, 7, 20, C.ink, { mono: true, anchor: 'middle', len: f2(meas(note, 20, true)) });
+          o.noteX = 1440; o.noteY = o.y0 + o.h / 2;
+          // coche (tracée à `one-sign`)
+          o.check = path(o.g, `M${490 + 6} ${cy + 1} L${490 + 14} ${cy + 11} L${490 + 34} ${cy - 20}`, 'none', C.ink, 10);
+          o.check.setAttribute('stroke-dasharray', '48 48');
+          o.check.setAttribute('visibility', 'hidden');
+          o.cy = cy;
+        }
+        st.rows.push(o);
+      }
+      // voiles ink 62 % sur les autres lignes
+      const hr = st.rows[hl - 1];
+      st.veils = [];
+      if (hl > 1) st.veils.push(rect(sheet, SX0 + 4, ROW0 - 2, SX1 - SX0 - 8, hr.y0 - ROW0 + 2, 0, C.ink, null, 0, { opacity: 0, visibility: 'hidden' }));
+      if (hl < count) st.veils.push(rect(sheet, SX0 + 4, hr.y0 + hr.h, SX1 - SX0 - 8, st.endY - (hr.y0 + hr.h) + 6, 0, C.ink, null, 0, { opacity: 0, visibility: 'hidden' }));
+      // la ligne en clair et le sticker passent au-dessus des voiles
+      sheet.appendChild(hr.g);
+      sheet.appendChild(hr.note);
+      st.hr = hr;
+
+      /* ---- sticker lime « 9 CRITÈRES » ---- */
+      {
+        let bs = 46, bwid = meas(big, bs);
+        if (bwid > 300) { bs = Math.floor(bs * 300 / bwid); bwid = meas(big, bs); }
+        const w = bwid + 50, h = 92;
+        st.big = g(root);
+        rect(st.big, -w / 2 + 10, -h / 2 + 10, w, h, 16, C.ink);
+        rect(st.big, -w / 2, -h / 2, w, h, 16, C.lime, C.paper, 6);
+        text(st.big, big, 0, bs * 0.35, bs, C.ink, { anchor: 'middle', len: f2(bwid) });
+        st.bigX = Math.min(1800 - w / 2, 1640);
+      }
+
+      /* ---- tampon rouge « NOIR SUR BLANC » (marge gauche) ---- */
+      {
+        const words = ink.split(/\s+/).filter(Boolean);
+        let size = 46, lines = split2(words, meas, size);
+        while (size > 24 && Math.max(meas(lines[0], size), meas(lines[1], size)) > 210) { size -= 1; lines = split2(words, meas, size); }
+        const w = Math.min(252, Math.max(meas(lines[0], size), meas(lines[1], size)) + 44), h = (lines[1] ? 2 : 1) * size * 1.1 + 40;
+        st.stamp = g(root);
+        rect(st.stamp, -w / 2, -h / 2, w, h, 6, C.ink, C.red, 8);
+        rect(st.stamp, -w / 2 + 12, -h / 2 + 12, w - 24, h - 24, 2, 'none', C.red, 3);
+        const ly = lines[1] ? [-size * 0.1, size * 1.0] : [size * 0.35];
+        text(st.stamp, lines[0], 0, ly[0], size, C.red, { anchor: 'middle', len: f2(meas(lines[0], size)) });
+        if (lines[1]) text(st.stamp, lines[1], 0, ly[1], size, C.red, { anchor: 'middle', len: f2(meas(lines[1], size)) });
+      }
+
+      /* ---- sticker « un seul signe… » ---- */
+      {
+        const words = sign.split(/\s+/).filter(Boolean);
+        let size = 38, lines = split2(words, meas, size);
+        while (size > 24 && Math.max(meas(lines[0], size), meas(lines[1], size)) > 560) { size -= 1; lines = split2(words, meas, size); }
+        const w = Math.min(640, Math.max(meas(lines[0], size), meas(lines[1], size)) + 56), h = 104;
+        st.sign = g(root);
+        rect(st.sign, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+        rect(st.sign, -w / 2, -h / 2, w, h, 14, C.paper, C.ink, 6);
+        const l0 = lines[1] ? -size * 0.2 : size * 0.35;
+        text(st.sign, lines[0], 0, l0, size, C.ink, { anchor: 'middle', len: f2(meas(lines[0], size)) });
+        if (lines[1]) text(st.sign, lines[1], 0, size * 0.98, size, C.ink, { anchor: 'middle', len: f2(meas(lines[1], size)) });
+        st.signX = Math.min(1570, 1895 - w / 2 - 10);
+      }
+      meas.done();
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const T = st.T;
+        const at = (k) => T[k] != null && t >= T[k];
+        const ph = (k, d, o) => (T[k] == null ? 0 : prog(t, T[k] + (o || 0), T[k] + (o || 0) + d));
+
+        /* feuille : arrive du bas avec rebond */
+        {
+          const on = at(0);
+          const p = ph(0, 0.55);
+          vis(st.sheetOut, on);
+          setA(st.sheetOut, 'transform', `translate(0 ${f2(900 * (1 - E.back(p)))})`);
+          st.clipH.setAttribute('width', f2(1080 * E.out2(ph(0, 0.35, 0.35))));
+          st.clipT.setAttribute('width', f2(1080 * E.out2(ph(0, 0.35, 0.6))));
+          setA(st.filet, 'width', f2(1080 * E.out3(ph(0, 0.3, 0.75))));
+        }
+
+        /* lignes en cascade (3 i d'écart) */
+        for (let i = 0; i < st.rows.length; i++) {
+          const o = st.rows[i];
+          const ti = T[1] == null ? null : T[1] + i * 0.1;
+          const on = ti != null && t >= ti;
+          const p = on ? E.out3(prog(t, ti, ti + 0.2)) : 0;
+          vis(o.g, on);
+          setA(o.g, 'opacity', f2(p));
+          setA(o.g, 'transform', `translate(${f2(-40 * (1 - p))} 0)`);
+        }
+        // sticker « 9 CRITÈRES »
+        {
+          const p = ph(1, 0.3, 0.05);
+          const on = at(1);
+          put(st.big, st.bigX, 150, 4, E.back(p), E.back(p), on ? clamp(p * 4) : 0);
+        }
+
+        /* focus : voile, surlignage, texte mot par mot */
+        const hr = st.hr;
+        {
+          const tf = T[2];
+          const fo = at(2);
+          const vp = E.out2(ph(2, 0.2));
+          for (const v of st.veils) { setA(v, 'opacity', f2(0.62 * vp)); vis(v, vp > 0.001); }
+          setA(hr.hlRect, 'width', f2(788 * E.out3(ph(2, 0.3))));
+          vis(hr.hlRect, fo);
+          vis(hr.bars, !fo);
+          const t0 = tf == null ? 0 : tf + 0.25;
+          let last = -1;
+          hr.words.forEach((w, k) => { const on = tf != null && t >= t0 + k * 0.12; vis(w, on); if (on) last = k; });
+          const tNote = t0 + hr.words.length * 0.12;
+          const np = tf == null ? 0 : E.back(prog(t, tNote, tNote + 0.25));
+          const on = tf != null && t >= tNote;
+          put(hr.note, hr.noteX, hr.noteY, 3, np, np, on ? 1 : 0);
+        }
+
+        /* ink : soulignement + tampon */
+        {
+          const p = ph(3, 8 / 30);
+          setA(hr.under, 'width', f2(hr.underW * p));
+          vis(hr.under, p > 0);
+          const sp = ph(3, 0.2);
+          const k = 1 + 0.7 * (1 - E.out3(sp));
+          put(st.stamp, 200, 550, -8, k, k, at(3) ? clamp(sp * 5) : 0);
+        }
+
+        /* un seul signe : coche + sticker calme */
+        {
+          const p = ph(4, 6 / 30);
+          vis(hr.check, p > 0);
+          setA(hr.check, 'stroke-dashoffset', f2(48 * (1 - p)));
+          const sp = ph(4, 0.3, 0.2);
+          const k = E.out3(sp);
+          put(st.sign, st.signX, 752, 2, 0.85 + 0.15 * k, 0.85 + 0.15 * k, at(4) && T[4] + 0.2 <= t ? clamp(sp * 4) : 0);
+        }
+      } catch (e) { /* jamais d'exception */ }
     }
   });
 })();
@@ -7823,6 +8457,313 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/run-curve.js ==== */
+// Composant `run-curve` : la courbe de fortune d'Archie Karas en trois saisons (échelle LINÉAIRE : 40 M$ = 560 px).
+// Cues : start, climb(dur), summit, seed, yours, night, baccarat, zero(dur), ghost, loop, 2013, blacklist, 2024, recap.
+// Montée en paper (jamais lime), chute en rouge, boucle en paper ; le lime est réservé au sol (le zéro). Aucun clignotement.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const measure = (n, size) => { try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ } return (n.textContent || '').length * size * 0.62; };
+  const YV = (m) => 720 - m * 14;           // m en M$ → y
+  const GY = 720;                           // sol
+
+  // coupe en deux lignes équilibrées (« | » force la coupure)
+  function split2(s) {
+    if (s.indexOf('|') >= 0) return s.split('|').map((x) => x.trim());
+    if (s.length < 20) return [s];
+    const mid = s.length / 2; let best = -1, bd = 1e9;
+    for (let i = 1; i < s.length; i++) if (s[i] === ' ' && !/[:·→]/.test(s[i + 1] || '') && Math.abs(i - mid) < bd) { bd = Math.abs(i - mid); best = i; }
+    return best < 0 ? [s] : [s.slice(0, best), s.slice(best + 1)];
+  }
+  // étiquette plate centrée sur (0,0) ; lines = tableau de lignes
+  function mkTag(parent, lines, size, o) {
+    o = o || {};
+    if (typeof lines === 'string') lines = [lines];
+    const grp = g(parent), lh = size * 1.22;
+    const txs = lines.map((s, i) => text(grp, s, 0, (i - (lines.length - 1) / 2) * lh + size * 0.35, size, o.tfill || C.ink, { anchor: 'middle', mono: o.mono }));
+    let w = Math.max.apply(null, txs.map((n) => measure(n, size)));
+    if (o.maxW && w > o.maxW) { const k = o.maxW / w; txs.forEach((n, i) => { n.setAttribute('font-size', f2(size * k)); n.setAttribute('y', f2((i - (lines.length - 1) / 2) * lh * k + size * k * 0.35)); }); w = o.maxW; }
+    const bw = w + 2 * (o.padX === undefined ? 20 : o.padX), bh = lh * lines.length * (o.maxW && w === o.maxW ? 1 : 1) + (o.padY === undefined ? 18 : o.padY), sh = o.sh === undefined ? 8 : o.sh, r = o.r === undefined ? 10 : o.r;
+    const a = rect(grp, -bw / 2 + sh, -bh / 2 + sh, bw, bh, r, o.shFill || C.ink);
+    const b = rect(grp, -bw / 2, -bh / 2, bw, bh, r, o.fill || C.paper, o.stroke || C.ink, o.sw || 5);
+    grp.insertBefore(a, txs[0]); grp.insertBefore(b, txs[0]);
+    return { g: grp, w: bw, h: bh };
+  }
+  function poly(pts) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    return { pts, cum, L: cum[cum.length - 1] };
+  }
+  function at(pl, s) {
+    s = clamp(s, 0, pl.L);
+    let i = 1; while (i < pl.pts.length - 1 && pl.cum[i] < s) i++;
+    const a = pl.pts[i - 1], b = pl.pts[i], d = pl.cum[i] - pl.cum[i - 1], k = d > 0 ? (s - pl.cum[i - 1]) / d : 0;
+    return [lerp(a[0], b[0], k), lerp(a[1], b[1], k)];
+  }
+  const dstr = (pts, ox, oy, sx, sy) => pts.map((p, i) => `${i ? 'L' : 'M'}${f2((ox || 0) + p[0] * (sx || 1))} ${f2((oy || 0) + p[1] * (sy || sx || 1))}`).join('');
+  // trait de courbe (bordure ink + corps), tracé progressif par dasharray
+  function stroke(parent, pl, col, w, ink) {
+    const d = dstr(pl.pts);
+    const a = path(parent, d, 'none', ink || C.ink, w + 8, { 'stroke-linecap': 'butt' });
+    const b = path(parent, d, 'none', col, w, { 'stroke-linecap': 'butt' });
+    return { a, b, pl };
+  }
+  function reveal(st, s) {
+    const on = s > 0.5, v = Math.min(s, st.pl.L);
+    vis(st.a, on); vis(st.b, on);
+    const da = `${f2(v)} ${f2(st.pl.L + 50)}`;
+    setA(st.a, 'stroke-dasharray', da); setA(st.b, 'stroke-dasharray', da);
+  }
+
+  function buildClimb(rnd) {
+    const ph = [{ n: 7, x0: 200, x1: 420, h0: 0, h1: 14, e: 1.2 }, { n: 6, x0: 420, x1: 620, h0: 14, h1: 120, e: 2.3 }, { n: 7, x0: 620, x1: 840, h0: 120, h1: 560, e: 1.6 }];
+    const T = [], X = [];
+    let k = 0;
+    ph.forEach((p) => { for (let i = 0; i < p.n; i++, k++) { const u = (i + 1) / p.n; T.push(p.h0 + (p.h1 - p.h0) * Math.pow(u, p.e)); X.push(lerp(p.x0, p.x1, u)); } });
+    const dips = { 3: 3, 9: 12, 15: 45 };
+    for (const i in dips) { const ii = +i; T[ii] = Math.max(0, T[ii - 1] - dips[i]); }
+    const pts = [[200, GY - 0.5]];
+    let xa = 200, ha = 0;
+    for (let i = 0; i < T.length; i++) {
+      const xb = X[i], w = xb - xa, hb = i === T.length - 1 ? 560 : T[i], f = 0.4 + rnd() * 0.2;
+      pts.push([xa + w * f, GY - ha - 0.5], [xa + w * (f + 0.18), GY - hb - 0.5], [xb, GY - hb - 0.5]);
+      xa = xb; ha = hb;
+    }
+    pts[pts.length - 1] = [840, 160];
+    return pts;
+  }
+
+  ZV.define('run-curve', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const cueOf = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).sort((a, c) => a.t - c.t)[0]; return b || null; };
+      const st = {};
+      const T = {};
+      ['start', 'climb', 'summit', 'seed', 'yours', 'night', 'baccarat', 'zero', 'ghost', 'loop', '2013', 'blacklist', '2024', 'recap'].forEach((n) => { const b = cueOf(n); T[n] = b ? b.t : null; st['d_' + n] = b && isNum(b.dur) && b.dur > 0 ? b.dur : null; });
+      st.T = T;
+      st.from = ['climb', 'fall', 'all'].indexOf(p.from) >= 0 ? p.from : 'empty';
+      st.fromRank = { empty: 0, climb: 1, fall: 2, all: 3 }[st.from];
+      const rnd = ZV.rng(1992);
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      // repère 40 M$ et graduations
+      line(root, 200, 160, 860, 160, C.paper, 2, { 'stroke-dasharray': '10 10', 'stroke-linecap': 'butt' });
+      text(root, '40 M$', 186, 170, 30, C.paper, { anchor: 'end', mono: true });
+      [10, 20, 30, 40].forEach((m) => line(root, 192, YV(m), 214, YV(m), C.paper, 3, { 'stroke-linecap': 'butt' }));
+      [860, 1180].forEach((x) => line(root, x, 110, x, 720, C.paper, 3, { 'stroke-dasharray': '8 10', 'stroke-linecap': 'butt' }));
+      // séparer : bande du sol
+      rect(root, 60, GY, 1720, 40, 0, C.lime);
+      text(root, '0', 140, GY + 32, 40, C.ink, { anchor: 'middle', mono: true });
+      // en-têtes
+      st.hd = [['SAISON 1 · LA MONTÉE', 530], ['SAISON 2 · LA CHUTE', 1020], ['SAISON 3 · LA BOUCLE', 1450]].map((h) => { const n = text(root, h[0], h[1], 92, 24, C.paper, { anchor: 'middle', mono: true }); return n; });
+      // traits de rappel (derrière les courbes)
+      st.leadN = line(root, 642, 245, 876, 237, C.paper, 3, { 'stroke-dasharray': '6 8', 'stroke-linecap': 'butt' });
+      st.leadB = line(root, 578, 337, 956, 433, C.paper, 3, { 'stroke-dasharray': '6 8', 'stroke-linecap': 'butt' });
+      // ghost
+      st.ghostL = line(root, 860, 160, 1720, 160, C.paper, 2, { 'stroke-dasharray': '10 10', 'stroke-linecap': 'butt' });
+      st.ghostT = text(root, str(p.ghost, 'LÀ OÙ IL ÉTAIT EN JANVIER 1995'), 1720, 146, 26, C.paper, { anchor: 'end', mono: true });
+      // courbes
+      st.climb = stroke(root, poly(buildClimb(rnd)), C.paper, 10);
+      const FALL = [[840, 160], [880, 160], [880, YV(29)], [960, YV(29)], [960, YV(12)], [990, YV(12)], [1000, 600], [1040, 600], [1050, 650], [1090, 650], [1100, 690], [1130, 690], [1140, GY], [1160, GY]];
+      st.shk = g(root);
+      st.fall = stroke(st.shk, poly(FALL), C.red, 10);
+      st.iN = 2; st.iB = 4; // indices des fins de falaise
+      const lp = [[1160, GY], [1200, GY]];
+      for (let i = 0; i < 4; i++) { const x0 = 1200 + i * 125; lp.push([x0 + 40, GY], [x0 + 62, GY - 14], [x0 + 85, GY], [x0 + 125, GY]); }
+      st.loop = stroke(root, poly(lp), C.paper, 10);
+      // stickers de phase
+      st.ph = [['POKER', 300, 668, 215], ['BILLARD', 468, 618, 430], ['DÉS', 790, 560, 640]].map((a) => { const t = mkTag(root, a[0], 26, { mono: true, padY: 16, sh: 6, sw: 4 }); return { g: t.g, x: a[1], y: a[2], thr: a[3] }; });
+      // départ
+      st.startG = g(root);
+      const sg = g(st.startG);
+      rect(sg, 210 + 8, 546 + 8, 340, 92, 8, C.ink);
+      path(sg, 'M230 636 L284 636 L206 694Z', C.paper, C.ink, 5);
+      rect(sg, 210, 546, 340, 92, 8, C.paper, C.ink, 5);
+      rect(sg, 236, 634, 46, 8, 0, C.paper);
+      const kk = text(sg, str(p.start_kicker, 'LAS VEGAS · DÉC. 1992'), 380, 576, 22, C.ink, { anchor: 'middle', mono: true });
+      const kw = measure(kk, 22); if (kw > 310) { kk.setAttribute('font-size', f2(22 * 310 / kw)); }
+      const sm = text(sg, str(p.start, '50 $ EN POCHE'), 380, 620, 44, C.ink, { anchor: 'middle' });
+      const sw = measure(sm, 44); if (sw > 310) { sm.setAttribute('font-size', f2(44 * 310 / sw)); }
+      // sommet
+      st.sumT = text(root, str(p.summit, '≈ 40 M$'), 810, 146, 56, C.paper, { anchor: 'end' });
+      st.brace = g(root);
+      path(st.brace, 'M200 772 L200 784 L840 784 L840 772 M520 784 L520 794', 'none', C.paper, 4, { 'stroke-linecap': 'butt' });
+      text(st.brace, str(p.span, '2 ANS ½'), 520, 824, 26, C.paper, { anchor: 'middle', mono: true });
+      st.fac = mkTag(root, str(p.factor, '× 800 000'), 60, { padY: 24, sh: 10, sw: 6, maxW: 360 });
+      st.seed = mkTag(root, split2(str(p.seed, 'PAS UNE STRATÉGIE : UN SOUVENIR')), 24, { mono: true, padY: 22 });
+      st.pin = g(root);
+      line(st.pin, 840, 160, 840, 118, C.ink, 12);
+      line(st.pin, 840, 160, 840, 118, C.lime, 6);
+      circle(st.pin, 840, 108, 17, C.lime, C.ink, 5);
+      // « ton run »
+      st.yours = g(root);
+      rect(st.yours, 1240 + 10, 200 + 10, 460, 240, 6, C.ink);
+      rect(st.yours, 1240, 200, 460, 240, 6, C.paper, C.ink, 6);
+      const mini = stroke(st.yours, poly(buildClimb(ZV.rng(1992)).map((q) => [1268 + (q[0] - 200) * 0.3, 410 - (GY - q[1]) * 0.3])), C.ink, 5, C.paper);
+      line(st.yours, 1268, 412, 1480, 412, C.ink, 5, { 'stroke-linecap': 'butt' });
+      st.mini = mini;
+      const yl = split2(str(p.yours, 'TON RUN, À TA TAILLE').replace(/, /, ',|'));
+      yl.forEach((s, i) => text(st.yours, s, 1584, 316 + i * 34, 24, C.ink, { anchor: 'middle', mono: true }));
+      // chute : stickers
+      st.night = mkTag(st.shk, split2(str(p.night, 'JANV. 1995 · −11 M$ EN UNE NUIT, AUX DÉS')), 26, { mono: true, padY: 20 });
+      st.bacc = mkTag(root, str(p.baccarat, '−17 M$ · BACCARA'), 28, { mono: true, padY: 20 });
+      st.zero = mkTag(root, split2(str(p.zero, '3 SEMAINES PLUS TARD : 0')), 26, { mono: true, padY: 20 });
+      // boucle : loupe
+      st.lens = g(root);
+      const ln = st.lens;
+      [1220, 1700].forEach((x, i) => line(ln, x, 480, i ? 1700 : 1200, 716, C.paper, 3, { 'stroke-dasharray': '6 8', 'stroke-linecap': 'butt' }));
+      rect(ln, 1220 + 12, 260 + 12, 480, 220, 6, C.ink);
+      rect(ln, 1220, 260, 480, 220, 6, C.paper, C.ink, 6);
+      line(ln, 1250, 322, 1590, 322, C.ink, 2, { 'stroke-dasharray': '8 8', 'stroke-linecap': 'butt' });
+      rect(ln, 1240, 436, 360, 14, 0, C.lime, C.ink, 3);
+      const mp = []; for (let i = 0; i < 4; i++) { const x0 = 1260 + i * 80; mp.push([x0, 436], [x0 + 26, 436], [x0 + 40, 330], [x0 + 54, 436], [x0 + 80, 436]); }
+      mp.unshift([1250, 436]);
+      st.lensC = stroke(ln, poly(mp), C.ink, 8, C.paper);
+      const loL = Array.isArray(p.loop_labels) ? p.loop_labels : ['1 M$', '0'];
+      text(ln, str(loL[0], '1 M$'), 1604, 332, 28, C.ink, { mono: true });
+      text(ln, str(loL[1], '0'), 1604, 446, 28, C.ink, { mono: true });
+      // drapeaux
+      const FL = Array.isArray(p.flags) && p.flags.length ? p.flags : [{ cue: '2013', text: '2013 · ARRÊTÉ|CARTES MARQUÉES' }, { cue: 'blacklist', text: 'LISTE NOIRE|DU NEVADA' }, { cue: '2024', text: '2024|SANS FORTUNE' }];
+      const FX = [1290, 1470, 1650], FY = [500, 572, 606];
+      st.flags = FL.slice(0, 3).map((f, i) => {
+        const fg = g(root), x = FX[i], y0 = FY[i];
+        line(fg, x, y0 + 4, x, GY - 2, C.paper, 4, { 'stroke-linecap': 'butt' });
+        const ls = String(f && f.text || '').split('|');
+        const tag = mkTag(fg, ls, 22, { mono: true, padY: 14, sh: 5, sw: 4, r: 4, padX: 12 });
+        tag.g.setAttribute('transform', `translate(${f2(x + 2 + tag.w / 2)} ${y0 + 25})`);
+        return { g: fg, cue: String(f && f.cue || ['2013', 'blacklist', '2024'][i]), y: y0, h: GY - y0 };
+      });
+      // tête
+      st.head = g(st.shk);
+      circle(st.head, 0, 0, 18, C.white, C.ink, 5);
+      // récap
+      const ring = (cx, cy, r) => `M${cx - r} ${cy} a${r} ${r} 0 1 0 ${2 * r} 0 a${r} ${r} 0 1 0 ${-2 * r} 0Z`;
+      st.veil = path(root, `M0 0 H1920 V1080 H0Z ${ring(200, GY, 44)} ${ring(1700, GY, 44)}`, C.ink, null, 0, { 'fill-rule': 'evenodd' });
+      st.rings = g(root);
+      [200, 1700].forEach((x) => { circle(st.rings, x, GY, 38, 'none', C.ink, 18); circle(st.rings, x, GY, 38, 'none', C.lime, 8); });
+      st.recap = mkTag(root, str(p.recap, '50 $ → 0'), 140, { padY: 50, padX: 50, sh: 14, sw: 8, maxW: 900, r: 16 });
+      return st;
+    },
+
+    update(st, t) {
+      if (!st || !st.T) return;
+      const T = st.T, fr = st.fromRank, tt = (n) => T[n];
+      const past = (n, d) => (tt(n) != null && t >= tt(n) + (d || 0));
+
+      /* ---- avancement de chaque courbe ---- */
+      const cl = st.climb.pl, fl = st.fall.pl, lp = st.loop.pl;
+      const cDur = st.d_climb || 6;
+      let sC = fr >= 1 ? cl.L : tt('climb') == null ? 0 : cl.L * Math.pow(prog(t, tt('climb'), tt('climb') + cDur), 1.6);
+      let sF = fr >= 2 ? fl.L : Math.max(
+        tt('night') == null ? 0 : fl.cum[st.iN] * prog(t, tt('night'), tt('night') + 0.2),
+        tt('baccarat') == null ? 0 : (prog(t, tt('baccarat'), tt('baccarat') + 0.4) > 0 ? fl.cum[st.iN] + (fl.cum[st.iB] - fl.cum[st.iN]) * prog(t, tt('baccarat'), tt('baccarat') + 0.4) : 0),
+        tt('zero') == null ? 0 : (prog(t, tt('zero'), tt('zero') + (st.d_zero || 2)) > 0 ? fl.cum[st.iB] + (fl.L - fl.cum[st.iB]) * prog(t, tt('zero'), tt('zero') + (st.d_zero || 2)) : 0));
+      const pL = fr >= 3 ? 1 : tt('loop') == null ? 0 : prog(t, tt('loop'), tt('loop') + (st.d_loop || 3));
+      const sL = lp.L * pL;
+      reveal(st.climb, sC); reveal(st.fall, sF); reveal(st.loop, sL);
+
+      /* ---- en-têtes de saison ---- */
+      vis(st.hd[0], fr >= 1 || tt('start') != null && t >= tt('start') || tt('climb') != null && t >= tt('climb'));
+      vis(st.hd[1], fr >= 2 || past('night'));
+      vis(st.hd[2], fr >= 3 || past('loop'));
+
+      /* ---- tête ---- */
+      const startOn = fr >= 1 || (tt('start') != null && t >= tt('start')) || sC > 0;
+      let hp, hs = 1;
+      if (sL > 0.5) hp = at(lp, sL); else if (sF > 0.5) hp = at(fl, sF); else hp = at(cl, sC);
+      if (tt('start') != null && fr < 1 && sC <= 0) hs = E.back(prog(t, tt('start'), tt('start') + 0.25));
+      put(st.head, hp[0], hp[1], 0, hs, hs, startOn ? 1 : 0);
+      const nSk = tt('night') == null ? [0, 0] : shakeAt(t, tt('night'), 12, 0.4);
+      setA(st.shk, 'transform', `translate(${f2(nSk[0])} ${f2(nSk[1])})`);
+
+      /* ---- départ ---- */
+      const sQ = fr >= 1 || tt('start') == null ? 0 : prog(t, tt('start'), tt('start') + 0.3);
+      const sOut = tt('climb') == null ? 0 : prog(t, tt('climb'), tt('climb') + 0.3);
+      const ssc = sQ > 0 ? E.back(sQ) : 0;
+      setA(st.startG, 'transform', `translate(380 640) scale(${f2(ssc || 0.0001)}) translate(-380 -640)`);
+      vis(st.startG, sQ > 0 && sOut < 1);
+      setA(st.startG, 'opacity', f2(1 - sOut));
+
+      /* ---- stickers de phase ---- */
+      const night = tt('night') == null ? (fr >= 2 ? 1 : 0) : (fr >= 2 ? 1 : prog(t, tt('night'), tt('night') + 0.3));
+      st.ph.forEach((o, i) => {
+        const x = hp[0];
+        const passed = fr >= 1 || (sC > 0 && cl.pts && (sC >= cl.L * [0.0, 0.19, 0.5][i]));
+        const q = fr >= 1 ? 1 : clamp((sC - cl.L * [0.0, 0.19, 0.5][i]) / (cl.L * 0.03));
+        const s = q > 0 ? E.back(q) : 0;
+        put(st.ph[i].g, o.x, o.y, i % 2 ? 2 : -2, s, s, q > 0 && (fr < 1 || true) ? 1 : 0);
+      });
+
+      /* ---- sommet ---- */
+      const sm = fr >= 1 ? 1 : tt('summit') == null ? 0 : prog(t, tt('summit'), tt('summit') + 0.3);
+      const fade = 1 - night;
+      const smE = sm > 0 && fade > 0 ? 1 : 0;
+      const spop = sm > 0 ? E.out3(sm) : 0;
+      vis(st.sumT, smE); setA(st.sumT, 'opacity', f2(spop * fade));
+      setA(st.brace, 'opacity', f2(spop * fade)); vis(st.brace, smE);
+      const fq = tt('summit') == null ? 0 : prog(t, tt('summit') + 0.15, tt('summit') + 0.4);
+      const fs = fq > 0 && fade > 0 ? 1 + 0.5 * (1 - E.out3(fq)) : 0;
+      put(st.fac.g, 420, 300, -4, fs, fs, fs > 0 ? fade : 0);
+      const sd = tt('seed') == null ? 0 : prog(t, tt('seed'), tt('seed') + 0.3);
+      put(st.seed.g, 430, 410, 2, sd > 0 ? E.back(sd) : 0, sd > 0 ? E.back(sd) : 0, sd > 0 ? fade : 0);
+      const pinQ = fr >= 2 ? 1 : sd;
+      put(st.pin, 0, 0, 0, 1, 1, pinQ > 0 ? 1 : 0);
+      st.pin.setAttribute('transform', `translate(840 ${f2(160 - 52 * (1 - E.out3(pinQ)))})  translate(-840 -160)`);
+      // ton run
+      const yq = tt('yours') == null ? 0 : prog(t, tt('yours'), tt('yours') + 0.3);
+      const yOn = yq > 0 && fade > 0 && fr < 2;
+      vis(st.yours, yOn); setA(st.yours, 'opacity', f2(fade));
+      reveal(st.mini, st.mini.pl.L * (tt('yours') == null ? 0 : E.out2(prog(t, tt('yours') + 0.2, tt('yours') + 1.2))));
+      st.yours.setAttribute('transform', `translate(${f2(1470 * (1 - E.out3(yq)) * 0.0)} ${f2(-30 * (1 - E.out3(yq)))})`);
+
+      /* ---- chute ---- */
+      const nQ = fr >= 2 ? 1 : tt('night') == null ? 0 : prog(t, tt('night') + 0.1, tt('night') + 0.4);
+      put(st.night.g, 440, 245, -2, nQ > 0 ? E.back(nQ) : 0, nQ > 0 ? E.back(nQ) : 0, nQ > 0 ? 1 : 0);
+      vis(st.leadN, nQ > 0.6);
+      const bQ = fr >= 2 ? 1 : tt('baccarat') == null ? 0 : prog(t, tt('baccarat') + 0.1, tt('baccarat') + 0.4);
+      put(st.bacc.g, 410, 337, 2, bQ > 0 ? E.back(bQ) : 0, bQ > 0 ? E.back(bQ) : 0, bQ > 0 ? 1 : 0);
+      vis(st.leadB, bQ > 0.6);
+      const zQ = fr >= 2 ? 1 : tt('zero') == null ? 0 : prog(t, tt('zero') + (st.d_zero || 2) - 0.1, tt('zero') + (st.d_zero || 2) + 0.2);
+      put(st.zero.g, 400, 425, -2, zQ > 0 ? E.back(zQ) : 0, zQ > 0 ? E.back(zQ) : 0, zQ > 0 ? 1 : 0);
+
+      /* ---- ghost ---- */
+      const gq = fr >= 3 ? 1 : tt('ghost') == null ? 0 : prog(t, tt('ghost'), tt('ghost') + 0.8);
+      vis(st.ghostL, gq > 0); setA(st.ghostL, 'x2', f2(lerp(860, 1720, E.out2(gq))));
+      const gt = fr >= 3 ? 1 : tt('ghost') == null ? 0 : prog(t, tt('ghost') + 0.4, tt('ghost') + 0.7);
+      vis(st.ghostT, gt > 0); setA(st.ghostT, 'opacity', f2(gt));
+
+      /* ---- boucle : loupe ---- */
+      const lq = fr >= 3 ? 1 : tt('loop') == null ? 0 : prog(t, tt('loop'), tt('loop') + 0.3);
+      const ls = lq > 0 ? E.out3(lq) : 0;
+      vis(st.lens, lq > 0); setA(st.lens, 'opacity', f2(ls));
+      reveal(st.lensC, st.lensC.pl.L * pL);
+
+      /* ---- drapeaux ---- */
+      st.flags.forEach((f) => {
+        const tf = tt(f.cue); const q = fr >= 3 ? 1 : tf == null ? 0 : prog(t, tf, tf + 0.35);
+        vis(f.g, q > 0);
+        const e = q > 0 ? E.out3(q) : 0;
+        // le mât pousse du sol : on rogne par clip simple via échelle verticale ancrée au sol
+        f.g.setAttribute('transform', `translate(0 ${GY}) scale(1 ${f2(0.2 + 0.8 * e)}) translate(0 ${-GY})`);
+        setA(f.g, 'opacity', f2(Math.min(1, q * 3)));
+      });
+
+      /* ---- récap ---- */
+      const rq = tt('recap') == null ? 0 : prog(t, tt('recap'), tt('recap') + 0.35);
+      vis(st.veil, rq > 0); setA(st.veil, 'fill-opacity', f2(0.62 * rq));
+      vis(st.rings, rq > 0);
+      const rs = rq > 0 ? 1 + 0.6 * (1 - E.out3(rq)) : 0;
+      put(st.recap.g, 960, 420, -2, rs, rs, rq > 0 ? 1 : 0);
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/saga.js ==== */
 // Composant `saga` : la saga de Charles Wells en quatre saisons (cartes), calendrier de deux mois, barre de vie.
 (() => {
@@ -8105,6 +9046,199 @@
         else if (st.mode === 'lifeline') tickLife(st, t);
         else tickSeasons(st, t);
       } catch (e) { if (window.ZV_DEBUG) console.error(e); }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/same-share.js ==== */
+// Composant `same-share` : « l'échelle bouge avec toi, le pourcentage ne bouge jamais ».
+// Deux panneaux identiques (Karas à gauche, toi à droite), chacun avec une grille de fortune de 20 × 10 = 200 cases.
+// Cues : left, night(dur), quarter, one, right, bet-right, zoom, same. Aucun pourcentage chiffré : la grille parle.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const measure = (n, size) => { try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ } return (n.textContent || '').length * size * 0.62; };
+  function fit(n, size, maxW, y0) {
+    const w = measure(n, size);
+    if (w > maxW) { const k = maxW / w; n.setAttribute('font-size', f2(size * k)); if (y0 !== undefined) n.setAttribute('y', f2(y0 * k)); return maxW; }
+    return w;
+  }
+  // étiquette plate centrée sur (0,0)
+  function mkTag(parent, s, size, o) {
+    o = o || {};
+    const grp = g(parent);
+    const tx = text(grp, s, 0, size * 0.35, size, o.tfill || C.ink, { anchor: 'middle', mono: o.mono });
+    const w = fit(tx, size, o.maxW || 700, size * 0.35);
+    const bw = w + 2 * (o.padX === undefined ? 24 : o.padX), bh = o.h || size * 1.7, sh = o.sh === undefined ? 8 : o.sh;
+    const a = rect(grp, -bw / 2 + sh, -bh / 2 + sh, bw, bh, 10, C.ink);
+    const b = rect(grp, -bw / 2, -bh / 2, bw, bh, 10, o.fill || C.paper, C.ink, o.sw || 5);
+    grp.insertBefore(a, tx); grp.insertBefore(b, tx);
+    return { g: grp, w: bw, h: bh };
+  }
+
+  const COLS = 20, ROWS = 10, N = COLS * ROWS, PITCH = 38, CELL = 34;
+  const GX = -378, GY = 230;            // origine de la grille dans le repère du panneau (centre = 0)
+  const ZC = [0, GY + 188];             // centre de la zone de grille (échelle 0,22 autour)
+  const SMALL = 0.22;
+  const LCX = 510, RCX = 1410, LCX0 = 960;
+
+  function mkPanel(root, kicker, total) {
+    const P = { g: g(root), cells: [] };
+    const pg = P.g;
+    const k = text(pg, kicker, GX, 90, 26, C.paper, { mono: true });
+    fit(k, 26, 760);
+    const tt = text(pg, total, GX, 180, 72, C.paper); fit(tt, 72, 500);
+    P.head = [k, tt];
+    P.grid = g(pg);
+    rect(P.grid, GX - 8, GY - 8, 772, 392, 4, C.pocket, C.paper, 4);
+    P.cg = g(P.grid); P.top = g(P.grid);
+    for (let i = 0; i < N; i++) {
+      const r = Math.floor(i / COLS), c = i % COLS;
+      const cell = rect(i === 0 ? P.top : P.cg, GX + c * PITCH, GY + r * PITCH, CELL, CELL, 0, C.paper, C.ink, 3);
+      P.cells.push({ n: cell, row: r, col: c });
+    }
+    // contour lime du premier carré (final « same »)
+    P.hero = rect(P.top, GX - 3, GY - 3, CELL + 6, CELL + 6, 0, 'none', C.lime, 6);
+    // étiquettes sous la grille
+    P.lbl = {};
+    P.lblG = g(pg);
+    return P;
+  }
+  const mkLbl = (P, s, fill) => { const n = text(P.lblG, s, GX, 690, 34, fill, { mono: true }); fit(n, 34, 760); return n; };
+
+  ZV.define('same-share', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const cueOf = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).sort((a, c) => a.t - c.t)[0]; return b || null; };
+      const st = { T: {}, D: {} };
+      ['left', 'night', 'quarter', 'one', 'right', 'bet-right', 'zoom', 'same'].forEach((n) => { const b = cueOf(n); st.T[n] = b ? b.t : null; st.D[n] = b && isNum(b.dur) && b.dur > 0 ? b.dur : null; });
+      st.nightCells = Math.max(1, Math.min(N - 1, Math.round(isNum(p.night_cells) ? p.night_cells : 55)));
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      // panneau gauche
+      st.L = mkPanel(root, str(p.left_kicker, 'KARAS · JANVIER 1995'), str(p.left_total, '40 M$'));
+      st.L.l0 = mkLbl(st.L, 'UNE MISE APRÈS L\'AUTRE', C.paper);
+      st.L.l1 = mkLbl(st.L, str(p.night, '−11 M$ EN UNE NUIT'), C.red);
+      st.L.l2 = mkLbl(st.L, str(p.left_bet, 'UNE MISE : 200 000 $'), C.paper);
+      // contour du quart (polygone en L)
+      const q = (x, y) => `${f2(GX + x)} ${f2(GY + y)}`;
+      st.qPath = path(st.L.g, `M${q(-5, -5)} L${q(761, -5)} L${q(761, 75)} L${q(381, 75)} L${q(381, 115)} L${q(-5, 115)}Z`, 'none', C.lime, 6, { 'stroke-dasharray': '16 10', 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' });
+      const defs = sv('defs', null, root);
+      st.qClip = rect(sv('clipPath', { id: 'ss-q' }, defs), GX - 20, GY - 20, 0, 160, 0, '#000');
+      st.qPath.setAttribute('clip-path', 'url(#ss-q)');
+      st.qStk = mkTag(st.L.g, str(p.quarter, 'PLUS D\'UN QUART'), 38, { fill: C.lime, maxW: 340, h: 66, sw: 5 });
+      st.small = mkTag(st.L.g, str(p.small, 'A L\'AIR PETITE'), 38, { fill: C.paper, maxW: 340, h: 66, sw: 5 });
+      // panneau droit
+      st.R = mkPanel(root, str(p.right_kicker, 'TOI'), str(p.right_total, '500 €'));
+      st.R.l0 = mkLbl(st.R, str(p.right_bet, 'UNE MISE : 2,50 €'), C.paper);
+      st.R.grid.setAttribute('transform', `translate(${ZC[0]} ${ZC[1]}) scale(${SMALL}) translate(${-ZC[0]} ${-ZC[1]})`);
+      // « l'échelle bouge » et « = » et bandeau
+      st.scale = mkTag(root, str(p.scale, 'L\'ÉCHELLE BOUGE AVEC TOI'), 26, { maxW: 460, h: 44, sw: 4, sh: 6, padX: 20 });
+      st.eq = text(root, '=', 960, 470, 130, C.lime, { anchor: 'middle' });
+      st.eq.setAttribute('stroke', C.ink); st.eq.setAttribute('stroke-width', 14); st.eq.setAttribute('paint-order', 'stroke'); st.eq.setAttribute('stroke-linejoin', 'round');
+      st.band = g(root);
+      const bt = text(st.band, str(p.same, 'LE POURCENTAGE, LUI, NE BOUGE JAMAIS'), 960, 790, 50, C.paper, { anchor: 'middle' });
+      const bw = Math.min(1500, fit(bt, 50, 1400, 0) + 90);
+      bt.setAttribute('y', f2(790 + (bt.getAttribute('font-size') - 50) * 0.35));
+      const br = rect(st.band, 960 - bw / 2, 740, bw, 70, 0, C.ink, C.paper, 6);
+      st.band.insertBefore(br, bt);
+      st.nc = new Array(N).fill(null);
+      st.rc = new Array(N).fill(null);
+      return st;
+    },
+
+    update(st, t) {
+      if (!st || !st.T) return;
+      const T = st.T, D = st.D, L = st.L, R = st.R;
+      const tl = T.left, tn = T.night, tq = T.quarter, to = T.one, tr = T.right, tb = T['bet-right'], tz = T.zoom, ts = T.same;
+      const nd = D.night || 4;
+
+      /* ---- position des panneaux ---- */
+      const slide = tr == null ? 0 : E.io2(prog(t, tr, tr + 14 / 30));
+      const lx = lerp(LCX0, LCX, slide);
+      setA(L.g, 'transform', `translate(${f2(lx)} 0)`);
+      const rq = tr == null ? 0 : prog(t, tr + 0.1, tr + 0.1 + 14 / 30);
+      vis(R.g, rq > 0); setA(R.g, 'transform', `translate(${f2(RCX + 140 * (1 - E.out3(rq)))} 0)`); setA(R.g, 'opacity', f2(rq));
+
+      /* ---- panneau gauche : texte et vague ---- */
+      const hq = tl == null ? 1 : prog(t, tl, tl + 0.25);
+      L.head.forEach((n) => { vis(n, hq > 0); setA(n, 'opacity', f2(hq)); });
+      vis(L.grid, hq > 0);
+      const cnt = tn == null ? 0 : Math.round(st.nightCells * Math.pow(prog(t, tn, tn + nd), 1.8));
+      const arrived = tn != null && t >= tn + nd;
+      const oneAt = to == null ? Infinity : to;
+      for (let i = 0; i < N; i++) {
+        const c = L.cells[i];
+        const shown = tl == null || t >= tl + c.row / 30;
+        let red = i < cnt;
+        if (to != null && t >= to) {
+          if (i === 0) red = true;
+          else if (t >= to + ((N - 1 - Math.min(i, st.nightCells)) / st.nightCells) * 0.27) red = false;
+        }
+        const key = (shown ? 1 : 0) + (red ? 2 : 0);
+        if (st.nc[i] !== key) {
+          st.nc[i] = key;
+          c.n.setAttribute('visibility', shown ? 'visible' : 'hidden');
+          c.n.setAttribute('fill', red ? C.red : C.paper);
+        }
+      }
+      // case « une mise » qui grossit
+      const hq2 = to == null ? 0 : prog(t, to + 0.1, to + 0.6);
+      const hs = 1 + 0.6 * Math.sin(Math.PI * hq2);
+      const cx0 = GX + CELL / 2, cy0 = GY + CELL / 2;
+      setA(L.top, 'transform', `translate(${f2(cx0)} ${f2(cy0)}) scale(${f2(hs)}) translate(${f2(-cx0)} ${f2(-cy0)})`);
+      const sameOn = ts != null && t >= ts + 0.15;
+      vis(L.hero, sameOn);
+      // étiquette sous la grille
+      const afterOne = to != null && t >= to;
+      vis(L.l0, tn != null && t >= tn && !arrived && !afterOne);
+      vis(L.l1, arrived && !afterOne);
+      vis(L.l2, afterOne);
+      // quart
+      const qq = tq == null ? 0 : prog(t, tq, tq + 0.4);
+      const qOn = qq > 0 && !afterOne;
+      vis(st.qPath, qOn); setA(st.qClip, 'width', f2(800 * E.out2(qq)));
+      const qs = tq == null ? 0 : prog(t, tq + 0.2, tq + 0.45);
+      const qsc = qs > 0 && !afterOne ? E.back(qs) : 0;
+      put(st.qStk.g, 180, 168, -3, qsc, qsc, qsc > 0 ? 1 : 0);
+      // petite
+      const sq = to == null ? 0 : prog(t, to + 0.4, to + 0.65);
+      const ssc = sq > 0 ? E.back(sq) : 0;
+      const sf = tz == null ? 1 : 1 - prog(t, tz, tz + 0.25);
+      put(st.small.g, 180, 168, 2, ssc * sf, ssc * sf, sq > 0 && sf > 0 ? 1 : 0);
+
+      /* ---- panneau droit ---- */
+      const zq = tz == null ? 0 : E.out3(prog(t, tz, tz + 18 / 30));
+      const zs = lerp(SMALL, 1, zq);
+      setA(R.grid, 'transform', `translate(${ZC[0]} ${ZC[1]}) scale(${f2(zs)}) translate(${-ZC[0]} ${-ZC[1]})`);
+      const rRed = (tb != null && t >= tb) || (ts != null && t >= ts);
+      for (let i = 0; i < N; i++) {
+        const key = i === 0 && rRed ? 2 : 1;
+        if (st.rc[i] !== key) { st.rc[i] = key; R.cells[i].n.setAttribute('fill', key === 2 ? C.red : C.paper); }
+      }
+      const bp = tb == null ? 0 : prog(t, tb, tb + 0.3);
+      const rs = 1 + 1.2 * Math.sin(Math.PI * bp) * (tz != null && t >= tz ? 0 : 1);
+      setA(R.top, 'transform', `translate(${f2(cx0)} ${f2(cy0)}) scale(${f2(rs)}) translate(${f2(-cx0)} ${f2(-cy0)})`);
+      vis(R.hero, sameOn);
+      vis(R.l0, tb != null && t >= tb + 0.1);
+
+      /* ---- sticker d'échelle, « = », bandeau ---- */
+      const kq = tz == null ? 0 : prog(t, tz + 0.2, tz + 0.45);
+      const ksc = kq > 0 ? E.back(kq) : 0;
+      put(st.scale.g, 738, 58, -2, ksc, ksc, kq > 0 ? 1 : 0);
+      const eq = ts == null ? 0 : prog(t, ts + 0.1, ts + 0.35);
+      const esc = eq > 0 ? E.back(eq) : 0;
+      setA(st.eq, 'transform', `translate(960 ${470 - 50}) scale(${f2(esc || 0.0001)}) translate(-960 ${-(470 - 50)})`);
+      vis(st.eq, eq > 0);
+      const bq = ts == null ? 0 : prog(t, ts + 0.35, ts + 0.65);
+      const bsc = bq > 0 ? E.out3(bq) : 0;
+      st.band.setAttribute('transform', `translate(0 ${f2(60 * (1 - bsc))})`);
+      vis(st.band, bq > 0); setA(st.band, 'opacity', f2(bsc));
     }
   });
 })();
@@ -9171,6 +10305,306 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/twin-drain.js ==== */
+// Composant `twin-drain` (épisode 4) : la soustraction. Même soirée, même nombre de tours, deux mises. Voir EP4-COMPONENTS.md.
+// Deux couloirs (A, B) : mise, « MISÉ », barre de perte moyenne (linéaire avec les tours : c'est une moyenne, pas un tirage).
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+// Cues : rule, lane-a, run-a (dur), mean, lane-b, run-b (dur), race (dur), verdict. Props `bg` (paper|ink), `from` (none|a|ab).
+(() => {
+  'use strict';
+  const { C, F, E, clamp, prog, f2, sv, g, rect, text, put, fr } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const sstr = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const setTxt = (n, s) => { if (n.__s !== s) { n.__s = s; n.textContent = s; } };
+  const NEVER = -1e6;
+
+  function mkMeasure(root) {
+    const n = sv('text', { x: 0, y: 0, visibility: 'hidden' }, root);
+    const m = (s, size, mono) => {
+      try {
+        n.setAttribute('font-family', mono ? F.mono : F.display); n.setAttribute('font-weight', 800); n.setAttribute('font-size', size);
+        n.textContent = s;
+        const w = n.getComputedTextLength();
+        if (w > 0) return w;
+      } catch (e) { /* repli */ }
+      return String(s).length * size * (mono ? 0.6 : 0.62);
+    };
+    m.done = () => { try { root.removeChild(n); } catch (e) { /* rien */ } };
+    return m;
+  }
+  function split2(words, meas, size) {
+    if (words.length < 2) return [words.join(' '), ''];
+    let best = null;
+    for (let k = 1; k < words.length; k++) {
+      const a = words.slice(0, k).join(' '), b = words.slice(k).join(' ');
+      const w = Math.max(meas(a, size), meas(b, size));
+      if (!best || w < best.w) best = { a, b, w };
+    }
+    return [best.a, best.b];
+  }
+  // « 100 000 € MISÉS » -> { pre:'', n:100000, post:' € MISÉS' } (null si aucun nombre)
+  function parseAmount(s) {
+    const m = /\d[\d   ]*/.exec(s);
+    if (!m) return null;
+    const n = parseInt(m[0].replace(/\D/g, ''), 10);
+    if (!isFinite(n)) return null;
+    return { pre: s.slice(0, m.index), n, post: s.slice(m.index + m[0].length).replace(/^/, (m[0].match(/[   ]+$/) || [''])[0]) };
+  }
+
+  const DEF_LANES = [
+    { bet: '100 € / TOUR', sub: 'AU DÉPART', staked: '100 000 € MISÉS', loss: '≈ −2 700 €', value: 2700 },
+    { bet: '200 € / TOUR', sub: 'POUR TE REFAIRE', staked: '200 000 € MISÉS', loss: '≈ −5 400 €', value: 5400 }
+  ];
+  const NAMES = ['rule', 'lane-a', 'run-a', 'mean', 'lane-b', 'run-b', 'race', 'verdict'];
+  const OPT = { 3: true };                                // `mean` reste optionnel (jamais impliqué)
+  const BX = 580, BARMAX = 1200, BH = 70, LX0 = 80, LW = 1760, LH = 210;
+  const LY = [260, 520];
+
+  ZV.define('twin-drain', {
+    init(root, shot) {
+      const P = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const dur = isNum(shot && shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cueB = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r == null || b.t < r.t)) r = b; return r; };
+      const from = P.from === 'a' || P.from === 'ab' ? P.from : 'none';
+      const fromIdx = from === 'ab' ? 6 : from === 'a' ? 4 : 0;   // étapes < fromIdx déjà dessinées
+      const ink = P.bg === 'ink';
+      const TH = ink
+        ? { bg: C.ink, panel: C.pocket, line: C.paper, tx: C.paper, sub: '#B9B5A8', track: '#262626', bar: C.red, shadow: '#000000', bandBg: C.paper, bandTx: C.ink, stickBg: C.paper, stickTx: C.ink }
+        : { bg: C.paper, panel: C.white, line: C.ink, tx: C.ink, sub: C.grey, track: '#ECE8DC', bar: C.red, shadow: C.ink, bandBg: C.ink, bandTx: C.paper, stickBg: C.ink, stickTx: C.paper };
+
+      const rounds = Math.max(1, Math.round(num(P.rounds, 1000)));
+      const lanes = [0, 1].map((i) => {
+        const d = DEF_LANES[i], l = (Array.isArray(P.lanes) && P.lanes[i]) || {};
+        return { bet: sstr(l.bet, d.bet), sub: sstr(l.sub, d.sub), staked: sstr(l.staked, d.staked), loss: sstr(l.loss, d.loss), value: Math.max(1, num(l.value, d.value)) };
+      });
+      const maxVal = Math.max(lanes[0].value, lanes[1].value);
+      const rule = sstr(P.rule, 'ROULETTE EUROPÉENNE · LE ZÉRO PREND 2,7 % DE CHAQUE MISE');
+      const meanTxt = sstr(P.mean, 'LA MOYENNE FINIT TOUJOURS PAR AVOIR RAISON');
+      const speedTxt = sstr(P.speed, '2 × PLUS VITE');
+      const verdict = sstr(P.verdict, "MISER PLUS NE RATTRAPE RIEN. ÇA ACCÉLÈRE.");
+
+      /* ---- événements et calendrier ---- */
+      const evCue = { a: cueB('run-a'), b: cueB('run-b'), race: cueB('race'), lb: cueB('lane-b') };
+      const dOf = (b, d) => (b && isNum(b.dur) && b.dur > 0 ? b.dur : d);
+      const raw = NAMES.map((n) => { const b = cueB(n); return b ? b.t : null; });
+      let T = [];
+      let evs;
+      if (from === 'none' && raw.every((x) => x == null)) {
+        const k = Math.min(1, (dur * 0.92) / 17.5);
+        T = [0.3 * k, 1.2 * k, 1.8 * k, 5.4 * k, 7.0 * k, 7.6 * k, 11.6 * k, 16.2 * k];
+        evs = [{ k: 'a', t0: T[2], d: 3 * k }, { k: 'lb', t0: T[4], d: 0 }, { k: 'b', t0: T[5], d: 3 * k }, { k: 'race', t0: T[6], d: 4 * k }];
+      } else {
+        for (let k = 0; k < NAMES.length; k++) {
+          if (k < fromIdx) T[k] = NEVER;
+          else if (raw[k] != null) T[k] = raw[k];
+          else if (!OPT[k] && raw.slice(k + 1).some((x) => x != null)) T[k] = NEVER;
+          else T[k] = null;
+        }
+        evs = [];
+        if (evCue.a) evs.push({ k: 'a', t0: evCue.a.t, d: dOf(evCue.a, 4) });
+        if (evCue.lb) evs.push({ k: 'lb', t0: evCue.lb.t, d: 0 });
+        if (evCue.b) evs.push({ k: 'b', t0: evCue.b.t, d: dOf(evCue.b, 4) });
+        if (evCue.race) evs.push({ k: 'race', t0: evCue.race.t, d: dOf(evCue.race, 5) });
+      }
+      evs.sort((x, y) => x.t0 - y.t0);
+      const st = { T, evs, dur, from, rounds, lanes, maxVal, TH };
+      const meas = mkMeasure(root);
+
+      /* ---- fond ---- */
+      rect(root, 0, 0, 1920, 1080, 0, TH.bg);
+
+      /* ---- bandeau du haut ---- */
+      st.rule = g(root);
+      rect(st.rule, 100 + 6, 68 + 6, 64, 64, 0, TH.shadow);
+      rect(st.rule, 100, 68, 64, 64, 0, C.lime, TH.line, 5);
+      text(st.rule, '0', 132, 112, 44, C.ink, { anchor: 'middle' });
+      {
+        let s = 30, w = meas(rule, s, true);
+        if (w > 1630) { s = Math.floor(s * 1630 / w); }
+        text(st.rule, rule, 192, 110, s, TH.tx, { mono: true });
+      }
+      rect(st.rule, 100, 148, 1720, 4, 0, TH.line);
+
+      /* ---- compteur de tours commun ---- */
+      st.tour = text(root, 'TOUR 0', 960, 202, 48, TH.tx, { mono: true, anchor: 'middle' });
+      st.tour.setAttribute('visibility', 'hidden');
+
+      /* ---- couloirs ---- */
+      st.lanes = lanes.map((L, i) => {
+        const o = { L, i, y0: LY[i] };
+        o.g = g(root);
+        rect(o.g, LX0 + 8, o.y0 + 8, LW, LH, 0, TH.shadow);
+        rect(o.g, LX0, o.y0, LW, LH, 0, TH.panel, TH.line, 5);
+        // mise + sous-titre
+        let bs = 64, bw = meas(L.bet, bs);
+        if (bw > 400) bs = Math.floor(bs * 400 / bw);
+        text(o.g, L.bet, 112, o.y0 + 100, bs, TH.tx);
+        let ss = 24, sw = meas(L.sub, ss, true);
+        if (sw > 400) ss = Math.floor(ss * 400 / sw);
+        text(o.g, L.sub, 112, o.y0 + 150, ss, TH.sub, { mono: true });
+        rect(o.g, 542, o.y0 + 24, 3, LH - 48, 0, TH.line);
+        // MISÉ
+        o.am = parseAmount(L.staked);
+        o.staked = text(o.g, L.staked, BX, o.y0 + 62, 40, TH.tx, { mono: true });
+        // piste + barre
+        rect(o.g, BX, o.y0 + 84, BARMAX, BH, 0, TH.track);
+        o.bar = rect(o.g, BX, o.y0 + 84, 0, BH, 0, TH.bar, ink ? C.paper : C.ink, 6);
+        o.full = BARMAX * L.value / maxVal;
+        text(o.g, 'PERTE MOYENNE ATTENDUE', BX, o.y0 + 188, 22, TH.sub, { mono: true });
+        // valeur finale : à droite de la barre si la place le permet, sinon DANS la barre (white, alignée à droite)
+        let vs = 56, vw = meas(L.loss, vs);
+        if (vw > 560) { vs = Math.floor(vs * 560 / vw); vw = meas(L.loss, vs); }
+        const outside = BX + o.full + 24 + vw <= 1830;
+        o.vs = vs; o.outside = outside;
+        o.val = g(o.g);
+        const vy = o.y0 + 84 + BH / 2 + vs * 0.36;
+        if (outside) text(o.val, L.loss, 0, 0, vs, TH.tx, { len: f2(vw) });
+        else text(o.val, L.loss, 0, 0, vs, C.white, { anchor: 'end', len: f2(vw) });
+        o.valX = outside ? BX + o.full + 24 : BX + o.full - 22;
+        o.valY = vy;
+        return o;
+      });
+
+      /* ---- sticker « la moyenne… » (au-dessus de la barre A) ---- */
+      {
+        const words = meanTxt.split(/\s+/).filter(Boolean);
+        let size = 34, lines = split2(words, meas, size);
+        while (size > 22 && Math.max(meas(lines[0], size), meas(lines[1], size)) > 480) { size -= 1; lines = split2(words, meas, size); }
+        const w = Math.max(meas(lines[0], size), meas(lines[1], size)) + 56, h = lines[1] ? size * 2.2 + 20 : size * 1.4 + 30;
+        st.mean = g(root);
+        rect(st.mean, -w / 2 + 9, -h / 2 + 9, w, h, 8, TH.shadow === C.ink ? '#555555' : C.paper);
+        rect(st.mean, -w / 2, -h / 2, w, h, 8, TH.stickBg, TH.line, 5);
+        const y1 = lines[1] ? -size * 0.12 : size * 0.35;
+        text(st.mean, lines[0], 0, y1, size, TH.stickTx, { anchor: 'middle', len: f2(meas(lines[0], size)) });
+        if (lines[1]) text(st.mean, lines[1], 0, y1 + size * 1.15, size, TH.stickTx, { anchor: 'middle', len: f2(meas(lines[1], size)) });
+        st.meanX = Math.min(1800 - w / 2, 1530);
+      }
+      /* ---- sticker rouge « 2 × plus vite » sur le couloir B ---- */
+      {
+        let size = 48, w = meas(speedTxt, size);
+        if (w > 440) { size = Math.floor(size * 440 / w); w = meas(speedTxt, size); }
+        const bw2 = w + 56, h = size * 1.4 + 18;
+        st.speed = g(root);
+        rect(st.speed, -bw2 / 2 + 9, -h / 2 + 9, bw2, h, 10, TH.shadow);
+        rect(st.speed, -bw2 / 2, -h / 2, bw2, h, 10, C.red, ink ? C.paper : C.ink, 6);
+        text(st.speed, speedTxt, 0, size * 0.35, size, ink ? C.ink : C.ink, { anchor: 'middle', len: f2(w) });
+        st.speedX = Math.min(1800 - bw2 / 2, 1560);
+      }
+      /* ---- bandeau verdict ---- */
+      {
+        const m = /^(.*?)([^.!?]*[.!?])\s*$/.exec(verdict);
+        let p1 = m ? m[1].trim() : verdict, p2 = m ? m[2].trim() : '';
+        if (!p1) { p1 = verdict; p2 = ''; }
+        let size = 46;
+        const gap = size * 0.3;
+        let w1 = meas(p1, size), w2 = p2 ? meas(p2, size) : 0;
+        const room = 1720 - 70;
+        if (w1 + w2 + (p2 ? gap : 0) > room) { const k = room / (w1 + w2 + gap); size = Math.floor(size * k); w1 = meas(p1, size); w2 = p2 ? meas(p2, size) : 0; }
+        const tot = w1 + w2 + (p2 ? size * 0.3 : 0);
+        st.verdict = g(root);
+        rect(st.verdict, 80 + 8, 750 + 8, 1760, 70, 0, TH.shadow);
+        rect(st.verdict, 80, 750, 1760, 70, 0, TH.bandBg, TH.line, 4);
+        const x0 = 960 - tot / 2;
+        text(st.verdict, p1, x0, 750 + 35 + size * 0.36, size, TH.bandTx, { len: f2(w1) });
+        if (p2) text(st.verdict, p2, x0 + w1 + size * 0.3, 750 + 35 + size * 0.36, size, C.red, { len: f2(w2) });
+      }
+      meas.done();
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { T, evs, lanes } = st;
+        const at = (k) => T[k] != null && t >= T[k];
+        const ph = (k, d, o) => (T[k] == null ? 0 : prog(t, T[k] + (o || 0), T[k] + (o || 0) + d));
+        const fromAll = st.from !== 'none';
+
+        /* état des deux couloirs à l'instant tt : fractions, tours, instants d'arrivée */
+        const state = (tt) => {
+          const s = { f: [st.from === 'none' ? 0 : 1, st.from === 'ab' ? 1 : 0], r: fromAll ? 1 : 0, done: [fromAll ? NEVER : null, st.from === 'ab' ? NEVER : null], t0: 0 };
+          for (const e of evs) {
+            if (tt < e.t0) break;
+            s.t0 = e.t0;
+            if (e.k === 'lb') { s.r = 0; continue; }
+            const p = e.d > 0 ? prog(tt, e.t0, e.t0 + e.d) : 1;
+            const v = Math.pow(p, 1.5);
+            s.r = v;
+            const fin = p >= 1 ? e.t0 + e.d : null;
+            if (e.k === 'a' || e.k === 'race') { s.f[0] = v; s.done[0] = fin; }
+            if (e.k === 'b' || e.k === 'race') { s.f[1] = v; s.done[1] = fin; }
+          }
+          return s;
+        };
+        const S = state(t);
+        // affichage des compteurs : 10 mises à jour par seconde (jamais en retard sur un début d'étape)
+        const tq = Math.max(Math.floor(t * 10) / 10, S.t0);
+        const Q = state(Math.min(tq, t));
+        const fq = (i) => (S.f[i] >= 1 ? 1 : Q.f[i]);
+        const rq = S.r >= 1 ? 1 : Q.r;
+
+        /* bandeau */
+        {
+          const p = E.out3(ph(0, 0.3));
+          put(st.rule, 0, -40 * (1 - p), 0, 1, 1, at(0) ? p : 0);
+        }
+        /* compteur de tours */
+        {
+          const on = at(1) || (T[1] == null && false);
+          vis(st.tour, on);
+          setTxt(st.tour, 'TOUR ' + fr(Math.round(rq * st.rounds)));
+        }
+        /* couloirs */
+        st.lanes.forEach((o, i) => {
+          const k = i === 0 ? 1 : 4;
+          const on = at(k);
+          const p = E.back(ph(k, 0.4));
+          setA(o.g, 'transform', `translate(0 ${f2(60 * (1 - p))})`);
+          setA(o.g, 'opacity', f2(on ? clamp(p * 3) : 0));
+          vis(o.g, on);
+          const f = S.f[i];
+          const w = o.full * f;
+          setA(o.bar, 'width', f2(Math.max(0, w)));
+          vis(o.bar, w >= 1);
+          // MISÉ
+          if (o.am) setTxt(o.staked, o.am.pre + fr(Math.round(fq(i) * o.am.n)) + o.am.post);
+          // valeur : claque à l'arrivée de la barre
+          const td = S.done[i];
+          const done = f >= 1 && td != null;
+          const vp = done ? prog(t, td, td + 0.22) : 0;
+          const sc = done ? 1 + 0.45 * (1 - E.out3(vp)) : 1;
+          setA(o.val, 'transform', `translate(${f2(o.valX)} ${f2(o.valY)}) scale(${f2(sc)})`);
+          vis(o.val, done);
+        });
+        /* sticker « la moyenne… » : de `mean` jusqu'à l'arrivée du couloir B */
+        {
+          const tEnd = T[4] != null ? T[4] : null;
+          const on = at(3) && (tEnd == null || t < tEnd);
+          const p = T[3] != null && T[3] > -1e5 ? E.back(ph(3, 0.3)) : 1;
+          put(st.mean, st.meanX, 270, -3, p, p, on ? 1 : 0);
+        }
+        /* sticker rouge à l'arrivée de la course */
+        {
+          const ev = evs.find((e) => e.k === 'race');
+          const td = ev ? ev.t0 + ev.d : null;
+          const on = td != null && t >= td && S.f[1] >= 1;
+          const p = td != null ? E.back(prog(t, td, td + 0.3)) : 0;
+          put(st.speed, st.speedX, 538, 2.5, p, p, on ? 1 : 0);
+        }
+        /* verdict */
+        {
+          const p = E.out3(ph(7, 0.3));
+          put(st.verdict, 0, 40 * (1 - p), 0, 1, 1, at(7) ? p : 0);
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/wheel.js ==== */
 // Composant « wheel » : roulette européenne (ou américaine) vue de dessus, 1920×1080, fonction pure du temps.
 // Roue en aplats (cylindre paper, 37 cases dans l'ordre réel, croisillon), bille qui orbite / claque / hésite / tombe,
@@ -9938,6 +11372,10 @@
   /* ------------------------------------------------------------------ sous-titres karaoké */
   let CAP = null;       // {groups:[...]}
   const CS = 50, LH = 62, PX = 30, PY = 16;
+  // Étiquette « locuteur » (débats à plusieurs voix) : les phrases du timeline portent alors `v` ('theo' | 'tom' | 'arthur').
+  // Sans `v` nulle part : aucun changement de rendu (position du sticker 948 comprise).
+  const SPK = { theo: { name: 'THÉO', bg: C.lime }, tom: { name: 'TOM', bg: C.red }, arthur: { name: 'ARTHUR', bg: C.paper } };
+  const SPK_FS = 27, SPK_H = 42, SPK_OVER = 10, SPK_SHIFT = 20;   // corps du texte, hauteur, recouvrement du bord haut du sticker, descente du sticker (étiquette ≥ y 856 ; bas du sticker + ombre + tilt ≤ 1064)
   function chunkSentence(words, bounds) {
     const n = words.length;
     if (!n) return [];
@@ -9968,11 +11406,15 @@
     const groups = [];
     for (const sen of TL.sentences || []) {
       const words = (sen.words || []).filter((w) => w && typeof w.w === 'string');
-      for (const ws of chunkSentence(words, bounds)) groups.push({ words: ws, start: ws[0].start - 0.1, end: ws[ws.length - 1].end + 0.25, node: null });
+      const v = SPK[sen.v] ? sen.v : null;
+      for (const ws of chunkSentence(words, bounds)) groups.push({ words: ws, start: ws[0].start - 0.1, end: ws[ws.length - 1].end + 0.25, node: null, v });
     }
     groups.sort((a, b) => a.start - b.start);
     for (let i = 0; i + 1 < groups.length; i++) if (groups[i].end > groups[i + 1].start) groups[i].end = Math.max(groups[i].start + 0.05, groups[i + 1].start);
-    CAP = { groups };
+    // locuteur : un groupe vient d'UNE phrase (chunkSentence), donc d'un seul `v` ; pop quand il change d'un groupe au suivant
+    let hasV = false;
+    for (let i = 0; i < groups.length; i++) { const gr = groups[i]; gr.newSpk = !!gr.v && (i === 0 || groups[i - 1].v !== gr.v); if (gr.v) hasV = true; }
+    CAP = { groups, hasV };
   }
   function buildCaptionNode(grp) {
     const gw = sv('g', {});
@@ -10005,7 +11447,19 @@
         x += widths[i] + space;
       }
     });
-    return { gw, items, pill, bw, bh };
+    // étiquette locuteur, collée au coin supérieur gauche du sticker (origine du groupe lg = son coin inférieur gauche)
+    let tag = null;
+    if (grp.v) {
+      const sp = SPK[grp.v], label = sp.name, ls = 1.5;
+      const tw = measure(label, SPK_FS) + ls * label.length, w = Math.round(tw + 36), h = SPK_H;
+      const lg = g(gw);
+      rect(lg, 6, -h + 6, w, h, h / 2, INK);
+      rect(lg, 0, -h, w, h, h / 2, sp.bg, INK, 4);
+      text(lg, label, f2(w / 2 + ls / 2), f2(-h / 2 + SPK_FS * 0.35), SPK_FS, INK, { anchor: 'middle', spacing: ls });
+      tag = { lg, x: -bw / 2 + 8, y: -bh / 2 + SPK_OVER };
+      lg.setAttribute('transform', `translate(${f2(tag.x)} ${f2(tag.y)})`);
+    }
+    return { gw, items, pill, bw, bh, tag };
   }
   function drawCaptions(T, shot) {
     let grp = null;
@@ -10020,7 +11474,11 @@
     if (capsLayer.firstChild !== nd.gw) capsLayer.replaceChildren(nd.gw);
     const pa = prog(T, grp.start, grp.start + frames(4));
     const s = pa >= 1 ? 1 : lerp(0.8, 1, E.back(pa));
-    nd.gw.setAttribute('transform', `translate(960 948) rotate(-1) scale(${f2(s)})`);
+    nd.gw.setAttribute('transform', `translate(960 ${CAP.hasV ? 948 + SPK_SHIFT : 948}) rotate(-1) scale(${f2(s)})`);
+    if (nd.tag) {
+      const ps = grp.newSpk ? lerp(0.55, 1, E.back(prog(T, grp.start, grp.start + frames(3)))) : 1;
+      nd.tag.lg.setAttribute('transform', `translate(${f2(nd.tag.x)} ${f2(nd.tag.y)}) scale(${f2(ps)})`);
+    }
     const ws = grp.words;
     let lit = -1;
     for (let j = 0; j < ws.length; j++) {

@@ -192,13 +192,18 @@
       const cuts = []; for (let b = n; b > 0; b = prev[b]) cuts.push([prev[b], b]);
       return cuts.reverse().map(([a, b]) => words.slice(a, b));
     }
+    // étiquette « locuteur » (débats à plusieurs voix : les phrases du timeline portent `v` = 'theo' | 'tom' | 'arthur') ; sans `v` : aucun changement
+    const SPK = { theo: { name: 'THÉO', bg: LIME }, tom: { name: 'TOM', bg: RED }, arthur: { name: 'ARTHUR', bg: PAPER } };
+    const SPK_FS = 34, SPK_H = 54, SPK_OVER = 12;
     const groups = [];
     for (const sen of TL.sentences || []) {
       const words = (sen.words || []).filter((w) => w && typeof w.w === 'string');
-      for (const ws of chunk(words)) groups.push({ words: ws, start: ws[0].start - 0.08, end: ws[ws.length - 1].end + 0.25, node: null, idx: groups.length });
+      const v = SPK[sen.v] ? sen.v : null;   // un groupe vient d'UNE phrase : un seul locuteur
+      for (const ws of chunk(words)) groups.push({ words: ws, start: ws[0].start - 0.08, end: ws[ws.length - 1].end + 0.25, node: null, idx: groups.length, v });
     }
     groups.sort((a, b) => a.start - b.start);
     for (let i = 0; i + 1 < groups.length; i++) if (groups[i].end > groups[i + 1].start) groups[i].end = Math.max(groups[i].start + 0.05, groups[i + 1].start);
+    for (let i = 0; i < groups.length; i++) groups[i].newSpk = !!groups[i].v && (i === 0 || groups[i - 1].v !== groups[i].v);   // pop quand le locuteur change
 
     const capsLayer = g(front);
     function buildGroup(grp) {
@@ -219,8 +224,18 @@
           x += lay.wd[i] + lay.sp;
         }
       });
+      let tag = null;
+      if (grp.v) {   // collée au coin supérieur gauche du sticker, au-dessus (origine de lg = son coin inférieur gauche)
+        const sp = SPK[grp.v], ls = 2, tw = mw(sp.name) * SPK_FS / 100 + ls * sp.name.length, w = Math.round(tw + 44), h = SPK_H;
+        const lg = g(gw);
+        rect(lg, 7, -h + 7, w, h, h / 2, INK);
+        rect(lg, 0, -h, w, h, h / 2, sp.bg, INK, 5);
+        text(lg, sp.name, f2(w / 2 + ls / 2), f2(-h / 2 + SPK_FS * 0.35), SPK_FS, INK, { anchor: 'middle', spacing: ls });
+        tag = { lg, x: -bw / 2 + 10, y: -bh / 2 + SPK_OVER };
+        lg.setAttribute('transform', `translate(${f2(tag.x)} ${f2(tag.y)})`);
+      }
       gw.setAttribute('display', 'none');
-      return { gw, items, pill, bw, bh, size };
+      return { gw, items, pill, bw, bh, size, tag };
     }
     function drawCaptions(T) {
       let grp = null;
@@ -235,6 +250,10 @@
       const pa = prog(T, grp.start, grp.start + 4 / 30);
       const s = pa >= 1 ? 1 : lerp(0.78, 1, E.back(pa));
       nd.gw.setAttribute('transform', `translate(${CAP.cx} ${CAP.cy}) rotate(${grp.idx % 2 ? 1.5 : -1.5}) scale(${f2(s)})`);
+      if (nd.tag) {
+        const ps = grp.newSpk ? lerp(0.55, 1, E.back(prog(T, grp.start, grp.start + 3 / 30))) : 1;
+        nd.tag.lg.setAttribute('transform', `translate(${f2(nd.tag.x)} ${f2(nd.tag.y)}) scale(${f2(ps)})`);
+      }
       const ws = grp.words;
       let lit = -1;
       for (let j = 0; j < ws.length; j++) {

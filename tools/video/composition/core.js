@@ -282,6 +282,10 @@
   /* ------------------------------------------------------------------ sous-titres karaoké */
   let CAP = null;       // {groups:[...]}
   const CS = 50, LH = 62, PX = 30, PY = 16;
+  // Étiquette « locuteur » (débats à plusieurs voix) : les phrases du timeline portent alors `v` ('theo' | 'tom' | 'arthur').
+  // Sans `v` nulle part : aucun changement de rendu (position du sticker 948 comprise).
+  const SPK = { theo: { name: 'THÉO', bg: C.lime }, tom: { name: 'TOM', bg: C.red }, arthur: { name: 'ARTHUR', bg: C.paper } };
+  const SPK_FS = 27, SPK_H = 42, SPK_OVER = 10, SPK_SHIFT = 20;   // corps du texte, hauteur, recouvrement du bord haut du sticker, descente du sticker (étiquette ≥ y 856 ; bas du sticker + ombre + tilt ≤ 1064)
   function chunkSentence(words, bounds) {
     const n = words.length;
     if (!n) return [];
@@ -312,11 +316,15 @@
     const groups = [];
     for (const sen of TL.sentences || []) {
       const words = (sen.words || []).filter((w) => w && typeof w.w === 'string');
-      for (const ws of chunkSentence(words, bounds)) groups.push({ words: ws, start: ws[0].start - 0.1, end: ws[ws.length - 1].end + 0.25, node: null });
+      const v = SPK[sen.v] ? sen.v : null;
+      for (const ws of chunkSentence(words, bounds)) groups.push({ words: ws, start: ws[0].start - 0.1, end: ws[ws.length - 1].end + 0.25, node: null, v });
     }
     groups.sort((a, b) => a.start - b.start);
     for (let i = 0; i + 1 < groups.length; i++) if (groups[i].end > groups[i + 1].start) groups[i].end = Math.max(groups[i].start + 0.05, groups[i + 1].start);
-    CAP = { groups };
+    // locuteur : un groupe vient d'UNE phrase (chunkSentence), donc d'un seul `v` ; pop quand il change d'un groupe au suivant
+    let hasV = false;
+    for (let i = 0; i < groups.length; i++) { const gr = groups[i]; gr.newSpk = !!gr.v && (i === 0 || groups[i - 1].v !== gr.v); if (gr.v) hasV = true; }
+    CAP = { groups, hasV };
   }
   function buildCaptionNode(grp) {
     const gw = sv('g', {});
@@ -349,7 +357,19 @@
         x += widths[i] + space;
       }
     });
-    return { gw, items, pill, bw, bh };
+    // étiquette locuteur, collée au coin supérieur gauche du sticker (origine du groupe lg = son coin inférieur gauche)
+    let tag = null;
+    if (grp.v) {
+      const sp = SPK[grp.v], label = sp.name, ls = 1.5;
+      const tw = measure(label, SPK_FS) + ls * label.length, w = Math.round(tw + 36), h = SPK_H;
+      const lg = g(gw);
+      rect(lg, 6, -h + 6, w, h, h / 2, INK);
+      rect(lg, 0, -h, w, h, h / 2, sp.bg, INK, 4);
+      text(lg, label, f2(w / 2 + ls / 2), f2(-h / 2 + SPK_FS * 0.35), SPK_FS, INK, { anchor: 'middle', spacing: ls });
+      tag = { lg, x: -bw / 2 + 8, y: -bh / 2 + SPK_OVER };
+      lg.setAttribute('transform', `translate(${f2(tag.x)} ${f2(tag.y)})`);
+    }
+    return { gw, items, pill, bw, bh, tag };
   }
   function drawCaptions(T, shot) {
     let grp = null;
@@ -364,7 +384,11 @@
     if (capsLayer.firstChild !== nd.gw) capsLayer.replaceChildren(nd.gw);
     const pa = prog(T, grp.start, grp.start + frames(4));
     const s = pa >= 1 ? 1 : lerp(0.8, 1, E.back(pa));
-    nd.gw.setAttribute('transform', `translate(960 948) rotate(-1) scale(${f2(s)})`);
+    nd.gw.setAttribute('transform', `translate(960 ${CAP.hasV ? 948 + SPK_SHIFT : 948}) rotate(-1) scale(${f2(s)})`);
+    if (nd.tag) {
+      const ps = grp.newSpk ? lerp(0.55, 1, E.back(prog(T, grp.start, grp.start + frames(3)))) : 1;
+      nd.tag.lg.setAttribute('transform', `translate(${f2(nd.tag.x)} ${f2(nd.tag.y)}) scale(${f2(ps)})`);
+    }
     const ws = grp.words;
     let lit = -1;
     for (let j = 0; j < ws.length; j++) {

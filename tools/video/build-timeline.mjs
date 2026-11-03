@@ -3,7 +3,7 @@
 // Les plans sont rendus jointifs par construction : la fin d'un plan est le début du suivant.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadTiming, resolve } from './lib/anchors.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -31,11 +31,21 @@ const shots = dir.shots.map((s, i) => {
   return { id: s.id, component: s.component, props: s.props || {}, start: r3(start), end: r3(end), dur: r3(dur), in: s.in || 'cut', out: s.out || 'cut', captions: s.captions !== false, beats, notes: s.notes || '' };
 });
 
+// Débats à plusieurs voix : si l'épisode (js/podcast-data.js) porte un `v` par section (locuteur de chaque tour de parole, parallèle à `p`),
+// chaque phrase reçoit `v` = ep.sections[s].v[p] (« theo » | « tom » | « arthur »). Sans `v` : le timeline reste inchangé.
+let epData = null;
+try { epData = (await import(pathToFileURL(path.join(root, 'js', 'podcast-data.js')).href)).EPISODES.find((e) => e.slug === SLUG) || null; } catch (e) { console.warn(`avertissement : js/podcast-data.js illisible (${e.message}) : pas de locuteurs`); }
+const speakerOf = (s, p) => { const v = epData && epData.sections && epData.sections[s] && epData.sections[s].v; return Array.isArray(v) && typeof v[p] === 'string' ? v[p] : undefined; };
 const sentences = [];
 const sections = [];
 for (const sec of timing.sections) {
   sections.push({ index: sec.index, start: r3(sec.start), end: r3(sec.end) });
-  for (const p of sec.paragraphs) for (const st of p.sentences) sentences.push({ s: sec.index, p: p.index, start: r3(st.start), end: r3(st.end), words: st.words.map((w) => ({ w: w.w, start: r3(w.start), end: r3(w.end) })) });
+  for (const p of sec.paragraphs) for (const st of p.sentences) {
+    const sen = { s: sec.index, p: p.index, start: r3(st.start), end: r3(st.end), words: st.words.map((w) => ({ w: w.w, start: r3(w.start), end: r3(w.end) })) };
+    const v = speakerOf(sec.index, p.index);
+    if (v) sen.v = v;
+    sentences.push(sen);
+  }
 }
 const out = { video: dir.video, total: r3(total), lead_in: timing.lead_in, tail: timing.tail, sections, shots, sentences, captions: dir.captions, transitions: dir.transitions };
 writeFileSync(path.join(data, 'timeline.json'), JSON.stringify(out));
