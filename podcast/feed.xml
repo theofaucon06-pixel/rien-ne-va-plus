@@ -136,5 +136,20 @@
       <itunes:explicit>false</itunes:explicit>
       <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-casino-dans-la-poche" type="text/html" language="fr"/>
     </item>
+    <item>
+      <title>La sortie</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/la-sortie</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/la-sortie</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>Table ronde de fin de saison : les signes qui doivent alerter, l’appel à Joueurs Info Service, l’interdiction volontaire, les centres de soins gratuits, quoi dire à un proche. Avec Nour, écoutante : personnage fictif, service réel.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/09-la-sortie.mp3" length="8041655" type="audio/mpeg"/>
+      <itunes:title>La sortie</itunes:title>
+      <itunes:episode>9</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>503</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/la-sortie" type="text/html" language="fr"/>
+    </item>
   </channel>
 </rss>

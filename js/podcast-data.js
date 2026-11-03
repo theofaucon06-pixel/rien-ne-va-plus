@@ -1001,7 +1001,7 @@ export const EPISODES = [
 
   {
     slug: 'la-sortie',
-    status: 'soon',
+    status: 'published',
     number: 9,
     title: 'La sortie',
     hook: 'Dans un casino, il n’y a jamais de panneau vers la sortie. Ce dernier épisode en dessine un.',
@@ -1010,7 +1010,9 @@ export const EPISODES = [
     themes: ['aide', 'psycho'],
     mechanics: ['sortie'],
     witnesses: ['nour'],
-    audio: null,
+    audio: { file: 'assets/podcast/09-la-sortie.mp3', bytes: 8041655, seconds: 503 },
+    experience: 'motion',
+    poster: 27.8,
     sections: [
       {
         h: 'Il est tôt. Ou tard.',
