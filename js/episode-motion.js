@@ -1129,6 +1129,286 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/bonus-x40.js ==== */
+// Composant `bonus-x40` (épisode 8) : « deux secondes pour entrer » puis « un cadeau qui coûte plus cher qu'il ne rapporte ». Voir EP8-COMPONENTS.md.
+// Fond ink. Temps 1 : deux chronomètres (DÉPÔT 2 s / RETRAIT 3 à 5 jours) + cadenas. Temps 2 : le paquet cadeau, 100 € × 40 = 4 000 € à miser,
+// la barre « MISÉ » et le compteur « LA MAISON GARDE » (2,7 % du misé), puis la comparaison 100 € < ≈ 108 € EN MOYENNE.
+// Cues : deposit, withdraw, lock, gift, open, times, total, wager, compare. Fonction pure du temps ; aplats seulement.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, fr } = ZV;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const setT = (n, s) => { if (n.__s !== s) { n.__s = s; n.textContent = s; } };
+  const mono = (parent, s, x, y, size, fill, o) => text(parent, s, x, y, size, fill, Object.assign({ mono: true }, o || {}));
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+  function measure(n, fallback) { let w = 0; try { w = n.getComputedTextLength(); } catch (e) { w = 0; } return w > 0 ? w : fallback; }
+  function fitSize(n, worst, size, maxW) {
+    const keep = n.textContent; n.textContent = worst;
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) n.setAttribute('font-size', f2(size * maxW / w)); } catch (e) { /* hors DOM */ }
+    n.textContent = keep;
+  }
+  const eur = (n) => fr(Math.max(0, Math.round(n))) + NB + '€';
+  const sc = (n, x, y, s, o, r) => {
+    const S = Math.max(0.0001, s); setA(n, 'transform', `translate(${f2(x)} ${f2(y)})${r ? ` rotate(${f2(r)})` : ''} scale(${f2(S * 1000) / 1000})`);
+    if (o !== undefined) setA(n, 'opacity', f2(o));
+    setA(n, 'display', (o !== undefined && o <= 0.001) || s <= 0.001 ? 'none' : 'inline');
+  };
+  // aplat « sticker » : ombre dure + face, derrière le texte tn
+  function box(grp, tn, w, h, face, shadow, r, sw, sh) {
+    const a = rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, r, shadow, shadow === C.ink ? undefined : C.ink, 4);
+    const b = rect(grp, -w / 2, -h / 2, w, h, r, face, C.ink, sw);
+    if (tn) { grp.insertBefore(a, tn); grp.insertBefore(b, tn); }
+    return b;
+  }
+  const arc = (r, a0, a1) => {                                   // arc de cercle centré en (0,0), angles en degrés (0 = haut), sens horaire
+    const A = Math.min(a1 - a0, 359.9), s = (a0 - 90) * ZV.D2R, e = (a0 + A - 90) * ZV.D2R;
+    return `M${f2(Math.cos(s) * r)} ${f2(Math.sin(s) * r)} A${r} ${r} 0 ${A > 180 ? 1 : 0} 1 ${f2(Math.cos(e) * r)} ${f2(Math.sin(e) * r)}`;
+  };
+
+  const CY = 330, R = 170, X1 = 520, X2 = 1400;                  // chronomètres
+  const BAR = { x: 180, y: 600, w: 1560, h: 80 };
+
+  function stopwatch(parent, cx, cy) {
+    const sg = g(parent, { transform: `translate(${cx} ${cy})` });
+    circle(sg, 10, 10, R, C.pocket);
+    rect(sg, -22 + 6, -R - 40 + 6, 44, 40, 8, C.pocket);
+    rect(sg, -22, -R - 40, 44, 40, 8, C.paper, C.ink, 6);
+    rect(sg, -66, -R - 4, 28, 36, 8, C.paper, C.ink, 5).setAttribute('transform', `rotate(-38 -52 ${-R})`);
+    circle(sg, 0, 0, R, C.paper, C.ink, 8);
+    circle(sg, 0, 0, R - 18, 'none', C.ink, 3);
+    for (let k = 0; k < 12; k++) { const a = (k * 30 - 90) * ZV.D2R, r0 = k % 3 === 0 ? 112 : 124; line(sg, f2(Math.cos(a) * r0), f2(Math.sin(a) * r0), f2(Math.cos(a) * 140), f2(Math.sin(a) * 140), C.ink, k % 3 === 0 ? 8 : 5, { 'stroke-linecap': 'butt' }); }
+    return sg;
+  }
+
+  ZV.define('bonus-x40', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const st = { dur: Math.max(0.1, shot.dur || 1) };
+      st.depS = clamp(isNum(P.deposit_s) ? P.deposit_s : 2, 0.5, 10);
+      st.wLab = str(P.withdraw_label, '3 À 5 JOURS OUVRÉS').toUpperCase();
+      st.lockLab = str(P.lock_label, 'APRÈS 40 × LE BONUS').toUpperCase();
+      st.bonus = clamp(isNum(P.bonus) ? P.bonus : 100, 1, 1e6);
+      st.factor = clamp(isNum(P.factor) ? P.factor : 40, 1, 1000);
+      st.edge = clamp(isNum(P.edge) ? P.edge : 2.7, 0.1, 50);
+      st.startGift = P.start === 'gift';
+      st.target = st.bonus * st.factor;
+      st.keep = Math.round(st.target * st.edge / 100);
+      const cu = (n) => ZV.cue(shot, n);
+      const c = { dep: cu('deposit'), wd: cu('withdraw'), lock: cu('lock'), gift: cu('gift'), open: cu('open'), times: cu('times'), total: cu('total'), wager: cu('wager'), cmp: cu('compare') };
+      st.c = c;
+      st.gp = c.gift !== null ? c.gift : (st.startGift ? -1 : null);       // instant de bascule vers le temps 2
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+
+      /* ================= Temps 1 : les chronos ================= */
+      st.p1 = g(root);
+      const p1 = st.p1;
+      st.sw1 = stopwatch(p1, X1, CY); st.sw2 = stopwatch(p1, X2, CY);
+      // DÉPÔT : arc lime (contour ink) + aiguille + « 2 S »
+      st.arcO = path(st.sw1, arc(124, 0, 1), 'none', C.ink, 30, { 'stroke-linecap': 'butt' });
+      st.arcL = path(st.sw1, arc(124, 0, 1), 'none', C.lime, 18, { 'stroke-linecap': 'butt' });
+      st.hand1 = g(st.sw1); line(st.hand1, 0, 14, 0, -118, C.ink, 10); circle(st.hand1, 0, 0, 15, C.ink);
+      st.two = g(st.sw1);
+      circle(st.two, 0, 0, 140, C.ink, C.ink, 6);
+      { const t = mono(st.two, '2 S', 0, 38, 110, C.lime, { anchor: 'middle', weight: 800 }); fit(t, 220); }
+      // RETRAIT : aiguille lente
+      st.hand2 = g(st.sw2); line(st.hand2, 0, 14, 0, -118, C.ink, 10); circle(st.hand2, 0, 0, 15, C.ink);
+      st.t1 = text(p1, 'DÉPÔT', X1, 592, 72, C.paper, { anchor: 'middle' }); fit(st.t1, 330);
+      st.t2 = text(p1, 'RETRAIT', X2, 592, 72, C.paper, { anchor: 'middle' }); fit(st.t2, 330);
+      // frise de 5 jours
+      st.days = [];
+      ['LUN', 'MAR', 'MER', 'JEU', 'VEN'].forEach((d, i) => {
+        const x = X2 - 320 + i * 132, dg = g(p1);
+        const r0 = rect(dg, x, 628, 120, 56, 8, C.paper, C.ink, 4);
+        const rf = rect(dg, x, 628, 120, 56, 8, C.lime, C.ink, 4); rf.setAttribute('display', 'none');
+        mono(dg, d, x + 60, 666, 28, C.ink, { anchor: 'middle', weight: 800 });
+        st.days.push({ r0, rf });
+      });
+      st.wl = mono(p1, st.wLab, X2, 735, 32, C.paper, { anchor: 'middle', weight: 800 }); fit(st.wl, 700);
+      // cadenas + étiquette
+      st.lock = g(p1);
+      path(st.lock, 'M-44 -30 L-44 -70 A44 44 0 0 1 44 -70 L44 -30', 'none', C.ink, 30);
+      path(st.lock, 'M-44 -30 L-44 -70 A44 44 0 0 1 44 -70 L44 -30', 'none', C.paper, 16);
+      rect(st.lock, -76 + 8, -34 + 8, 152, 120, 14, C.ink);
+      rect(st.lock, -76, -34, 152, 120, 14, C.red, C.ink, 6);
+      circle(st.lock, 0, 12, 15, C.ink); rect(st.lock, -6, 20, 12, 36, 4, C.ink);
+      st.lockLabG = g(p1);
+      { const t = text(st.lockLabG, st.lockLab, 0, 15, 44, C.ink, { anchor: 'middle' }); fit(t, 520); const w = Math.min(540, measure(t, st.lockLab.length * 27)) + 60; box(st.lockLabG, t, w, 78, C.lime, C.ink, 14, 6, 9); }
+
+      /* ================= Temps 2 : le calcul ================= */
+      st.p2 = g(root);
+      const p2 = st.p2;
+      // paquet cadeau (centre 350, 370)
+      st.gift = g(p2);
+      st.giftBody = g(st.gift);
+      rect(st.giftBody, 180 + 10, 290 + 10, 340, 230, 14, C.pocket);
+      st.bodyFace = rect(st.giftBody, 180, 290, 340, 230, 14, C.paper, C.ink, 8);
+      st.ribbon = g(st.giftBody);
+      rect(st.ribbon, 320, 290, 60, 230, 0, C.lime, C.ink, 5);
+      rect(st.ribbon, 180, 372, 340, 56, 0, C.lime, C.ink, 5);
+      st.reveal = g(st.giftBody); st.reveal.setAttribute('display', 'none');
+      rect(st.reveal, 180, 290, 340, 230, 14, C.ink, C.paper, 8);
+      st.rv1 = text(st.reveal, eur(st.bonus), 350, 420, 120, C.lime, { anchor: 'middle' }); fit(st.rv1, 300);
+      mono(st.reveal, 'DE BONUS', 350, 482, 32, C.paper, { anchor: 'middle', weight: 800 });
+      st.lid = g(st.gift);
+      rect(st.lid, 164 + 10, 226 + 10, 372, 72, 12, C.pocket);
+      rect(st.lid, 164, 226, 372, 72, 12, C.paper, C.ink, 8);
+      rect(st.lid, 320, 226, 60, 72, 0, C.lime, C.ink, 5);
+      path(st.lid, 'M350 226 C300 176 262 190 276 226Z', C.lime, C.ink, 5);
+      path(st.lid, 'M350 226 C400 176 438 190 424 226Z', C.lime, C.ink, 5);
+      circle(st.lid, 350, 224, 20, C.lime, C.ink, 5);
+      // équation : jetons plats qui tombent
+      const mkPlate = (str1, size, face, tcol, maxW) => {
+        const pg = g(p2);
+        const t = text(pg, str1, 0, size * 0.34, size, tcol, { anchor: 'middle' }); fit(t, maxW);
+        const w = Math.min(maxW, measure(t, bwEst(str1, size))) + 64;
+        box(pg, t, w, 116, face, C.ink, 18, 7, 10);
+        // l'ombre ink sur fond ink n'est pas visible : liseré paper fin sous le contour
+        return { g: pg, w, h: 116 };
+      };
+      const bwEst = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' || ch === NB ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ×=€]/.test(ch) ? 0.68 : 0.56); return a; };
+      st.pl1 = mkPlate(eur(st.bonus), 96, C.paper, C.ink, 480);
+      st.pl2 = mkPlate('× ' + fr(st.factor), 96, C.paper, C.ink, 400);
+      st.pl3 = mkPlate('= ' + eur(st.target) + ' À MISER', 96, C.lime, C.ink, 1100);
+      const gx = 620;
+      st.pl1.cx = gx + st.pl1.w / 2; st.pl1.cy = 262;
+      st.pl2.cx = gx + st.pl1.w + 36 + st.pl2.w / 2; st.pl2.cy = 262;
+      st.pl3.cx = gx + st.pl3.w / 2; st.pl3.cy = 404;
+      // barre de mise + compteur + kicker
+      st.bar = g(p2);
+      rect(st.bar, BAR.x, BAR.y, BAR.w, BAR.h, 14, 'none', C.paper, 6);
+      st.barFill = rect(st.bar, BAR.x + 6, BAR.y + 6, 1, BAR.h - 12, 8, C.paper);
+      st.barLab = mono(st.bar, 'MISÉ : ' + eur(0) + ' / ' + eur(st.target), BAR.x, 738, 34, C.paper, { weight: 800 });
+      fitSize(st.barLab, 'MISÉ : ' + eur(st.target) + ' / ' + eur(st.target), 34, 900);
+      st.cnt = text(st.bar, 'LA MAISON GARDE ≈' + NB + eur(0), BAR.x, 580, 48, C.lime);
+      fitSize(st.cnt, 'LA MAISON GARDE ≈' + NB + eur(st.keep), 48, 800);
+      st.kick = mono(st.bar, 'ROULETTE EUROPÉENNE · ' + String(st.edge).replace('.', ',') + ' %', BAR.x + BAR.w, 536, 26, C.paper, { anchor: 'end', weight: 800 }); fit(st.kick, 640);
+      // comparaison
+      st.cmp = g(p2);
+      const BOT = 780, K = 4.4;
+      st.hA = st.bonus * K * 0 + 440; st.hB = Math.round(st.hA * st.keep / st.bonus);
+      if (st.hB > 500) { const f = 500 / st.hB; st.hA *= f; st.hB = 500; }
+      st.blkA = g(st.cmp); st.blkB = g(st.cmp);
+      st.rA = rect(st.blkA, 380, BOT - st.hA, 520, st.hA, 14, C.paper, C.ink, 8);
+      st.rB = rect(st.blkB, 1020, BOT - st.hB, 520, st.hB, 14, C.lime, C.ink, 8);
+      st.txA = g(st.blkA); st.txB = g(st.blkB);
+      { const a = text(st.txA, 'LE CADEAU', 640, BOT - st.hA + 84, 52, C.ink, { anchor: 'middle' }); fit(a, 460);
+        const b = text(st.txA, eur(st.bonus), 640, BOT - st.hA + 220, 124, C.ink, { anchor: 'middle' }); fit(b, 460);
+        const c1 = text(st.txB, 'CE QUE GARDE', 1280, BOT - st.hB + 78, 44, C.ink, { anchor: 'middle' }); fit(c1, 460);
+        const c2 = text(st.txB, 'LA MAISON', 1280, BOT - st.hB + 128, 44, C.ink, { anchor: 'middle' }); fit(c2, 460);
+        const c3 = text(st.txB, '≈' + NB + eur(st.keep), 1280, BOT - st.hB + 262, 112, C.ink, { anchor: 'middle' }); fit(c3, 470);
+        const c4 = mono(st.txB, 'EN MOYENNE', 1280, BOT - st.hB + 322, 36, C.ink, { anchor: 'middle', weight: 800 }); fit(c4, 460); }
+      st.lt = g(st.cmp);
+      circle(st.lt, 8, 8, 46, C.pocket, C.paper, 4);
+      circle(st.lt, 0, 0, 46, C.paper, C.ink, 7);
+      text(st.lt, '<', 0, 31, 90, C.ink, { anchor: 'middle' });
+      return st;
+    },
+
+    update(st, t, shot) { try { draw(st, t); } catch (e) { /* jamais d'exception */ } }
+  });
+
+  function draw(st, t) {
+    const c = st.c, gp = st.gp;
+
+    /* ---------- temps 1 ---------- */
+    const slide = gp === null ? 0 : (gp < 0 ? 1 : E.in3(prog(t, gp, gp + 0.4)));
+    if (slide >= 1) setA(st.p1, 'display', 'none');
+    else { setA(st.p1, 'display', 'inline'); setA(st.p1, 'transform', `translate(0 ${f2(-1150 * slide)})`); }
+
+    // DÉPÔT : un tour d'arc lime en exactement deposit_s, puis « 2 S »
+    const dp = c.dep === null ? 0 : prog(t, c.dep, c.dep + st.depS);
+    setA(st.hand1, 'transform', `rotate(${f2(dp * 360)})`);
+    if (dp > 0.002) { const d = arc(124, 0, dp * 360); setA(st.arcO, 'd', d); setA(st.arcL, 'd', d); setA(st.arcO, 'display', 'inline'); setA(st.arcL, 'display', 'inline'); }
+    else { setA(st.arcO, 'display', 'none'); setA(st.arcL, 'display', 'none'); }
+    if (c.dep !== null && t >= c.dep + st.depS) {
+      const p = E.back(prog(t, c.dep + st.depS, c.dep + st.depS + 0.25));
+      setA(st.two, 'display', 'inline'); setA(st.two, 'transform', `scale(${f2(Math.max(0.01, p) * 1000) / 1000})`);
+      setA(st.hand1, 'display', 'none');
+    } else { setA(st.two, 'display', 'none'); setA(st.hand1, 'display', 'inline'); }
+
+    // RETRAIT : aiguille lente, jours remplis un par un (~0,5 s par case)
+    const wd = c.wd;
+    setA(st.hand2, 'transform', `rotate(${f2(wd === null ? 0 : Math.max(0, t - wd) * 14)})`);
+    st.days.forEach((d, i) => { const on = wd !== null && t >= wd + 0.25 + i * 0.5; setA(d.rf, 'display', on ? 'inline' : 'none'); });
+
+    // cadenas : tombe avec rebond (6 i) sur le chrono RETRAIT
+    if (c.lock === null || t < c.lock) { setA(st.lock, 'display', 'none'); setA(st.lockLabG, 'display', 'none'); }
+    else {
+      const p = prog(t, c.lock, c.lock + 0.5), y = lerp(-120, CY - 6, E.bounce(p));
+      setA(st.lock, 'display', 'inline'); setA(st.lock, 'transform', `translate(${X2} ${f2(y)})`);
+      const q = E.back(prog(t, c.lock + 0.35, c.lock + 0.6));
+      sc(st.lockLabG, X2, 468, 0.7 + 0.3 * q, prog(t, c.lock + 0.35, c.lock + 0.45));
+    }
+
+    /* ---------- temps 2 ---------- */
+    if (gp === null) { setA(st.p2, 'display', 'none'); return; }
+    setA(st.p2, 'display', 'inline');
+    const cmp = c.cmp;
+    const out = cmp === null ? 0 : prog(t, cmp, cmp + 0.3);           // le reste du temps 2 s'efface pour laisser la comparaison
+    const arrive = gp < 0 ? 1 : E.out3(prog(t, gp + 0.3, gp + 0.8));
+    const outO = 1 - out;
+    // paquet
+    if (gp >= 0 && t < gp + 0.3) setA(st.gift, 'display', 'none');
+    else {
+      setA(st.gift, 'display', outO <= 0.01 ? 'none' : 'inline');
+      setA(st.gift, 'transform', `translate(0 ${f2((1 - arrive) * 520 + out * 40)})`); setA(st.gift, 'opacity', f2(outO));
+      const op = c.open === null ? 0 : prog(t, c.open, c.open + 0.5);
+      if (op <= 0) { setA(st.lid, 'transform', ''); setA(st.reveal, 'display', 'none'); setA(st.ribbon, 'display', 'inline'); }
+      else {
+        const e = E.out3(prog(op, 0, 0.7)), h = Math.sin(Math.PI * Math.min(1, op * 1.6)) * 30;
+        setA(st.lid, 'transform', `translate(${f2(e * 110)} ${f2(-e * 120 - h)}) rotate(${f2(-14 * e)} 350 262)`);
+        setA(st.reveal, 'display', 'inline'); setA(st.ribbon, 'display', 'none');
+        const pr = E.back(prog(op, 0.1, 0.55)); setA(st.reveal, 'opacity', 1);
+        setA(st.rv1, 'transform', `translate(350 ${f2(420 - (1 - Math.min(1, pr)) * 0)}) scale(${f2(Math.max(0.01, pr) * 1000) / 1000}) translate(-350 -420)`);
+      }
+    }
+    // équation
+    const drop = (pl, tc, size) => {
+      if (tc === null || t < tc) { setA(pl.g, 'display', 'none'); return; }
+      const p = prog(t, tc, tc + 0.55), y = lerp(pl.cy - 460, pl.cy, E.bounce(p));
+      const op = outO;
+      setA(pl.g, 'display', op <= 0.01 ? 'none' : 'inline'); setA(pl.g, 'opacity', f2(op));
+      setA(pl.g, 'transform', `translate(${f2(pl.cx)} ${f2(y)}${size ? '' : ''})`);
+    };
+    drop(st.pl1, c.open === null ? null : c.open + 0.45);
+    drop(st.pl2, c.times);
+    if (c.total === null || t < c.total) setA(st.pl3.g, 'display', 'none');
+    else { const p = E.out3(prog(t, c.total, c.total + 0.22)); sc(st.pl3.g, st.pl3.cx, st.pl3.cy, 1 + 0.45 * (1 - p), outO); }
+
+    // barre de mise
+    const wg = c.wager;
+    if (wg === null || t < wg) setA(st.bar, 'display', 'none');
+    else {
+      const e = 1 - Math.pow(1 - prog(t, wg + 0.15, wg + 3.15), 1.4);
+      setA(st.bar, 'display', outO <= 0.01 ? 'none' : 'inline'); setA(st.bar, 'opacity', f2(Math.min(outO, prog(t, wg, wg + 0.15))));
+      setA(st.barFill, 'width', f2(Math.max(1, (BAR.w - 12) * e)));
+      const mis = st.target * e;
+      setT(st.barLab, 'MISÉ : ' + eur(mis) + ' / ' + eur(st.target));
+      setT(st.cnt, 'LA MAISON GARDE ≈' + NB + eur(mis * st.edge / 100));
+    }
+
+    // comparaison finale : deux blocs à la même échelle, du bas (y 780) vers le haut
+    if (cmp === null || t < cmp + 0.25) { setA(st.cmp, 'display', 'none'); return; }
+    setA(st.cmp, 'display', 'inline');
+    const BOT = 780, t0 = cmp + 0.25;
+    const rise = (blk, rEl, txG, H, d) => {
+      const p = E.out3(prog(t, t0 + d, t0 + d + 0.6)), h = H * p;
+      setA(rEl, 'y', f2(BOT - h)); setA(rEl, 'height', f2(Math.max(0.1, h)));
+      setA(txG, 'display', p >= 1 ? 'inline' : 'none');
+      setA(blk, 'display', p <= 0.001 ? 'none' : 'inline');
+    };
+    rise(st.blkA, st.rA, st.txA, st.hA, 0);
+    rise(st.blkB, st.rB, st.txB, st.hB, 0.15);
+    { const p = E.back(prog(t, t0 + 0.9, t0 + 1.2)); sc(st.lt, 960, 540, p, prog(t, t0 + 0.9, t0 + 1.0)); }
+  }
+})();
+;
 /* ==== tools/video/composition/components/calendar-26.js ==== */
 // Composant `calendar-26` : le délai de 26 jours (S2 de l'épisode 3). Feuille « CONTRAT » (clause), grille de 26 cases-jours qui se barrent, pile de feuilles manuscrites qui monte.
 // Cues : contract, grid, days, stack, done. Fond paper. Aucun dégradé, flou, lueur ni filter ; rien ne clignote (tout est monotone).
@@ -8227,6 +8507,536 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/live-bets.js ==== */
+// Composant `live-bets` (épisode 8) : « l'appli ne finit jamais » — le pari en direct. Voir EP8-COMPONENTS.md. Fond ink. Trois modes (un par plan).
+//  match   : terrain schématique, horloge de match, frise 0'–90' et une bulle de pari toutes les 10 minutes ; `never` (un 2e match commence), `weekend` (grille de 200 pastilles), `half` (barre « LES MISES »).
+//  bet     : carte de pari, barres « ce que dit la cote » / « en réalité » (l'écart = la marge), puis 10 jetons misés → 8,84 € en moyenne, la différence part vers la maison.
+//  cashout : carte « TON PARI », bouton SÉCURISER (pulsation, pression, barré → REVENDRE MOINS CHER), deux barres dont l'écart est « LA MAISON ». Aucun montant chiffré.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+// Cues : kickoff, whistle, never, weekend, half | card, implied, real, stake, average | button, press, value, relabel.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');          // display (et non visibility : un enfant « visible » réapparaîtrait)
+  const mw = (s, size) => String(s).length * size * 0.6;                     // Mono : 0,6 em par caractère
+  const measCache = {};
+  function meas(root, s, size) {                                              // mesure réelle d'un texte Bricolage 800 (repli : estimation)
+    const key = s + '|' + size;
+    if (measCache[key] != null) return measCache[key];
+    let w = String(s).length * size * 0.6;
+    try { const n = text(root, s, 0, 0, size, '#000'); const b = n.getComputedTextLength(); root.removeChild(n); if (b > 0) w = b; } catch (e) { /* estimation */ }
+    measCache[key] = w;
+    return w;
+  }
+  function fit(parent, root, s, x, y, size, fill, max, o) {                   // Bricolage dont la largeur ne dépasse jamais `max`
+    const n = text(parent, s, x, y, size, fill, o || {});
+    if (meas(root, s, size) > max) { n.setAttribute('textLength', f2(max)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+    return n;
+  }
+  const mono = (parent, s, x, y, size, fill, o) => text(parent, s, x, y, size, fill, Object.assign({ mono: true, len: f2(mw(s, size)) }, o || {}));
+  // échelle / rotation / opacité autour d'un point absolu
+  const xf = (n, cx, cy, s, o, rot, dx, dy) => {
+    s = Math.max(s, 0.0001);
+    setA(n, 'transform', `translate(${f2(cx + (dx || 0))} ${f2(cy + (dy || 0))}) rotate(${f2(rot || 0)}) scale(${f2(s)}) translate(${f2(-cx)} ${f2(-cy)})`);
+    setA(n, 'opacity', f2(o)); vis(n, o > 0.001);
+  };
+  const clipWipe = (defs, id, x, y, w, h) => { const cp = sv('clipPath', { id }, defs); return rect(cp, x, y, w, h, 0, '#000'); };
+  let UID = 0;
+
+  /* ================= match ================= */
+  const FX0 = 160, FW = 1600, FLY = 462, SCROLL = 1900;
+  const GCOLS = 20, GROWS = 10;
+
+  function initMatch(st, root, P, c, dur) {
+    const minutes = Math.max(10, num(P.minutes, 90)), every = Math.max(1, num(P.every, 10));
+    const nb = Math.max(1, Math.min(12, Math.floor(minutes / every)));
+    const perMatch = Math.round(num(P.per_match, nb)), perWeek = Math.round(num(P.per_weekend, 200));
+    Object.assign(st, { minutes, every, nb, perMatch, perWeek });
+    // repères déduits
+    let tK = c.kickoff, tE = c.whistle;
+    const none = ['kickoff', 'whistle', 'never', 'weekend', 'half'].every((n) => c[n] == null);
+    if (none) { tK = 0.4; tE = tK + Math.min(9, Math.max(2, dur - 1.2)); st.autoEnd = false; }
+    else if (tK == null && tE != null) tK = Math.max(0.2, tE - 9);
+    const tEnd = tE != null ? tE : tK != null ? tK + 9 : null;
+    st.tK = tK; st.tEnd = tEnd; st.tWhistle = c.whistle != null ? c.whistle : none ? tEnd : null;
+    st.tNv = c.never != null && tEnd != null ? Math.max(c.never, tEnd + 0.2) : null;
+    st.tK2 = st.tNv != null ? st.tNv + 0.9 + 0.3 : null;
+    st.tW = c.weekend != null ? c.weekend : c.half != null ? -50 : null;           // « half » sans « weekend » : la grille est déjà là
+    st.tHalf = c.half;
+    st.leave = c.weekend != null ? c.weekend : c.half != null ? c.half : null;
+    const rate = tK != null && tEnd != null ? minutes / (tEnd - tK) : 10;           // minutes de match par seconde
+    let step = every;
+    for (const s of [1, 2, 5, 10, every]) if (every % s === 0 && s >= rate / 5) { step = s; break; }   // l'horloge change ≤ 5 fois par seconde
+    st.step = step;
+    const defs = sv('defs', null, root);
+    st.defs = defs;
+
+    // décor : bandes pocket calmes
+    const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+    for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+
+    /* ---- couche « match » ---- */
+    st.ml = g(root);
+    const M = st.ml;
+    st.pitch = g(M);
+    {
+      const pg = st.pitch;
+      rect(pg, 220 + 10, 90 + 10, 1160, 240, 0, C.ink);
+      rect(pg, 220, 90, 1160, 240, 0, C.pocket, C.paper, 4);
+      line(pg, 800, 90, 800, 330, C.paper, 4, { 'stroke-linecap': 'butt' });
+      circle(pg, 800, 210, 52, 'none', C.paper, 4);
+      rect(pg, 220, 150, 120, 120, 0, 'none', C.paper, 4); rect(pg, 220, 187, 46, 46, 0, 'none', C.paper, 4);
+      rect(pg, 1260, 150, 120, 120, 0, 'none', C.paper, 4); rect(pg, 1334, 187, 46, 46, 0, 'none', C.paper, 4);
+    }
+    // horloge
+    st.clock = g(M);
+    rect(st.clock, 800 - 110 + 8, 210 - 62 + 8, 220, 124, 14, C.ink);
+    rect(st.clock, 800 - 110, 210 - 62, 220, 124, 14, C.ink, C.paper, 5);
+    st.clockT = text(st.clock, "00'", 800, 244, 96, C.paper, { mono: true, anchor: 'middle', len: f2(mw("00'", 96)) });
+    // compteur
+    st.cnt = g(M);
+    {
+      const s = `${perMatch}${NB}/${NB}MATCH`;
+      st.cntMax = Math.min(460, meas(root, s, 64));
+      st.cntT = text(st.cnt, '', 1860, 190, 64, C.lime, { anchor: 'end' });
+      st.cntBig = meas(root, s, 64) > 460;
+    }
+    // étiquettes de fin
+    st.end = g(M); st.nvr = g(M);
+    {
+      const l = 'FIN DU MATCH', w = Math.min(meas(root, l, 44), 400) + 60;
+      rect(st.end, 800 - w / 2 + 8, 372 - 29 + 8, w, 58, 12, C.ink);
+      rect(st.end, 800 - w / 2, 372 - 29, w, 58, 12, C.lime, C.ink, 5);
+      fit(st.end, root, l, 800, 372 + 15, 44, C.ink, w - 36, { anchor: 'middle' });
+      const l2 = "L'APPLI" + NB + ':' + NB + 'JAMAIS', w2 = Math.min(meas(root, l2, 44), 520) + 60;
+      rect(st.nvr, 800 - w2 / 2 + 8, 372 - 29 + 8, w2, 58, 12, C.ink);
+      rect(st.nvr, 800 - w2 / 2, 372 - 29, w2, 58, 12, C.red, C.ink, 5);
+      fit(st.nvr, root, l2, 800, 372 + 15, 44, C.ink, w2 - 36, { anchor: 'middle' });
+    }
+    // frise + bulles (2 jeux : match 1 et match 2 décalé)
+    st.fr = g(M);
+    st.curs = g(M);
+    rect(st.curs, -6, 438, 12, 48, 3, C.lime, C.ink, 3);
+    st.sets = [];
+    for (let s = 0; s < 2; s++) {
+      const ox = s * SCROLL, S = { g: g(st.fr, { transform: `translate(${ox} 0)` }), b: [] };
+      line(S.g, FX0, FLY, FX0 + FW, FLY, C.paper, 8, { 'stroke-linecap': 'butt' });
+      for (let m = 0; m <= minutes + 0.001; m += every) {
+        const x = FX0 + FW * m / minutes;
+        line(S.g, x, FLY - 12, x, FLY + 12, C.paper, 4, { 'stroke-linecap': 'butt' });
+        const lb = m + "'";
+        text(S.g, lb, x, 436, 22, C.paper, { mono: true, anchor: 'middle', len: f2(mw(lb, 22)) });
+      }
+      for (let i = 1; i <= nb; i++) {
+        const x = FX0 + FW * (i * every) / minutes, top = i % 2 ? 510 : 625, B = { g: g(S.g), x, cy: top + 45 };
+        line(B.g, x, FLY + 12, x, top, C.paper, 3, { 'stroke-linecap': 'butt' });
+        rect(B.g, x - 75 + 6, top + 6, 150, 90, 12, C.lime);
+        rect(B.g, x - 75, top, 150, 90, 12, C.paper, C.ink, 4);
+        mono(B.g, 'BUT DANS', x, top + 25, 22, C.ink, { anchor: 'middle' });
+        const l2 = `${every}${NB}MIN${NB}?`;
+        mono(B.g, l2, x, top + 49, 22, C.ink, { anchor: 'middle' });
+        mono(B.g, str(P.odd, '3,40'), x, top + 82, 30, C.ink, { anchor: 'middle' });
+        S.b.push(B);
+      }
+      st.sets.push(S);
+    }
+
+    /* ---- couche « week-end » : grille de 200 pastilles + barre « les mises » ---- */
+    st.wl = g(root);
+    st.cells = [];
+    {
+      const n = GCOLS * GROWS, x0 = (1920 - ((GCOLS - 1) * 70 + 44)) / 2, y0 = 232;
+      st.gridG = g(st.wl);
+      for (let k = 0; k < n; k++) {
+        const cx = x0 + (k % GCOLS) * 70 + 22, cy = y0 + Math.floor(k / GCOLS) * 56 + 22;
+        st.cells.push({ n: rect(st.gridG, cx - 22, cy - 22, 44, 44, 4, C.lime), cx, cy });
+      }
+      st.wcnt = g(st.wl);
+      const s = `${perWeek}${NB}/${NB}WEEK-END`;
+      const mx = Math.min(620, meas(root, s, 64));
+      st.wcntMax = mx;
+      st.wcntT = text(st.wcnt, '', 1660, 190, 64, C.lime, { anchor: 'end' });
+      st.wcntBig = meas(root, s, 64) > 620;
+      // barre « les mises »
+      st.half = g(st.wl);
+      const h = st.half;
+      mono(h, 'LES MISES', 260, 124, 26, C.paper, { anchor: 'start' });
+      rect(h, 260, 136, 1400, 60, 0, C.pocket, C.paper, 6);
+      st.halfFill = rect(h, 263, 139, 0, 54, 0, C.lime);
+      st.halfFull = Math.round(1394 * 0.62);
+      const cp = clipWipe(defs, st.uid + 'h', 280, 136, 0, 60);
+      st.halfClip = cp;
+      const lg = g(h, { 'clip-path': `url(#${st.uid}h)` });
+      fit(lg, root, 'LE DIRECT' + NB + ': PLUS DE LA MOITIÉ', 282, 178, 38, C.ink, 640, { anchor: 'start' });
+      line(h, 960, 128, 960, 204, C.ink, 8, { 'stroke-linecap': 'butt' });
+      mono(h, '50' + NB + '%', 960, 120, 24, C.paper, { anchor: 'middle' });
+    }
+  }
+
+  function updateMatch(st, t) {
+    const { c, minutes, every, nb } = st;
+    const leave = st.leave;
+    const lp = leave != null ? E.io2(prog(t, leave, leave + 0.45)) : 0;           // la scène « match » rétrécit vers la 1re ligne de la grille
+    const mOn = leave == null || t < leave + 0.55;
+    vis(st.ml, mOn);
+    if (mOn) {
+      // temps de match
+      const tK = st.tK, tE = st.tEnd;
+      let m = 0, round = 0;
+      if (tK != null && tE != null) {
+        if (st.tNv != null && t >= st.tNv + 0.9) { round = 1; m = t >= st.tK2 ? clamp((t - st.tK2) / (tE - tK)) * minutes : 0; }
+        else m = clamp((t - tK) / (tE - tK)) * minutes;
+      }
+      // horloge (quantifiée : jamais plus de ~5 changements/s)
+      {
+        const done = m >= minutes - 1e-6;
+        const v = done ? minutes : Math.floor(m / st.step + 1e-6) * st.step;
+        const s = String(Math.round(v)).padStart(2, '0') + "'";
+        if (st.clockT.__s !== s) { st.clockT.__s = s; st.clockT.textContent = s; st.clockT.setAttribute('textLength', f2(mw(s, 96))); }
+      }
+      // bulles
+      let n0 = 0, n1 = 0;
+      for (let s = 0; s < 2; s++) {
+        const S = st.sets[s], t0 = s ? st.tK2 : st.tK;
+        for (let i = 1; i <= nb; i++) {
+          const B = S.b[i - 1];
+          const tb = t0 != null && st.tEnd != null ? t0 + (i * every / minutes) * (st.tEnd - st.tK) : null;
+          const p = tb != null ? E.back(prog(t, tb, tb + 0.28)) : 0;
+          xf(B.g, B.x, B.cy, p, p > 0.001 ? 1 : 0, 0);
+          if (tb != null && t >= tb) { if (s) n1++; else n0++; }
+        }
+      }
+      // compteur
+      {
+        const cnt = round ? n1 : n0;
+        const s = cnt > 0 ? `${Math.min(cnt, st.perMatch)}${NB}/${NB}MATCH` : '';
+        if (st.cntT.__s !== s) {
+          st.cntT.__s = s; st.cntT.textContent = s;
+          if (s && st.cntBig) { st.cntT.setAttribute('textLength', f2(st.cntMax)); st.cntT.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+        }
+        vis(st.cnt, !!s);
+      }
+      // défilement vers le 2e match
+      const sx = st.tNv != null ? SCROLL * E.io2(prog(t, st.tNv, st.tNv + 0.9)) : 0;
+      // frise (rétrécit vers la 1re ligne de la grille à `weekend`)
+      {
+        const sy = 1 - 0.94 * lp, ty = FLY + (232 - FLY) * lp;
+        setA(st.fr, 'transform', `translate(${f2(-sx)} ${f2(ty)}) scale(1 ${f2(Math.max(sy, 0.0001))}) translate(0 ${-FLY})`);
+        setA(st.fr, 'opacity', f2(1 - prog(t, (leave != null ? leave : 1e9) + 0.3, (leave != null ? leave : 1e9) + 0.5)));
+      }
+      // curseur (écran) : suit l'horloge ; masqué pendant le défilement vers le 2e match
+      {
+        const x = FX0 + FW * m / minutes;
+        let o = 1;
+        if (st.tNv != null && t >= st.tNv && t < st.tK2) o = 0;
+        o *= 1 - lp;
+        setA(st.curs, 'transform', `translate(${f2(x)} 0)`);
+        setA(st.curs, 'opacity', f2(o)); vis(st.curs, o > 0.001);
+      }
+      // coup de sifflet / jamais
+      const fade = 1 - clamp(lp * 1.6);
+      {
+        const tw = st.tWhistle;
+        const showEnd = tw != null && t >= tw && !(st.tNv != null && t >= st.tNv);
+        const ep = tw != null ? E.back(prog(t, tw, tw + 0.3)) : 0;
+        xf(st.end, 800, 372, ep, showEnd ? fade : 0, -1);
+        const np = st.tNv != null ? E.back(prog(t, st.tNv, st.tNv + 0.3)) : 0;
+        xf(st.nvr, 800, 372, np, st.tNv != null && t >= st.tNv ? fade : 0, 1.5);
+      }
+      for (const n of [st.pitch, st.clock, st.cnt]) setA(n, 'opacity', f2(fade));
+    }
+
+    /* ---- week-end ---- */
+    const tW = st.tW;
+    const wOn = tW != null && leave != null && t >= leave + 0.3;
+    vis(st.wl, wOn);
+    if (wOn) {
+      const t0 = tW < 0 ? -100 : tW + 0.4, T = 2.5;
+      const pf = clamp((t - t0) / T);
+      for (let k = 0; k < st.cells.length; k++) {
+        const tc = t0 + T * Math.pow((k + 1) / st.cells.length, 1 / 1.8);
+        const p = E.out3(prog(t, tc - 0.12, tc));
+        xf(st.cells[k].n, st.cells[k].cx, st.cells[k].cy, p, p > 0.001 ? 1 : 0, 0);
+      }
+      // compteur quantifié (≤ 6 changements/s)
+      {
+        const tq = pf >= 1 ? 1e9 : Math.floor(t * 6) / 6;
+        const v = pf >= 1 ? st.perWeek : Math.floor(st.perWeek * Math.pow(clamp((tq - t0) / T), 1.8));
+        const s = v > 0 ? `${v}${NB}/${NB}WEEK-END` : '';
+        if (st.wcntT.__s !== s) {
+          st.wcntT.__s = s; st.wcntT.textContent = s;
+          if (s && st.wcntBig) { st.wcntT.setAttribute('textLength', f2(st.wcntMax)); st.wcntT.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+        }
+        const half = st.tHalf != null ? 1 - E.out2(prog(t, st.tHalf, st.tHalf + 0.25)) : 1;
+        setA(st.wcnt, 'opacity', f2(half)); vis(st.wcnt, !!s && half > 0.001);
+      }
+      // « half » : la grille s'estompe, la barre des mises se remplit
+      {
+        const th = st.tHalf;
+        const dim = th != null ? E.out2(prog(t, th, th + 0.4)) : 0;
+        setA(st.gridG, 'opacity', f2(1 - 0.55 * dim));
+        const bp = th != null ? E.out3(prog(t, th + 0.15, th + 1.0)) : 0;
+        vis(st.half, th != null && t >= th);
+        setA(st.halfFill, 'width', f2(st.halfFull * bp));
+        const lw = th != null ? E.out2(prog(t, th + 0.9, th + 1.5)) : 0;
+        setA(st.halfClip, 'width', f2(660 * lw));
+      }
+    }
+  }
+
+  /* ================= bet ================= */
+  const BX0 = 360, BW = 1200;
+  function house(parent, cx, cy) {                                           // petite maison plate (picto `house` redessiné localement)
+    const h = g(parent);
+    path(h, `M ${cx - 112} ${cy - 62} L ${cx} ${cy - 150} L ${cx + 112} ${cy - 62} Z`, C.red, C.paper, 6);
+    rect(h, cx - 90, cy - 62, 180, 124, 0, C.pocket, C.paper, 6);
+    rect(h, cx - 24, cy - 8, 48, 70, 0, C.paper, C.ink, 4);
+    rect(h, cx + 38, cy - 40, 34, 34, 0, C.paper, C.ink, 4);
+    return h;
+  }
+  function arrowH(parent, x1, y, x2, col, sw, hs) {
+    line(parent, x1, y, x2 - hs * 0.6, y, col, sw, { 'stroke-linecap': 'butt' });
+    sv('path', { d: `M ${x2} ${y} L ${x2 - hs} ${y - hs * 0.6} L ${x2 - hs} ${y + hs * 0.6} Z`, fill: col }, parent);
+  }
+
+  function initBet(st, root, P, c, dur) {
+    const question = str(P.question, 'BUT DANS LES 10 PROCHAINES MINUTES ?'), odd = str(P.odd, '3,40');
+    const oddNum = parseFloat(odd.replace(',', '.')) || 3.4;
+    const implied = num(P.implied, 29), real = num(P.real, 26);
+    const stake = str(P.stake, '10' + NB + '€'), avg = str(P.avg, '8,84' + NB + '€');
+    const none = ['card', 'implied', 'real', 'stake', 'average'].every((n) => c[n] == null);
+    if (none) Object.assign(c, { card: +(0.03 * dur).toFixed(2), implied: +(0.17 * dur).toFixed(2), real: +(0.3 * dur).toFixed(2), stake: +(0.48 * dur).toFixed(2), average: +(0.64 * dur).toFixed(2) });
+    st.tCard = c.card != null ? c.card : 0.2;
+    st.tStake = c.stake != null ? c.stake : c.average != null ? Math.max(0, c.average - 1.0) : null;
+    st.w1 = BW / oddNum; st.w2 = BW * real / 100;
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+    for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+
+    /* carte + barres */
+    st.top = g(root);
+    const T = st.top;
+    st.card = g(T);
+    rect(st.card, BX0 + 14, 90 + 14, BW, 240, 28, C.lime);
+    rect(st.card, BX0, 90, BW, 240, 28, C.paper, C.ink, 8);
+    fit(st.card, root, question, 960, 165, 52, C.ink, 1090, { anchor: 'middle' });
+    mono(st.card, 'COTE', BX0 + 50, 285, 28, C.ink, { anchor: 'start' });
+    text(st.card, odd, 960, 295, 110, C.ink, { mono: true, anchor: 'middle', len: f2(mw(odd, 110)) });
+    // pistes
+    st.bars = g(T);
+    rect(st.bars, BX0, 410, BW, 60, 0, C.pocket, C.paper, 3); rect(st.bars, BX0, 510, BW, 60, 0, C.pocket, C.paper, 3);
+    mono(st.bars, '100' + NB + '%', BX0 + BW - 10, 396, 22, '#B9B5A8', { anchor: 'end' });
+    st.b1 = rect(st.bars, BX0, 410, 0, 60, 0, C.paper, C.ink, 4);
+    st.b2 = rect(st.bars, BX0, 510, 0, 60, 0, C.white, C.ink, 4);
+    st.b1g = g(T); st.b2g = g(T); st.gapG = g(T);
+    mono(st.b1g, '1' + NB + '÷' + NB + odd, BX0 + 18, 450, 30, C.ink, { anchor: 'start' });
+    const l1 = `CE QUE DIT LA COTE${NB}·${NB}≈${NB}${implied}${NB}%`, l2 = `EN RÉALITÉ${NB}·${NB}≈${NB}${real}${NB}%`;
+    mono(st.b1g, l1, BX0 + st.w1 + 24, 450, 28, C.paper, { anchor: 'start' });
+    mono(st.b2g, l2, BX0 + st.w1 + 24, 550, 28, C.white, { anchor: 'start' });
+    line(st.gapG, BX0 + st.w1, 410, BX0 + st.w1, 590, C.lime, 3, { 'stroke-dasharray': '8 7', 'stroke-linecap': 'butt' });
+    st.gap = rect(st.gapG, BX0 + st.w2, 510, Math.max(0, st.w1 - st.w2), 60, 0, C.lime, C.ink, 4);
+    fit(st.gapG, root, 'LA MARGE', BX0 + (st.w1 + st.w2) / 2, 640, 48, C.lime, 300, { anchor: 'middle' });
+    sv('path', { d: `M ${f2(BX0 + (st.w1 + st.w2) / 2)} 578 l -11 18 l 22 0 Z`, fill: C.lime }, st.gapG);
+
+    /* calcul de la moyenne */
+    st.calc = g(root);
+    const K = st.calc;
+    st.chips = [];
+    for (let k = 0; k < 10; k++) {
+      const cg = g(K);
+      const r = rect(cg, 330 - 115, 640 - 24 * (k + 1) + 1, 230, 22, 11, k % 2 ? C.paper : C.red, C.ink, 4);
+      st.chips.push({ g: cg, r, y: 640 - 24 * (k + 1) + 12 });
+    }
+    st.stakeT = g(K);
+    fit(st.stakeT, root, stake + NB + 'MISÉS', 330, 712, 56, C.paper, 400, { anchor: 'middle' });
+    st.arrow = g(K);
+    arrowH(st.arrow, 505, 446, 765, C.paper, 10, 38);
+    st.res = g(K);
+    fit(st.res, root, avg + NB + 'EN MOYENNE', 800, 482, 96, C.paper, 1020, { anchor: 'start' });
+    st.house = g(K);
+    house(st.house, 1500, 700);
+    mono(st.house, 'LA MAISON', 1500, 812, 28, C.paper, { anchor: 'middle' });
+    st.fly = g(K);
+    rect(st.fly, -115, -11, 230, 22, 11, C.lime, C.ink, 4);
+  }
+
+  function updateBet(st, t) {
+    const { c } = st;
+    // carte
+    { const p = E.back(prog(t, st.tCard, st.tCard + 0.35)); xf(st.card, 960, 210, p, p > 0.001 ? 1 : 0, 0); }
+    // barres
+    {
+      const pi = c.implied != null ? E.out3(prog(t, c.implied, c.implied + 0.7)) : 0;
+      const pr = c.real != null ? E.out3(prog(t, c.real, c.real + 0.7)) : 0;
+      vis(st.bars, c.implied != null || c.real != null);
+      setA(st.b1, 'width', f2(Math.max(0, st.w1 * pi))); vis(st.b1, pi > 0.001);
+      setA(st.b2, 'width', f2(Math.max(0, st.w2 * pr))); vis(st.b2, pr > 0.001);
+      const l1 = c.implied != null ? E.out2(prog(t, c.implied + 0.55, c.implied + 0.85)) : 0;
+      setA(st.b1g, 'opacity', f2(l1)); vis(st.b1g, l1 > 0.001);
+      const l2 = c.real != null ? E.out2(prog(t, c.real + 0.55, c.real + 0.85)) : 0;
+      setA(st.b2g, 'opacity', f2(l2)); vis(st.b2g, l2 > 0.001);
+      const gp = c.real != null ? E.back(prog(t, c.real + 0.7, c.real + 1.1)) : 0;
+      xf(st.gapG, BX0 + (st.w1 + st.w2) / 2, 540, gp, gp > 0.001 && c.implied != null ? 1 : 0, 0);
+    }
+    // la scène du dessus s'efface quand le calcul commence
+    {
+      const ts = st.tStake;
+      const ex = ts != null ? E.in3(prog(t, ts, ts + 0.4)) : 0;
+      setA(st.top, 'transform', `translate(0 ${f2(-420 * ex)})`);
+      vis(st.top, ex < 0.999);
+    }
+    // calcul : pile de 10 jetons, flèche, moyenne, maison
+    {
+      const ts = st.tStake, ta = c.average;
+      const on = ts != null && t >= ts;
+      vis(st.calc, on);
+      if (on) {
+        const t0 = ts + 0.35;                                                  // les jetons arrivent après la sortie de la scène du dessus
+        const tFly = ta != null ? ta + 0.7 : null, FD = 0.9;
+        for (let k = 0; k < 10; k++) {
+          const ch = st.chips[k], a = t0 + k * 0.1;
+          const p = E.out3(prog(t, a, a + 0.22));
+          setA(ch.g, 'transform', `translate(0 ${f2((1 - p) * -60)})`);
+          setA(ch.g, 'opacity', f2(p)); vis(ch.g, p > 0.001 && !(k === 9 && tFly != null && t >= tFly));
+          setA(ch.r, 'fill', k === 9 && ta != null && t >= ta + 0.4 ? C.lime : k % 2 ? C.paper : C.red);
+        }
+        const sp = E.back(prog(t, t0 + 0.9, t0 + 1.2));
+        xf(st.stakeT, 330, 690, sp, sp > 0.001 ? 1 : 0, 0);
+        const ap = ta != null ? E.out3(prog(t, ta - 0.25, ta + 0.1)) : 0;
+        setA(st.arrow, 'opacity', f2(ap)); vis(st.arrow, ap > 0.001);
+        const rp = ta != null ? E.back(prog(t, ta, ta + 0.3)) : 0;
+        xf(st.res, 800, 440, rp, rp > 0.001 ? 1 : 0, 0);
+        const hp = ta != null ? E.back(prog(t, ta + 0.5, ta + 0.85)) : 0;
+        xf(st.house, 1500, 700, hp, hp > 0.001 ? 1 : 0, 0);
+        // le jeton lime part vers la maison (courbe de Bézier quadratique)
+        if (tFly != null && t >= tFly) {
+          const q = E.io2(prog(t, tFly, tFly + FD)), u = 1 - q;
+          const x = u * u * 330 + 2 * u * q * 900 + q * q * 1500, y = u * u * 413 + 2 * u * q * 250 + q * q * 722;
+          const s = 1 - 0.4 * q;
+          setA(st.fly, 'transform', `translate(${f2(x)} ${f2(y)}) rotate(${f2(-14 * Math.sin(Math.PI * q))}) scale(${f2(s)})`);
+          vis(st.fly, true);
+        } else vis(st.fly, false);
+      }
+    }
+  }
+
+  /* ================= cashout ================= */
+  function initCash(st, root, P, c, dur) {
+    const none = ['button', 'press', 'value', 'relabel'].every((n) => c[n] == null);
+    if (none) Object.assign(c, { button: +(0.06 * dur).toFixed(2), value: +(0.3 * dur).toFixed(2), press: +(0.55 * dur).toFixed(2), relabel: +(0.7 * dur).toFixed(2) });
+    const bt = str(P.button, 'SÉCURISER'), rl = str(P.relabel, 'REVENDRE MOINS CHER');
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+    for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+    const defs = sv('defs', null, root);
+    st.defs = defs;
+    // carte « TON PARI »
+    st.card = g(root);
+    rect(st.card, 360 + 14, 90 + 14, 1200, 160, 28, C.lime);
+    rect(st.card, 360, 90, 1200, 160, 28, C.paper, C.ink, 8);
+    text(st.card, 'TON PARI', 410, 195, 72, C.ink, { anchor: 'start' });
+    rect(st.card, 880, 124, 560, 14, 7, C.ink); rect(st.card, 880, 156, 420, 14, 7, C.ink); rect(st.card, 880, 188, 500, 14, 7, C.ink);
+    // bouton
+    st.btn = g(root);
+    st.btnSh = rect(st.btn, 0, 0, 760, 130, 40, C.red);
+    st.btnBody = rect(st.btn, 0, 0, 760, 130, 40, C.lime, C.ink, 8);
+    st.btnT = text(st.btn, bt, 960, 462, 64, C.ink, { anchor: 'middle' });
+    st.btnW = meas(root, bt, 64);
+    st.strike = line(st.btn, 960, 440, 960, 440, C.red, 14, { 'stroke-linecap': 'butt' });
+    const cp = clipWipe(defs, st.uid + 'r', 700, 470, 0, 80);
+    st.relClip = cp;
+    const rg = g(st.btn, { 'clip-path': `url(#${st.uid}r)` });
+    st.relT = fit(rg, root, rl, 960, 526, 48, C.red, 860, { anchor: 'middle' });
+    st.relW = Math.min(meas(root, rl, 48), 860);
+    // barres
+    st.val = g(root);
+    rect(st.val, 360, 640, 1200, 60, 0, C.pocket); rect(st.val, 360, 730, 1200, 60, 0, C.pocket);
+    st.v1 = rect(st.val, 360, 640, 0, 60, 0, C.paper, C.ink, 4);
+    st.v2 = rect(st.val, 360, 730, 0, 60, 0, C.paper, C.ink, 4);
+    st.w2 = 1020;
+    st.v1t = g(st.val); st.v2t = g(st.val);
+    mono(st.v1t, 'CE QUE VAUT TON PARI', 384, 679, 28, C.ink, { anchor: 'start' });
+    mono(st.v2t, "CE QU'ON T'EN PROPOSE", 384, 769, 28, C.ink, { anchor: 'start' });
+    st.gapG = g(st.val);
+    rect(st.gapG, 360 + st.w2, 730, 1200 - st.w2, 60, 0, C.lime, C.ink, 4);
+    mono(st.gapG, 'LA MAISON', 360 + st.w2 + (1200 - st.w2) / 2, 768, 26, C.ink, { anchor: 'middle' });
+  }
+
+  function updateCash(st, t) {
+    const { c } = st;
+    { const p = E.back(prog(t, 0.1, 0.45)); xf(st.card, 960, 170, p, p > 0.001 ? 1 : 0, 0); }
+    // bouton
+    {
+      const tb = c.button, tp = c.press, tr = c.relabel;
+      const pop = tb != null ? E.back(prog(t, tb, tb + 0.35)) : 1;
+      const u = tb != null ? clamp((t - (tb + 0.4)) / 0.4) : 1;
+      const pulse = tb != null && u > 0 && u < 1 ? 1 + 0.05 * Math.sin(Math.PI * u) : 1;
+      const rp = tr != null ? E.out3(prog(t, tr, tr + 8 / 30)) : 0;                 // le bouton s'agrandit en 8 i
+      const w = 760 + 220 * rp, h = 130 + 100 * rp, cx = 960, cy = 440;
+      const pressed = tp != null && t >= tp || tr != null && t >= tr;
+      const dy = tp != null && t >= tp ? 6 : 0;
+      setA(st.btnBody, 'x', f2(cx - w / 2)); setA(st.btnBody, 'y', f2(cy - h / 2 + dy)); setA(st.btnBody, 'width', f2(w)); setA(st.btnBody, 'height', f2(h)); setA(st.btnBody, 'rx', f2(40 + 10 * rp));
+      const so = pressed && tp != null && t >= tp ? 4 : 10;
+      setA(st.btnSh, 'x', f2(cx - w / 2 + so)); setA(st.btnSh, 'y', f2(cy - h / 2 + so)); setA(st.btnSh, 'width', f2(w)); setA(st.btnSh, 'height', f2(h)); setA(st.btnSh, 'rx', f2(40 + 10 * rp));
+      setA(st.btnBody, 'fill', pressed ? C.paper : C.lime);
+      // libellé : monte quand le nouveau mot arrive
+      const ty = 462 + dy - 36 * rp;
+      setA(st.btnT, 'y', f2(ty));
+      const sp = tr != null ? E.out3(prog(t, tr + 0.05, tr + 0.05 + 6 / 30)) : 0;      // trait red 14 px en 6 i
+      const half = st.btnW / 2 + 22;
+      setA(st.strike, 'x1', f2(cx - half)); setA(st.strike, 'y1', f2(ty - 20)); setA(st.strike, 'x2', f2(cx - half + 2 * half * sp)); setA(st.strike, 'y2', f2(ty - 20 - 6 * sp));
+      vis(st.strike, sp > 0.001);
+      setA(st.relT, 'y', f2(526 + dy - 0));
+      const wp = tr != null ? E.out2(prog(t, tr + 0.3, tr + 0.75)) : 0;
+      setA(st.relClip, 'x', f2(cx - st.relW / 2 - 8)); setA(st.relClip, 'y', f2(cy - h / 2 + 30)); setA(st.relClip, 'width', f2((st.relW + 16) * wp)); setA(st.relClip, 'height', f2(h));
+      setA(st.relT, 'opacity', f2(wp > 0 ? 1 : 0));
+      xf(st.btn, cx, cy, pop * pulse, pop > 0.001 ? 1 : 0, 0);
+    }
+    // barres : ce que vaut ton pari / ce qu'on t'en propose
+    {
+      const tv = c.value;
+      const p1 = tv != null ? E.out3(prog(t, tv, tv + 0.6)) : 0, p2 = tv != null ? E.out3(prog(t, tv + 0.25, tv + 0.85)) : 0;
+      vis(st.val, tv != null && t >= tv);
+      setA(st.v1, 'width', f2(1200 * p1)); vis(st.v1, p1 > 0.001);
+      setA(st.v2, 'width', f2(st.w2 * p2)); vis(st.v2, p2 > 0.001);
+      setA(st.v1t, 'opacity', f2(E.out2(prog(t, (tv || 0) + 0.4, (tv || 0) + 0.7)))); setA(st.v2t, 'opacity', f2(E.out2(prog(t, (tv || 0) + 0.65, (tv || 0) + 0.95))));
+      const gp = tv != null ? E.back(prog(t, tv + 0.9, tv + 1.25)) : 0;
+      xf(st.gapG, 360 + st.w2 + (1200 - st.w2) / 2, 760, gp, gp > 0.001 ? 1 : 0, 0);
+    }
+  }
+
+  /* ================= composant ================= */
+  const NAMES = ['kickoff', 'whistle', 'never', 'weekend', 'half', 'card', 'implied', 'real', 'stake', 'average', 'button', 'press', 'value', 'relabel'];
+  ZV.define('live-bets', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const c = {};
+      for (const n of NAMES) { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r == null || b.t < r)) r = b.t; c[n] = r; }
+      const mode = P.mode === 'bet' || P.mode === 'cashout' ? P.mode : 'match';
+      const st = { dur, c, mode, uid: 'lb' + (++UID) };
+      if (mode === 'match') { rect(root, 0, 0, 1920, 1080, 0, C.ink); initMatch(st, root, P, c, dur); }
+      else if (mode === 'bet') initBet(st, root, P, c, dur);
+      else initCash(st, root, P, c, dur);
+      return st;
+    },
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        if (st.mode === 'match') updateMatch(st, t);
+        else if (st.mode === 'bet') updateBet(st, t);
+        else updateCash(st, t);
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/logo-reveal.js ==== */
 // Composant « logo-reveal » : voir tools/video/composition/INTERFACE.md. Fonction pure du temps du plan, aplats seulement.
 (() => {
@@ -9584,6 +10394,499 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/odds-overround.js ==== */
+// Composant `odds-overround` (épisode 8) : « une cote, c'est un prix » et trois chances qui font 105,6 %. Voir EP8-COMPONENTS.md.
+// Carte de match (3 tuiles de cote) → étiquettes de prix → tuiles retournées (1 ÷ cote) → cadre « 100 % » où s'empilent les trois chances (total qui défile
+// puis se pose une seule fois) → dépassement lime = la marge → règle 5 → 12 % → sifflet. Mode `dutch` : piles de mises, flèches, « TU TOUCHES : 100 € », « −5,57 € ».
+// `comma` : retour sur la carte, zoom sur la virgule de « 1,55 » (le zéro vert). Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+// Cues : odds, price, p1, p2, p3, flip-all, stack, overflow, range, kickoff, dutch, stakes, staked, payout, loss, comma.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, F } = ZV;
+  let UID = 0;
+  const NB = '\u00A0';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const arr3 = (v, d) => (Array.isArray(v) && v.length >= 3 ? [0, 1, 2].map((i) => (v[i] != null ? String(v[i]) : d[i])) : d.slice());
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');          // display (et non visibility : un enfant « visible » réapparaîtrait)
+  const fmt1 = (v) => v.toFixed(1).replace('.', ',');
+  const fmt2 = (v) => v.toFixed(2).replace('.', ',');
+  const mw = (s, size) => String(s).length * size * 0.6;                     // Mono : 0,6 em par caractère
+  // mesure réelle d'un texte Bricolage 800 (repli : estimation)
+  const measCache = {};
+  function meas(root, s, size, mono) {
+    const key = s + '|' + size + '|' + (mono ? 1 : 0);
+    if (measCache[key] != null) return measCache[key];
+    let w = mono ? mw(s, size) : String(s).length * size * 0.6;
+    try {
+      const n = text(root, s, 0, 0, size, '#000', { mono, weight: 800 });
+      const b = n.getComputedTextLength();
+      root.removeChild(n);
+      if (b > 0) w = b;
+    } catch (e) { /* estimation */ }
+    measCache[key] = w;
+    return w;
+  }
+  // texte Bricolage dont la largeur ne dépasse jamais `max` (compression plutôt que débordement)
+  function fit(parent, root, s, x, y, size, fill, max, o) {
+    const n = text(parent, s, x, y, size, fill, o || {});
+    const w = meas(root, s, size, false);
+    if (w > max) { n.setAttribute('textLength', f2(max)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+    return n;
+  }
+  // transformation autour d'un point absolu (échelle / rotation / décalage) + opacité
+  const xf = (n, cx, cy, s, o, rot, dx, dy) => {
+    s = Math.max(s, 0.0001);
+    setA(n, 'transform', `translate(${f2(cx + (dx || 0))} ${f2(cy + (dy || 0))}) rotate(${f2(rot || 0)}) scale(${f2(s)}) translate(${f2(-cx)} ${f2(-cy)})`);
+    setA(n, 'opacity', f2(o)); vis(n, o > 0.001);
+  };
+  // flèche pleine (trait + pointe) dont on peut déplacer l'extrémité : setArrow(A, x2, y2, k) k = taille de la pointe (0..1)
+  const arrow = (parent, x1, y1, x2, y2, col, sw, hs) => {
+    const A = { x1, y1, x2, y2, hs, ln: line(parent, x1, y1, x2, y2, col, sw), hd: sv('path', { d: '', fill: col }, parent) };
+    setArrow(A, x1, y1, x2, y2, 1);
+    return A;
+  };
+  function setArrow(A, x1, y1, x2, y2, k) {
+    const a = Math.atan2(y2 - y1, x2 - x1), ca = Math.cos(a), sa = Math.sin(a), h = A.hs * Math.max(k, 0.0001);
+    setA(A.ln, 'x1', f2(x1)); setA(A.ln, 'y1', f2(y1)); setA(A.ln, 'x2', f2(x2 - ca * h * 0.6)); setA(A.ln, 'y2', f2(y2 - sa * h * 0.6));
+    setA(A.hd, 'd', `M ${f2(x2)} ${f2(y2)} L ${f2(x2 - ca * h + sa * h * 0.55)} ${f2(y2 - sa * h - ca * h * 0.55)} L ${f2(x2 - ca * h - sa * h * 0.55)} ${f2(y2 - sa * h + ca * h * 0.55)} Z`);
+  }
+
+  const CX = [510, 960, 1410], CY = 273, TW = 380, TH = 170;
+  const TAGD = 'M -130 -85 L 172 -85 Q 190 -85 190 -67 L 190 67 Q 190 85 172 85 L -130 85 L -190 0 Z';
+  const FX0 = 210, FW = 1500, FY = 470, FH = 170;                              // cadre « 100 % »
+  const NAMES = ['odds', 'price', 'p1', 'p2', 'p3', 'flip-all', 'stack', 'overflow', 'range', 'kickoff', 'dutch', 'stakes', 'staked', 'payout', 'loss', 'comma'];
+
+  ZV.define('odds-overround', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cu = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r == null || b.t < r)) r = b.t; return r; };
+      const c = {};
+      for (const n of NAMES) c[n] = cu(n);
+      const mode0 = P.mode === 'dutch' ? 'dutch' : 'overround';
+      if (!NAMES.some((n) => c[n] != null)) {                                  // aucun repère : le plan se joue seul, réparti sur sa durée
+        const D = dur, at = (f) => Math.round(f * D * 100) / 100;
+        if (mode0 === 'dutch') Object.assign(c, { stakes: at(0.12), staked: at(0.36), payout: at(0.55), loss: at(0.74) });
+        else Object.assign(c, { odds: at(0.03), price: at(0.16), p1: at(0.27), stack: at(0.4), overflow: at(0.6), range: at(0.74), kickoff: at(0.86) });
+      }
+      const uid = 'oo' + (++UID);
+
+      /* ---- données ---- */
+      const DEF = [1.55, 4.2, 5.8];
+      const odds = Array.isArray(P.odds) && P.odds.length >= 3 ? [0, 1, 2].map((i) => Math.max(1.01, num(P.odds[i], DEF[i]))) : DEF.slice();
+      const inv = odds.map((o) => 1 / o);
+      const sum = inv[0] + inv[1] + inv[2];
+      const labels = arr3(P.labels, ['A GAGNE', 'NUL', 'B GAGNE']);
+      const teams = str(P.teams, 'ÉQUIPE A — ÉQUIPE B');
+      const oddTxt = odds.map(fmt2);
+      const probs = arr3(P.probs, inv.map((v) => '≈' + NB + fmt1(v * 100) + NB + '%'));
+      const total = str(P.total, fmt1(sum * 100) + NB + '%');
+      const margin = str(P.margin, fmt1((sum - 1) * 100) + NB + '%');
+      const range = str(P.range, 'EN GÉNÉRAL' + NB + ': 5 À 12' + NB + '%');
+      const stakes = arr3(P.stakes, inv.map((v) => fmt2(v * 100) + NB + '€'));
+      const staked = str(P.staked, fmt2(sum * 100) + NB + '€');
+      const payout = str(P.payout, '100' + NB + '€');
+      const loss = str(P.loss, '−' + fmt2(sum * 100 - 100) + NB + '€');
+      const derived = P.show_derived !== false;
+      const totalNum = parseFloat(String(total).replace(',', '.')) || sum * 100;
+      const st = { dur, c, mode0, odds, inv, sum, derived, total, totalNum, uid, margin };
+
+      /* ---- repères déduits ---- */
+      st.tDutch = mode0 === 'dutch' ? -10 : c.dutch != null ? c.dutch : c.stakes != null ? Math.max(0, c.stakes - 0.45) : null;
+      const first = [c.overflow, c.kickoff].filter((x) => x != null);
+      st.tStack = c.stack != null ? c.stack : first.length ? Math.max(0.1, Math.min(...first) - 2.0) : null;
+      st.tFrame = st.tStack != null ? Math.max(0, Math.min(st.tStack, ...first) - 0.5) : null;
+      st.tOdds = c.odds != null ? c.odds : 0.2;
+      st.tSeg = [0, 1, 2].map((i) => (st.tStack != null ? st.tStack + i * 0.55 : null));
+      st.tSettle = st.tStack != null ? st.tStack + 2 * 0.55 + 0.45 + 0.2 : null;
+      st.tFlip = [0, 1, 2].map((i) => {
+        const a = c['p' + (i + 1)], b = c['flip-all'] != null ? c['flip-all'] + i * (4 / 30) : null;
+        return a != null && b != null ? Math.min(a, b) : a != null ? a : b;
+      });
+
+      /* ---- fond ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+      const mkClip = (x, y, h) => { const cp = sv('clipPath', { id: uid + 'c' + (mkClip.n = (mkClip.n || 0) + 1) }, defs); const r = rect(cp, x, y, 0, h, 0, '#000'); return { id: cp.getAttribute('id'), r }; };
+
+      /* ---- carte de match + tuiles ---- */
+      st.card = g(root);
+      rect(st.card, 274, 84, 1400, 302, 28, C.ink);
+      rect(st.card, 260, 70, 1400, 302, 28, C.white, C.ink, 8);
+      st.title = fit(st.card, root, teams, 960, 128, 54, C.ink, 1260, { anchor: 'middle' });
+      st.tiles = [];
+      for (let i = 0; i < 3; i++) {
+        const T = { g: g(st.card) };
+        T.lab = text(T.g, labels[i], 0, -99, 26, C.ink, { mono: true, anchor: 'middle', len: f2(mw(labels[i], 26)) });
+        // ficelle de l'étiquette de prix (ne se retourne pas avec la tuile)
+        T.str = g(T.g);
+        path(T.str, 'M -148 0 C -172 4 -196 22 -198 64', 'none', C.ink, 4);
+        circle(T.str, -198, 64, 6, C.ink);
+        T.prix = text(T.str, 'PRIX', -218, 42, 20, C.ink, { mono: true, anchor: 'middle', len: f2(mw('PRIX', 20)) });
+        T.prix.setAttribute('transform', 'rotate(-90 -218 42)');
+        T.flip = g(T.g);
+        // face avant
+        T.front = g(T.flip);
+        T.rectF = rect(T.front, -190, -85, TW, TH, 18, C.ink);
+        T.tagF = path(T.front, TAGD, C.ink);
+        T.eyeF = g(T.front);
+        circle(T.eyeF, -148, 0, 15, C.paper); circle(T.eyeF, -148, 0, 7, C.white);
+        T.oddG = g(T.front);
+        const s = oddTxt[i], k = s.indexOf(',');
+        const pre = k >= 0 ? s.slice(0, k) : s, post = k >= 0 ? s.slice(k + 1) : '';
+        const cell = 66, x0 = -s.length * cell / 2;
+        text(T.oddG, pre, x0, 40, 110, C.paper, { mono: true, anchor: 'start', len: f2(pre.length * cell) });
+        T.comma = k >= 0 ? text(T.oddG, ',', x0 + pre.length * cell, 40, 110, C.paper, { mono: true, anchor: 'start', len: cell }) : null;
+        if (post) text(T.oddG, post, x0 + (pre.length + 1) * cell, 40, 110, C.paper, { mono: true, anchor: 'start', len: f2(post.length * cell) });
+        T.cx = x0 + pre.length * cell + cell / 2;                                // centre de la case de la virgule (repère local de oddG)
+        T.disk = circle(T.oddG, T.cx, 32, 16, C.lime, C.ink, 4);
+        vis(T.disk, false);
+        // face arrière : 1 ÷ cote et pourcentage
+        T.back = g(T.flip);
+        T.rectB = rect(T.back, -190, -85, TW, TH, 18, C.lime, C.ink, 6);
+        T.tagB = path(T.back, TAGD, C.lime, C.ink, 6);
+        T.eyeB = g(T.back);
+        circle(T.eyeB, -148, 0, 15, C.paper, C.ink, 4); circle(T.eyeB, -148, 0, 6, C.white, C.ink, 3);
+        T.bkG = g(T.back);
+        const l1 = '1 ÷ ' + oddTxt[i];
+        const showP = derived || i === 0;
+        text(T.bkG, showP ? l1 : l1, 0, showP ? -26 : 12, showP ? 34 : 50, C.ink, { mono: true, weight: 700, anchor: 'middle', len: f2(mw(l1, showP ? 34 : 50)) });
+        if (showP) {
+          const ps = probs[i];
+          text(T.bkG, ps, 0, 46, 58, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(ps, 58), 290)) });
+        }
+        T.cxScreen = CX[i];
+        st.tiles.push(T);
+      }
+
+      /* ---- calque « 100 % » (cadre, segments, total, marge, règle, sifflet) ---- */
+      st.over = g(root);
+      const O = st.over;
+      st.frame = g(O);
+      text(st.frame, '3 ISSUES POSSIBLES = 100' + NB + '%', FX0, 452, 28, C.ink, { mono: true, anchor: 'start', len: f2(mw('3 ISSUES POSSIBLES = 100 %', 28)) });
+      rect(st.frame, FX0, FY, FW, FH, 0, 'none', C.ink, 8);
+      st.segs = [];
+      {
+        let x = FX0;
+        for (let i = 0; i < 3; i++) {
+          const w = FW * inv[i], S = { g: g(O), x0: x, w };
+          rect(S.g, x, FY, w, FH, 0, i === 1 ? C.white : C.paper, C.ink, 6);
+          const lab = labels[i];
+          text(S.g, lab, x + 16, 506, 22, C.ink, { mono: true, anchor: 'start', len: f2(mw(lab, 22)) });
+          const inner = Math.min(x + w, FX0 + FW) - x;                           // partie visible dans le cadre
+          const mid = x + Math.min(w, inner) / 2 - (i === 2 ? 0 : 0);
+          let pt = probs[i].replace(/^≈\s*/, ''), sz = 40;
+          if (!derived && i > 0) { pt = '1 ÷ ' + oddTxt[i]; sz = 32; }
+          text(S.g, pt, mid, 596, sz, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(pt, sz), inner - 36)) });
+          st.segs.push(S);
+          x += w;
+        }
+      }
+      const exX = FX0 + FW, exW = Math.max(0, FW * (sum - 1));
+      st.bump = rect(O, exX + 6, FY + 3, Math.max(0, exW - 9), FH - 6, 0, C.lime);
+      st.limit = line(O, exX, FY - 20, exX, FY + FH + 22, C.ink, 12, { 'stroke-linecap': 'butt' });
+      st.limitR = line(O, exX, FY - 20, exX, FY + FH + 22, C.red, 12, { 'stroke-linecap': 'butt' });
+      // total
+      st.tot = g(O);
+      {
+        const w = meas(root, 'TOTAL' + NB + ':' + NB + total, 96, false);
+        st.totT = text(st.tot, '', 1710, 790, f2(Math.min(96, 96 * 860 / Math.max(w, 1))), C.ink, { anchor: 'end' });
+      }
+      // contexte (gauche)
+      st.ctx = text(O, '', FX0, 704, 28, C.ink, { mono: true, anchor: 'start' });
+      // marge : étiquette + flèche
+      st.mar = g(O);
+      {
+        const lab = '+' + NB + margin + NB + ': LA MARGE', sz = 52;
+        const w = Math.min(meas(root, lab, sz, false), 560) + 52, x1 = 1690, h = 62;
+        rect(st.mar, x1 - w + 8, 396 + 8, w, h, 14, C.ink);
+        rect(st.mar, x1 - w, 396, w, h, 14, C.lime, C.ink, 6);
+        fit(st.mar, root, lab, x1 - w / 2, 396 + 46, sz, C.ink, w - 40, { anchor: 'middle' });
+        arrow(st.mar, x1 + 6, 428, 1752, 466, C.ink, 6, 20);
+      }
+      // règle 5 → 12
+      st.rng = g(O);
+      {
+        const cl = mkClip(FX0 - 12, 716, 120);
+        st.clipRange = cl;
+        const rg = g(st.rng, { 'clip-path': `url(#${cl.id})` });
+        text(rg, range, FX0, 744, 28, C.ink, { mono: true, anchor: 'start', len: f2(mw(range, 28)) });
+        const k = 440 / 9, X = (v) => FX0 + k * (v - 4);
+        for (let v = 4; v <= 13; v++) line(rg, X(v), 772, X(v), 800, C.ink, 3, { 'stroke-linecap': 'butt' });
+        line(rg, X(5), 786, X(12), 786, C.ink, 10, { 'stroke-linecap': 'butt' });
+        text(rg, '5', X(5), 826, 22, C.ink, { mono: true, anchor: 'middle', len: f2(mw('5', 22)) });
+        text(rg, '12', X(12), 826, 22, C.ink, { mono: true, anchor: 'middle', len: f2(mw('12', 22)) });
+        sv('path', { d: `M ${f2(X(5.6))} 773 l -9 -15 l 18 0 Z`, fill: C.red, stroke: C.ink, 'stroke-width': 2 }, rg);
+      }
+      // sifflet + étiquette
+      st.kick = g(O);
+      {
+        const wh = g(st.kick);
+        st.whistle = wh;
+        rect(wh, 1318, 676, 28, 18, 4, C.ink);
+        circle(wh, 1358, 684, 17, C.ink);
+        circle(wh, 1358, 684, 6, C.paper);
+        rect(wh, 1348, 662, 16, 8, 2, C.ink);
+        const lab = 'PRÉLEVÉE AVANT LE COUP D\'ENVOI';
+        const cl = mkClip(1380, 666, 44);
+        st.clipKick = cl;
+        const kg = g(st.kick, { 'clip-path': `url(#${cl.id})` });
+        text(kg, lab, 1860, 698, 26, C.ink, { mono: true, anchor: 'end', len: f2(mw(lab, 26)) });
+        line(st.kick, 1754, 640, 1754, 664, C.ink, 4);
+        sv('path', { d: 'M 1754 636 l -8 12 l 16 0 Z', fill: C.ink }, st.kick);
+        st.kickW = 1860 - 1380;
+      }
+
+      /* ---- calque « dutch » ---- */
+      st.dg = g(root);
+      {
+        const D = st.dg;
+        st.cols = [];
+        for (let i = 0; i < 3; i++) {
+          const K = { g: g(D), n: Math.max(1, Math.min(10, Math.round(100 * inv[i] / 8))), chips: [] };
+          for (let k = 0; k < K.n; k++) {
+            const cg = g(K.g);
+            rect(cg, CX[i] - 75, 560 - 17 * (k + 1) - 1, 150, 18, 8, k % 2 ? C.white : C.red, C.ink, 4);
+            K.chips.push(cg);
+          }
+          if (derived) {
+            K.val = text(K.g, stakes[i], CX[i], 622, 52, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(stakes[i], 52), 300)) });
+          }
+          st.cols.push(K);
+        }
+        // total misé
+        st.sk = g(D);
+        fit(st.sk, root, 'MISÉ' + NB + ': ' + staked, 150, 764, 54, C.ink, 520, { anchor: 'start' });
+        // bloc « tu touches »
+        st.pay = g(D);
+        const BX = 700, BY = 692, BW = 520, BH = 112;
+        st.arrows = [];
+        const tx = [BX + 120, BX + BW / 2, BX + BW - 120];
+        for (let i = 0; i < 3; i++) {
+          st.arrows.push(arrow(st.pay, CX[i], 642, tx[i], BY - 6, C.ink, 6, 18));
+        }
+        st.blk = g(st.pay);
+        rect(st.blk, BX + 10, BY + 10, BW, BH, 14, C.ink);
+        rect(st.blk, BX, BY, BW, BH, 14, C.paper, C.ink, 7);
+        fit(st.blk, root, 'TU TOUCHES' + NB + ': ' + payout, BX + BW / 2, BY + 54, 48, C.ink, BW - 44, { anchor: 'middle' });
+        text(st.blk, 'QUOI QU\'IL ARRIVE', BX + BW / 2, BY + 92, 24, C.red, { mono: true, anchor: 'middle', len: f2(mw('QUOI QU\'IL ARRIVE', 24)) });
+        // perte
+        st.ls = g(D);
+        fit(st.ls, root, loss, 1830, 800, 108, C.red, 470, { anchor: 'end' });
+        {
+          const lab = 'GAGNÉ À COUP SÛR… ET PERDU';
+          const cl = mkClip(1380, 670, 50);
+          st.clipLoss = cl;
+          const lg = g(st.ls, { 'clip-path': `url(#${cl.id})` });
+          text(lg, lab, 1830, 704, 24, C.ink, { mono: true, anchor: 'end', len: f2(mw(lab, 24)) });
+          st.lossW = 450;
+        }
+      }
+
+      /* ---- légende « le zéro vert » (comma) ---- */
+      st.cm = g(root);
+      {
+        const lab = 'LE ZÉRO VERT';
+        text(st.cm, lab, 960, 806, 44, C.ink, { mono: true, anchor: 'middle', len: f2(mw(lab, 44)) });
+        st.cmArrow = arrow(st.cm, 952, 766, 940, 646, C.red, 8, 26);
+      }
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { c } = st;
+        const tC = c.comma;
+        const cp = tC != null ? prog(t, tC, tC + 0.2) : 0;                       // fondu des autres éléments au retour sur la carte
+        const zoom = tC != null ? E.io3(prog(t, tC, tC + 16 / 30)) : 0;
+
+        /* carte : zoom sur la tuile 1 */
+        {
+          const S = 1 + 0.9 * zoom, ex = 510 + (960 - 510) * zoom, ey = CY + (540 - CY) * zoom;
+          setA(st.card, 'transform', `translate(${f2(ex)} ${f2(ey)}) scale(${f2(S)}) translate(-510 ${-CY})`);
+        }
+        setA(st.title, 'opacity', f2(1 - cp));
+
+        /* tuiles */
+        for (let i = 0; i < 3; i++) {
+          const T = st.tiles[i];
+          const tp = st.tOdds + i * 0.2;
+          const pop = E.back(prog(t, tp, tp + 0.3));
+          const tPr = c.price != null ? c.price + i * 0.1 : null;
+          const priced = tPr != null && t >= tPr;
+          const u = priced ? t - tPr : 0;
+          const pp = priced ? E.out3(prog(t, tPr, tPr + 0.25)) : 0;
+          const wob = priced ? 5 * Math.exp(-4 * u) * Math.sin(16 * u) : 0;
+          const pulse = priced ? 1 + 0.08 * Math.sin(Math.PI * clamp(u / 0.25)) : 1;
+          // retournement (le comma continue le geste si la tuile était déjà retournée)
+          let th = 0;
+          const tf = st.tFlip[i];
+          if (tf != null) th = Math.PI * E.io2(prog(t, tf, tf + 10 / 30));
+          if (i === 0 && tC != null && tf != null && tf + 10 / 30 <= tC) th += Math.PI * E.io2(prog(t, tC, tC + 10 / 30));
+          const cs = Math.cos(th);
+          const backFace = (th % (2 * Math.PI)) > Math.PI / 2 && (th % (2 * Math.PI)) < 3 * Math.PI / 2;
+          const sc = Math.max(0, pop) * pulse;
+          const o = i === 0 ? 1 : 1 - cp;
+          setA(T.g, 'transform', `translate(${CX[i]} ${CY}) rotate(${f2(wob)}) scale(${f2(Math.max(sc, 0.0001))})`);
+          setA(T.g, 'opacity', f2(o)); vis(T.g, o > 0.001 && pop > 0.001);
+          setA(T.lab, 'opacity', f2(i === 0 ? 1 : 1));
+          vis(T.rectF, !priced); vis(T.tagF, priced); vis(T.eyeF, priced);
+          vis(T.rectB, !priced); vis(T.tagB, priced); vis(T.eyeB, priced);
+          vis(T.str, priced); setA(T.str, 'opacity', f2(pp));
+          const ox = 22 * pp;
+          setA(T.oddG, 'transform', `translate(${f2(ox)} 0)`);
+          setA(T.bkG, 'transform', `translate(${f2(ox)} 0)`);
+          setA(T.flip, 'transform', `scale(1 ${f2(Math.max(Math.abs(cs), 0.0001))})`);
+          vis(T.front, !backFace); vis(T.back, backFace);
+          // virgule → disque lime (tuile 1)
+          if (i === 0) {
+            const dp = tC != null ? E.back(prog(t, tC + 0.4, tC + 0.7)) : 0;
+            vis(T.disk, dp > 0.01);
+            if (T.comma) vis(T.comma, dp < 0.2);
+            setA(T.disk, 'transform', `translate(${f2(T.cx)} 32) scale(${f2(Math.max(dp, 0.0001))}) translate(${f2(-T.cx)} -32)`);
+          }
+        }
+
+        /* calque 100 % */
+        const dutchP = st.tDutch != null ? prog(t, st.tDutch, st.tDutch + 0.4) : 0;
+        const overOn = st.mode0 !== 'dutch' && (1 - cp) > 0.001 && dutchP < 0.999;
+        vis(st.over, overOn);
+        if (overOn) {
+          const tO = c.overflow;
+          const sh = tO != null ? ZV.shakeAt(t, tO, 6, 0.35) : [0, 0];
+          setA(st.over, 'transform', `translate(${f2(sh[0])} ${f2(sh[1] + 520 * E.in3(dutchP))})`);
+          setA(st.over, 'opacity', f2(1 - cp));
+          // cadre
+          const fp = st.tFrame != null ? E.out3(prog(t, st.tFrame, st.tFrame + 0.35)) : 0;
+          setA(st.frame, 'opacity', f2(fp)); vis(st.frame, fp > 0.001);
+          setA(st.frame, 'transform', `translate(0 ${f2((1 - fp) * 24)})`);
+          // segments
+          for (let i = 0; i < 3; i++) {
+            const S = st.segs[i], ts = st.tSeg[i];
+            const p = ts != null ? E.out3(prog(t, ts, ts + 0.45)) : 0;
+            setA(S.g, 'transform', `translate(${f2((1 - p) * 260)} 0)`);
+            setA(S.g, 'opacity', f2(p)); vis(S.g, p > 0.001);
+          }
+          // limite + dépassement
+          const ovP = tO != null ? prog(t, tO, tO + 0.25) : 0;
+          const limOn = st.tFrame != null && fp > 0.001;
+          vis(st.limit, limOn); setA(st.limit, 'opacity', f2(fp));
+          vis(st.bump, tO != null && t >= tO);
+          const y2 = FY - 20 + (FH + 42) * E.out3(ovP);
+          vis(st.limitR, ovP > 0.001); setA(st.limitR, 'y2', f2(y2));
+          { const mp = tO != null ? E.back(prog(t, tO + 0.15, tO + 0.45)) : 0; xf(st.mar, 1690, 427, mp, mp > 0.001 ? 1 : 0, 0); }
+          // total
+          {
+            let txt = '', on = false, scl = 1;
+            if (st.tStack != null && t >= st.tSeg[0]) {
+              on = true;
+              if (t >= st.tSettle) {
+                txt = 'TOTAL' + NB + ':' + NB + st.total;
+                const q = t - st.tSettle;
+                scl = 1 + 0.07 * Math.sin(Math.PI * clamp(q / 0.3));
+              } else {
+                const tq = Math.floor(t * 6) / 6;                                // ≤ 6 changements par seconde
+                let v = 0;
+                for (let i = 0; i < 3; i++) v += 100 * st.inv[i] * E.out2(prog(tq, st.tSeg[i], st.tSeg[i] + 0.45));
+                v = Math.min(v, st.totalNum - 0.4);                              // ne montre jamais 105,5 en route
+                txt = 'TOTAL' + NB + ':' + NB + fmt1(Math.max(0, v)) + NB + '%';
+              }
+            }
+            if (st.totT.__s !== txt) { st.totT.__s = txt; st.totT.textContent = txt; }
+            setA(st.totT, 'fill', tO != null && t >= tO ? C.red : C.ink);
+            setA(st.tot, 'transform', `translate(1710 790) scale(${f2(scl)}) translate(-1710 -790)`);
+            vis(st.tot, on);
+          }
+          // contexte
+          {
+            let s = '';
+            if (c.overflow != null && t >= c.overflow + 0.3) s = '= 100' + NB + '% + ' + st.margin;
+            else if (st.tStack != null && t >= st.tSeg[0]) s = 'SOMME DES 1 ÷ COTE';
+            if (st.ctx.__s !== s) { st.ctx.__s = s; st.ctx.textContent = s; setA(st.ctx, 'textLength', f2(Math.max(1, mw(s, 28)))); }
+          }
+          // règle
+          {
+            const rp = c.range != null ? E.out2(prog(t, c.range, c.range + 0.7)) : 0;
+            vis(st.rng, rp > 0.001);
+            setA(st.clipRange.r, 'width', f2(500 * rp));
+          }
+          // sifflet
+          {
+            const kp = c.kickoff != null ? E.back(prog(t, c.kickoff, c.kickoff + 0.3)) : 0;
+            vis(st.kick, kp > 0.001);
+            xf(st.whistle, 1340, 684, kp, kp > 0.001 ? 1 : 0, (1 - kp) * -20);
+            const lp = c.kickoff != null ? E.out2(prog(t, c.kickoff + 0.15, c.kickoff + 0.8)) : 0;
+            setA(st.clipKick.r, 'x', f2(1860 - st.kickW * lp)); setA(st.clipKick.r, 'width', f2(st.kickW * lp + 4));
+          }
+        }
+
+        /* calque dutch */
+        {
+          const ds = st.tDutch;
+          const on = ds != null && t >= ds && (1 - cp) > 0.001;
+          vis(st.dg, on);
+          if (on) {
+            setA(st.dg, 'opacity', f2(1 - cp));
+            for (let i = 0; i < 3; i++) {
+              const K = st.cols[i];
+              const t0 = c.stakes != null ? c.stakes + i * 0.3 : null;
+              for (let k = 0; k < K.n; k++) {
+                const a = t0 != null ? t0 + k * 0.06 : null;
+                const p = a != null ? E.out3(prog(t, a, a + 0.2)) : 0;
+                setA(K.chips[k], 'transform', `translate(0 ${f2((1 - p) * -36)})`);
+                setA(K.chips[k], 'opacity', f2(p)); vis(K.chips[k], p > 0.001);
+              }
+              if (K.val) {
+                const a = t0 != null ? t0 + K.n * 0.06 : null;
+                const p = a != null ? E.back(prog(t, a, a + 0.25)) : 0;
+                xf(K.val, CX[i], 604, p, p > 0.001 ? 1 : 0, 0);
+              }
+            }
+            { const p = c.staked != null ? E.back(prog(t, c.staked, c.staked + 0.3)) : 0; xf(st.sk, 150, 750, p, p > 0.001 ? 1 : 0, 0); vis(st.sk, p > 0.001); }
+            {
+              const tp = c.payout;
+              for (let i = 0; i < 3; i++) {
+                const a = tp != null ? tp + i * 0.1 : null;
+                const p = a != null ? E.out3(prog(t, a, a + 0.4)) : 0;
+                const A = st.arrows[i];
+                vis(A.ln, p > 0.001); vis(A.hd, p > 0.001);
+                setArrow(A, A.x1, A.y1, A.x1 + (A.x2 - A.x1) * p, A.y1 + (A.y2 - A.y1) * p, E.out2(clamp(p * 2)));
+              }
+              const bp = tp != null ? E.back(prog(t, tp + 0.35, tp + 0.65)) : 0;
+              xf(st.blk, 960, 748, bp, bp > 0.001 ? 1 : 0, 0);
+              vis(st.pay, tp != null && t >= tp);
+            }
+            {
+              const tl = c.loss;
+              const fall = tl != null ? prog(t, tl, tl + 0.5) : 0;
+              const dy = (1 - E.bounce(fall)) * -240;
+              setA(st.ls, 'transform', `translate(0 ${f2(dy)})`);
+              setA(st.ls, 'opacity', f2(fall > 0 ? 1 : 0)); vis(st.ls, fall > 0);
+              const lp = tl != null ? E.out2(prog(t, tl + 0.45, tl + 1.0)) : 0;
+              setA(st.clipLoss.r, 'x', f2(1830 - st.lossW * lp)); setA(st.clipLoss.r, 'width', f2(st.lossW * lp + 4));
+            }
+          }
+        }
+
+        /* comma : légende « le zéro vert » + flèche vers la virgule */
+        {
+          const T = st.tiles[0];
+          const ox = 22 * (c.price != null && t >= c.price ? E.out3(prog(t, c.price, c.price + 0.25)) : 0);
+          const p = tC != null ? E.back(prog(t, tC + 0.7, tC + 1.0)) : 0;
+          const dx = 960 + 1.9 * (ox + T.cx);
+          xf(st.cm, 960, 790, p, p > 0.001 ? 1 : 0, 0);
+          setArrow(st.cmArrow, 952, 766, dx, 642, E.out2(clamp(p)));
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/paths.js ==== */
 // Composant « paths » : les 70 trajectoires de joueurs (+1 si le rouge sort, −1 sinon, p = 18/37), 1920×1080.
 // Graine FIXE (6901, un flux par joueur) cherchée hors ligne : à 100 / 1 000 / 10 000 tours, 25 / 13 / 0 joueurs sur 70
@@ -10212,6 +11515,634 @@
       }
     }
   });
+})();
+;
+/* ==== tools/video/composition/components/phone-night.js ==== */
+// Composant `phone-night` (épisode 8) : « trois heures du matin, ton lit, ta couette, ton téléphone ». Voir EP8-COMPONENTS.md.
+// Fond ink stable (jamais d'écran qui s'allume/s'éteint), couette + oreiller + réveil, smartphone plat (5 écrans : slots, stream, site, notifs, odds),
+// main plate (aplat, aucun ongle ni pli), étiquettes latérales, roue du zéro. Fonction pure du temps ; aplats seulement ; aucun dégradé, flou, lueur, filter.
+// Cues : screen(to), hands-off, zoom-out, label-1..4, strike-label-1..4, link, no-id, no-age, no-limit, deposit, pizza, crypto, euros, notif, hook, zero-move, hide-in-odds.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt, rng } = ZV;
+  let UID = 0;
+  const NB = ' ';
+  const SCREENS = ['slots', 'stream', 'site', 'notifs', 'odds'];
+  const SW = 344, SH = 704;                        // écran (repère local de l'écran)
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' || ch === NB ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ◆▸●]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  // mesure réelle si possible (dans le DOM, polices chargées), sinon estimation ; impose textLength seulement si ça déborde
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+  const mono = (parent, s, x, y, size, fill, o) => text(parent, s, x, y, size, fill, Object.assign({ mono: true }, o || {}));
+  // coupe en au plus 2 lignes de largeur maxW ; renvoie [lignes, taille]
+  function wrap2(s, size, maxW) {
+    for (let sz = size; sz >= 14; sz -= 1) {
+      const cw = sz * 0.6, per = Math.floor(maxW / cw);
+      if (s.length <= per) return [[s], sz];
+      const words = s.split(' '); let l1 = '';
+      for (const w of words) { if ((l1 ? l1 + ' ' + w : w).length <= per) l1 = l1 ? l1 + ' ' + w : w; else break; }
+      const l2 = s.slice(l1.length).trim();
+      if (l1 && l2.length <= per) return [[l1, l2], sz];
+    }
+    return [[s], 14];
+  }
+
+  /* ---- symboles plats de la machine (comme `slot-machine`), cellule 192×140 centrée ---- */
+  const SYMS = ['cherry', 'seven', 'bar', 'lemon', 'bell', 'zero'];
+  function drawSym(gg, name) {
+    if (name === 'cherry') {
+      path(gg, 'M-22 12 Q-18 -30 8 -48', 'none', C.ink, 7);
+      path(gg, 'M26 20 Q24 -26 8 -48', 'none', C.ink, 7);
+      path(gg, 'M8 -48 Q34 -70 56 -42 Q30 -30 8 -48Z', C.lime, C.ink, 5);
+      circle(gg, -24, 24, 25, C.red, C.ink, 6);
+      circle(gg, 28, 32, 25, C.red, C.ink, 6);
+      circle(gg, -33, 15, 6, C.paper);
+      circle(gg, 19, 23, 6, C.paper);
+    } else if (name === 'seven') {
+      const sh = text(gg, '7', 6, 58, 150, C.ink, { anchor: 'middle' });
+      sh.setAttribute('stroke', C.ink); sh.setAttribute('stroke-width', 9); sh.setAttribute('stroke-linejoin', 'round');
+      const t7 = text(gg, '7', 0, 52, 150, C.red, { anchor: 'middle' });
+      t7.setAttribute('stroke', C.ink); t7.setAttribute('stroke-width', 9); t7.setAttribute('stroke-linejoin', 'round'); t7.setAttribute('paint-order', 'stroke');
+    } else if (name === 'bar') {
+      rect(gg, -68 + 6, -27 + 7, 136, 54, 8, C.red);
+      rect(gg, -68, -27, 136, 54, 8, C.ink, C.ink, 6);
+      rect(gg, -60, -19, 120, 38, 4, 'none', C.paper, 3);
+      text(gg, 'BAR', 0, 12, 34, C.paper, { anchor: 'middle', len: 92 });
+    } else if (name === 'lemon') {
+      const lg = g(gg, { transform: 'rotate(-14)' });
+      path(lg, 'M-64 0 Q-44 -44 0 -42 Q44 -44 64 0 Q44 44 0 42 Q-44 44 -64 0Z', C.lime, C.ink, 6);
+      path(lg, 'M-30 -14 Q-10 -28 16 -26', 'none', C.paper, 6);
+      circle(lg, -62, 0, 6, C.ink); circle(lg, 62, 0, 6, C.ink);
+    } else if (name === 'bell') {
+      path(gg, 'M-48 40 L48 40 C42 22 38 -4 32 -22 C26 -38 12 -44 0 -44 C-12 -44 -26 -38 -32 -22 C-38 -4 -42 22 -48 40Z', C.paper, C.ink, 6);
+      path(gg, 'M14 -42 C26 -37 29 -30 32 -22 C38 -4 42 22 48 40 L24 40 C23 10 21 -20 14 -42Z', C.ink);
+      path(gg, 'M-48 40 L48 40 C42 22 38 -4 32 -22 C26 -38 12 -44 0 -44 C-12 -44 -26 -38 -32 -22 C-38 -4 -42 22 -48 40Z', 'none', C.ink, 6);
+      path(gg, 'M-40 22 L42 22', 'none', C.red, 8);
+      circle(gg, 0, -50, 9, C.paper, C.ink, 5);
+      circle(gg, 0, 50, 11, C.ink);
+    } else {
+      circle(gg, 0, 0, 48, C.lime, C.ink, 7);
+      text(gg, '0', 0, 26, 78, C.ink, { anchor: 'middle' });
+    }
+    return gg;
+  }
+  function drawHook(parent, s) {   // petit hameçon plat lime bordé ink, centré sur (0,0)
+    const d = 'M0 -16 V6 A12 12 0 0 0 24 6 V-4 M24 -4 L16 4';
+    const h = g(parent, { transform: `translate(-12 0) scale(${s || 1})` });
+    path(h, d, 'none', C.ink, 15);
+    path(h, d, 'none', C.lime, 7);
+    circle(h, 0, -21, 6, C.lime, C.ink, 4);
+    return h;
+  }
+
+  ZV.define('phone-night', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const uid = 'pn' + (++UID);
+      const st = { uid, dur: Math.max(0.1, shot.dur || 1) };
+      st.side = ['left', 'center', 'right'].includes(P.side) ? P.side : 'center';
+      st.cx = st.side === 'right' ? 1380 : st.side === 'left' ? 560 : 960;
+      st.dir = st.side === 'left' ? -1 : 1;                         // sens de la main (miroir si le téléphone est à gauche)
+      st.x0 = st.cx - 190; st.y0 = 70;
+      st.screen0 = SCREENS.includes(P.screen) ? P.screen : 'slots';
+      st.clock = str(P.clock, '03:00');
+      st.hand = P.hand !== false;
+      st.bed = P.bed !== false;
+      st.steps = clamp(Math.round(isNum(P.credit_steps) ? P.credit_steps : 40), 4, 400);
+      const labels = Array.isArray(P.side_labels) ? P.side_labels.filter((s) => typeof s === 'string' && s.trim()).slice(0, 4) : null;
+      st.labels = (labels && labels.length ? labels : ['PAS D’ADRESSE', 'PAS DE VIGILE', 'JAMAIS FERMÉ', 'DANS TA MAIN']).map((s) => s.toUpperCase());
+      const notifs = Array.isArray(P.notifs) ? P.notifs.filter((s) => typeof s === 'string' && s.trim()).slice(0, 4) : null;
+      st.notifs = (notifs && notifs.length ? notifs : ['TU NOUS MANQUES', 'UN BONUS T’ATTEND', 'TON SOLDE T’ATTEND', 'ENCORE UN TOUR ?']).map((s) => s.toUpperCase());
+      st.deposit = str(P.deposit, '10' + NB + '€').replace(/ /g, NB);
+      st.crypto = str(P.crypto, '0,02' + NB + '◆').replace(/ /g, NB);
+      st.euros = str(P.euros, '800' + NB + '€').replace(/ /g, NB);
+
+      const cu = (n) => ZV.cue(shot, n);
+      st.c = { off: cu('hands-off'), zoom: cu('zoom-out'), link: cu('link'), noId: cu('no-id'), noAge: cu('no-age'), noLimit: cu('no-limit'), deposit: cu('deposit'), pizza: cu('pizza'), crypto: cu('crypto'), euros: cu('euros'), hook: cu('hook'), zero: cu('zero-move'), hide: cu('hide-in-odds') };
+      st.labelC = [1, 2, 3, 4].map((i) => cu('label-' + i));
+      st.strikeC = [1, 2, 3, 4].map((i) => cu('strike-label-' + i));
+      st.notifC = ZV.cues(shot, 'notif').map((b) => b.t).sort((a, b) => a - b).slice(0, 4);
+      st.screenC = ZV.cues(shot, 'screen').filter((b) => SCREENS.includes(b.to)).map((b) => ({ t: b.t, to: b.to })).sort((a, b) => a.t - b.t);
+
+      const { cx, x0, y0, dir } = st;
+      const R = rng(80808);
+
+      /* ---- fond ink stable, puis le « monde » (zoom-out) ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      st.world = g(root);
+      const W = st.world;
+      const defs = sv('defs', null, W);
+      const clip = sv('clipPath', { id: uid + 'c' }, defs); sv('rect', { x: 0, y: 0, width: SW, height: SH, rx: 40 }, clip);
+      const clipR = sv('clipPath', { id: uid + 'r' }, defs); sv('rect', { x: 0, y: 0, width: 300, height: 130 }, clipR);
+      const symDefs = {};
+      SYMS.forEach((s) => { const gg = g(defs, { id: `${uid}-${s}` }); drawSym(gg, s); symDefs[s] = `#${uid}-${s}`; });
+
+      /* ---- décor : oreiller, réveil, couette ---- */
+      const mir = st.side === 'left';
+      const MX = (x, w) => (mir ? 1920 - x - w : x);
+      st.bedG = g(W);
+      if (st.bed) {
+        const B = st.bedG;
+        rect(B, MX(80, 340) + 8, 700 + 8, 340, 120, 40, C.pocket);
+        rect(B, MX(80, 340), 700, 340, 120, 40, C.paper, C.ink, 6);
+        path(B, `M${MX(80, 340) + 60} 760 Q${MX(80, 340) + 170} 735 ${MX(80, 340) + 280} 760`, 'none', C.ink, 4);
+        // réveil
+        const kx = MX(150, 320);
+        rect(B, kx + 14, 150 + 14, 320, 150, 18, C.pocket);
+        circle(B, kx + 56, 138, 26, C.paper, C.paper, 6); circle(B, kx + 264, 138, 26, C.paper, C.paper, 6);
+        rect(B, kx, 150, 320, 150, 18, C.ink, C.paper, 6);
+        rect(B, kx + 40, 296, 36, 22, 6, C.paper); rect(B, kx + 244, 296, 36, 22, 6, C.paper);
+        const ct = mono(B, st.clock, kx + 160, 150 + 99, 92, C.red, { anchor: 'middle', weight: 800 });
+        fit(ct, 280);
+        // couette : vague plate à 2 bosses
+        const pts = [];
+        for (let x = -100; x <= 2020; x += 40) pts.push(`${x} ${f2(805 - 22 * Math.cos(((x - 640) / 640) * 2 * Math.PI))}`);
+        const duvet = path(B, `M-100 1500 L${pts.join(' L')} L2020 1500Z`, C.pocket, C.paper, 6);
+        for (let k = 0; k < 4; k++) path(B, `M-100 ${900 + k * 70} Q${400 + k * 60} ${870 + k * 70} 960 ${900 + k * 70} T2020 ${900 + k * 70}`, 'none', C.ink, 4, { 'stroke-dasharray': '18 26' });
+        st.stand = g(B);
+        path(st.stand, `M${cx - 90} 836 L${cx - 60} 800 L${cx + 60} 800 L${cx + 90} 836Z`, C.pocket, C.paper, 6);
+      }
+
+      /* ---- roue du zéro (zero-move) ---- */
+      st.wx = Math.min(300, x0 - 170); st.wy = st.bed ? 470 : 260;
+      st.wheel = g(W);
+      {
+        const wg = st.wheel;
+        circle(wg, 0, 0, 120, C.ink, C.paper, 7);
+        st.wedges = [];
+        const N = 37, a = (Math.PI * 2) / N, r0 = 46, r1 = 108;
+        for (let i = 0; i < N; i++) {
+          const num = ZV.ORDER[i], col = ZV.colorOf(num);
+          const a0 = -Math.PI / 2 + (i - 0.5) * a, a1 = a0 + a;
+          const P0 = [Math.cos(a0) * r0, Math.sin(a0) * r0], P1 = [Math.cos(a0) * r1, Math.sin(a0) * r1], P2 = [Math.cos(a1) * r1, Math.sin(a1) * r1], P3 = [Math.cos(a1) * r0, Math.sin(a1) * r0];
+          const d = `M${f2(P0[0])} ${f2(P0[1])} L${f2(P1[0])} ${f2(P1[1])} A${r1} ${r1} 0 0 1 ${f2(P2[0])} ${f2(P2[1])} L${f2(P3[0])} ${f2(P3[1])} A${r0} ${r0} 0 0 0 ${f2(P0[0])} ${f2(P0[1])}Z`;
+          const w = path(wg, d, col === 'lime' ? C.lime : col === 'red' ? C.red : C.pocket, C.ink, 2);
+          st.wedges.push(w);
+        }
+        circle(wg, 0, 0, 40, C.ink, C.paper, 5);
+      }
+      st.disc = g(W);
+      circle(st.disc, 0, 0, 40, C.lime, C.ink, 7);
+      st.discTxt = text(st.disc, '0', 0, 19, 56, C.ink, { anchor: 'middle' });
+
+      /* ---- main (derrière : doigts ; devant : avant-bras + pouce) ---- */
+      st.handBack = g(W); st.handFront = g(W);
+      st.B = { x: x0 + 404, y: y0 + 672 };                          // base du pouce (repère non miroir)
+      st.idleTip = { x: x0 + 378, y: y0 + 536 };
+      if (st.hand) {
+        for (let k = 0; k < 4; k++) rect(st.handBack, x0 - 30, y0 + 470 + k * 58, 56, 50, 25, C.paper, C.ink, 6);
+        // l'avant-bras vient de la droite, légèrement penché, bombé contre le bord du téléphone
+        const A = (dx, dy) => `${x0 + dx} ${y0 + dy}`;
+        path(st.handFront, `M${A(372, 592)} L${A(560, 596)} Q${A(620, 632)} ${A(700, 652)} L${A(1250, 704)} L${A(1250, 856)} L${A(700, 786)} Q${A(600, 772)} ${A(540, 794)} L${A(372, 772)} Q${A(326, 682)} ${A(372, 592)}Z`, C.paper, C.ink, 6);
+      }
+
+      /* ---- le téléphone ---- */
+      st.ph = g(W);
+      const ph = st.ph;
+      rect(ph, 14, 14, 380, 740, 56, C.ink);
+      rect(ph, 0, 0, 380, 740, 56, C.pocket, C.paper, 8);
+      const scrG = g(ph, { transform: 'translate(18 18)' });
+      rect(scrG, 0, 0, SW, SH, 40, C.ink);
+      const clipG = g(scrG, { 'clip-path': `url(#${uid}c)` });
+      st.sc = {};
+      SCREENS.forEach((n) => { st.sc[n] = g(clipG); });
+
+      /* -- slots -- */
+      {
+        const S = st.sc.slots;
+        rect(S, 20, 110, 304, 130, 14, C.paper);
+        const reelsG = g(S, { transform: 'translate(22 110)', 'clip-path': `url(#${uid}r)` });
+        st.reels = [];
+        const ini = ['seven', 'bar', 'cherry'];
+        for (let i = 0; i < 3; i++) {
+          const strip = SYMS.slice();
+          for (let k = strip.length - 1; k > 0; k--) { const j = Math.floor(R() * (k + 1)); const tmp = strip[k]; strip[k] = strip[j]; strip[j] = tmp; }
+          const rg = g(reelsG, { transform: `translate(${i * 100} 0)` });
+          const uses = [0, 1, 2].map(() => sv('use', { href: symDefs.cherry }, rg));
+          // résultats de chaque tour (perdants : jamais trois identiques), positions cumulées sur la bande
+          st.reels.push({ strip, uses, F: [strip.indexOf(ini[i])], ini: strip.indexOf(ini[i]) });
+        }
+        const K = Math.ceil(st.dur / 2.5) + 3;
+        for (let k = 0; k < K; k++) {
+          let res; do { res = [0, 1, 2].map(() => SYMS[Math.floor(R() * 6) % 6]); } while (res[0] === res[1] && res[1] === res[2]);
+          for (let i = 0; i < 3; i++) {
+            const r = st.reels[i], prev = r.F[r.F.length - 1], idx = r.strip.indexOf(res[i]);
+            r.F.push(prev + 4 + ((((idx - prev - 4) % 6) + 6) % 6));
+          }
+        }
+        for (let i = 1; i < 3; i++) line(S, 22 + i * 100, 110, 22 + i * 100, 240, C.ink, 4, { 'stroke-linecap': 'butt' });
+        rect(S, 20, 110, 304, 130, 14, 'none', C.lime, 5);
+        rect(S, 20, 270, 92, 40, 20, C.lime, C.ink, 4);
+        mono(S, 'AUTO', 66, 298, 24, C.ink, { anchor: 'middle' });
+        mono(S, 'AUTO-SPIN', 128, 298, 22, C.paper);
+        mono(S, 'SOLDE', 20, 392, 24, C.paper);
+        rect(S, 20, 404, 304, 44, 10, C.pocket, C.paper, 4);
+        st.gauge = rect(S, 22, 406, 300, 40, 8, C.paper);
+        st.gaugeG = S;
+        if (st.steps <= 16) for (let k = 1; k < st.steps; k++) line(S, f2(22 + (300 * k) / st.steps), 406, f2(22 + (300 * k) / st.steps), 446, C.ink, 2, { 'stroke-linecap': 'butt', opacity: 0.55 });
+        rect(S, 20, 404, 304, 44, 10, 'none', C.ink, 4);
+      }
+
+      /* -- stream -- */
+      {
+        const S = st.sc.stream;
+        rect(S, 16, 76, 312, 176, 8, C.ink, C.paper, 4);
+        // table de cartes vue de dessus
+        const cardsX = [48, 112, 176];
+        ['7', '2', '9'].forEach((d, i) => { const cg = g(S, { transform: `translate(${cardsX[i] + 28} 172) rotate(${[-8, 3, -4][i]})` }); rect(cg, -28, -40, 56, 80, 6, C.paper, C.ink, 3); mono(cg, d, 0, 14, 44, C.ink, { anchor: 'middle' }); });
+        // incrustation : silhouette générique (aucun trait), casque
+        rect(S, 240, 160, 80, 84, 6, C.pocket, C.paper, 3);
+        path(S, 'M246 244 Q246 214 280 214 Q314 214 314 244Z', C.pocket, C.paper, 3);
+        circle(S, 280, 190, 18, C.pocket, C.paper, 3);
+        path(S, 'M259 190 A21 21 0 0 1 301 190', 'none', C.paper, 5);
+        rect(S, 253, 186, 8, 16, 4, C.paper); rect(S, 299, 186, 8, 16, 4, C.paper);
+        rect(S, 24, 84, 124, 28, 14, C.red, C.ink, 3);
+        mono(S, '● EN DIRECT', 86, 105, 17, C.paper, { anchor: 'middle', weight: 800 });
+        // titre figuré
+        rect(S, 16, 272, 296, 16, 8, C.paper); rect(S, 16, 298, 214, 16, 8, C.paper); rect(S, 16, 324, 130, 16, 8, C.paper);
+        mono(S, 'DESCRIPTION', 16, 378, 22, C.paper);
+        rect(S, 16, 392, 312, 4, 2, C.paper);
+        rect(S, 16, 410, 250, 12, 6, C.pocket, C.paper, 2); rect(S, 16, 432, 180, 12, 6, C.pocket, C.paper, 2);
+        st.linkC = { x: 94, y: 492 };
+        st.linkPill = g(S);
+        rect(st.linkPill, -78, -24, 156, 48, 24, C.lime, C.ink, 4);
+        const lt = mono(st.linkPill, '▸ LE LIEN', 0, 8, 22, C.ink, { anchor: 'middle', weight: 800 }); fit(lt, 130);
+        rect(st.linkPill, -56, 14, 112, 4, 2, C.ink);
+        st.linkPill.setAttribute('transform', `translate(${st.linkC.x} ${st.linkC.y})`);
+      }
+
+      /* -- site -- */
+      {
+        const S = st.sc.site;
+        rect(S, 0, 56, SW, 60, 0, C.pocket);
+        circle(S, 34, 86, 15, C.lime, C.ink, 4);
+        const ct = text(S, 'CASINO', 60, 101, 40, C.paper); fit(ct, 130);
+        rect(S, 16, 128, 188, 30, 15, 'none', C.red, 3);
+        mono(S, 'HORS DE FRANCE', 110, 149, 17, C.red, { anchor: 'middle', weight: 800 });
+        const ROWS = [['PIÈCE D’IDENTITÉ', 'NON DEMANDÉE'], ['ÂGE', 'NON VÉRIFIÉ'], ['LIMITE DE DÉPÔT', 'AUCUNE']];
+        st.rows = ROWS.map((r, i) => {
+          const rg = g(S), y = 172 + i * 92;
+          rect(rg, 16, y, 312, 80, 12, C.pocket, C.paper, 3);
+          mono(rg, r[0], 32, y + 30, 22, C.paper);
+          const ans = mono(rg, r[1], 32, y + 64, 24, C.red, { weight: 800 });
+          circle(rg, 292, y + 40, 20, C.red, C.ink, 4);
+          path(rg, `M283 ${y + 31} L301 ${y + 49} M301 ${y + 31} L283 ${y + 49}`, 'none', C.ink, 6);
+          return rg;
+        });
+        st.btn = g(S);
+        rect(st.btn, 16, 452, 312, 70, 18, C.lime, C.ink, 6);
+        st.btnT = text(st.btn, 'DÉPOSER' + NB + st.deposit, 172, 499, 38, C.ink, { anchor: 'middle' });
+        fit(st.btnT, 270);
+        st.btnTxt = ['DÉPOSER' + NB + st.deposit, st.deposit + NB + 'DÉPOSÉS'];
+        st.btnR = rect(st.btn, 16, 452, 312, 70, 18, C.paper, C.ink, 6); st.btnR.setAttribute('display', 'none');
+        st.btnT2 = text(st.btn, st.btnTxt[1], 172, 499, 38, C.ink, { anchor: 'middle' }); fit(st.btnT2, 270); st.btnT2.setAttribute('display', 'none');
+        st.btnT2.parentNode.appendChild(st.btnT2);
+        mono(S, 'SOLDE', 16, 560, 22, C.paper).setAttribute('display', 'none');
+        st.soldeLab = S.lastChild;
+        st.cry = text(S, st.crypto, 16, 620, 72, C.lime, { weight: 800 }); fit(st.cry, 312);
+        st.eur = text(S, '=' + NB + st.euros, 16, 692, 72, C.red, { weight: 800 }); fit(st.eur, 312);
+      }
+
+      /* -- notifs (écran verrouillé) -- */
+      {
+        const S = st.sc.notifs;
+        const clk = text(S, st.clock, SW / 2, 214, 110, C.paper, { anchor: 'middle' }); fit(clk, 300);
+        mono(S, 'NUIT', SW / 2, 106, 22, C.paper, { anchor: 'middle' });
+        st.nc = [];
+        for (let i = 0; i < st.notifs.length; i++) {
+          const y = 262 + i * 106, ng = g(S);
+          rect(ng, 16, y, 312, 94, 22, C.paper, C.ink, 4);
+          st.nc.push({ g: ng, y, ic: circle(ng, 54, y + 47, 20, C.lime, C.ink, 5), dot: circle(ng, 54, y + 47, 7, C.ink), hook: null });
+          const [lines, sz] = wrap2(st.notifs[i], 22, 232);
+          lines.forEach((ln, li) => { const tn = mono(ng, ln, 88, y + (lines.length === 1 ? 54 : 41 + li * 28), sz, C.ink, { weight: 800 }); fit(tn, 232); });
+          const hk = g(ng, { transform: `translate(54 ${y + 47})` });
+          drawHook(hk, 1.1);
+          st.nc[i].hook = hk;
+        }
+      }
+
+      /* -- odds -- */
+      {
+        const S = st.sc.odds;
+        const tt = text(S, 'ÉQUIPE A — ÉQUIPE B', SW / 2, 126, 30, C.paper, { anchor: 'middle' }); fit(tt, 312);
+        st.tiles = [];
+        const OD = ['1,55', '4,20', '5,80'];
+        OD.forEach((o, i) => {
+          const y = 222 + i * 118, tg = g(S);
+          rect(tg, 16, y, 312, 104, 18, C.ink, C.paper, 4);
+          if (i === 0) {
+            const lx = SW / 2 - 64.8;
+            mono(tg, '1', lx + 16.2, y + 70, 54, C.paper, { anchor: 'middle', weight: 800 });
+            st.comma = mono(tg, ',', lx + 48.6, y + 70, 54, C.paper, { anchor: 'middle', weight: 800 });
+            mono(tg, '55', lx + 97.2, y + 70, 54, C.paper, { anchor: 'middle', weight: 800, len: 64.8 });
+            st.commaPos = { x: lx + 48.6, y: y + 70 + 2 };
+            st.tile1y = y;
+          } else mono(tg, o, SW / 2, y + 70, 54, C.paper, { anchor: 'middle', weight: 800 });
+          st.tiles.push(tg);
+        });
+        st.ici = g(S);
+        mono(st.ici, 'ICI', st.commaPos.x, st.tile1y - 30, 28, C.lime, { anchor: 'middle', weight: 800 });
+        path(st.ici, `M${st.commaPos.x - 11} ${st.tile1y - 18} L${st.commaPos.x + 11} ${st.tile1y - 18} L${st.commaPos.x} ${st.tile1y - 4}Z`, C.lime, C.ink, 3);
+      }
+
+      // barre d'état (fixe) : heure, notch, soleil (luminosité au minimum)
+      st.status = g(clipG);
+      mono(st.status, st.clock, 28, 42, 22, C.paper, { weight: 800 });
+      rect(st.status, 112, 12, 120, 30, 15, C.ink, C.paper, 3);
+      {
+        const sx = 262, sy = 30;
+        circle(st.status, sx, sy, 6, C.paper);
+        for (let k = 0; k < 8; k++) { const a = (k * Math.PI) / 4; line(st.status, f2(sx + Math.cos(a) * 9), f2(sy + Math.sin(a) * 9), f2(sx + Math.cos(a) * 13), f2(sy + Math.sin(a) * 13), C.paper, 3); }
+        line(st.status, 282, sy, 326, sy, C.paper, 3); circle(st.status, 285, sy, 5, C.paper, C.ink, 2);
+      }
+
+      // pouce (devant le téléphone) + anneau de tape
+      if (st.hand) {
+        const hf = st.handFront;
+        st.thumbO = line(hf, st.B.x, st.B.y, st.idleTip.x, st.idleTip.y, C.ink, 62);
+        st.thumbP = line(hf, st.B.x, st.B.y, st.idleTip.x, st.idleTip.y, C.paper, 50);
+        circle(hf, st.B.x, st.B.y, 40, C.paper);
+      }
+      W.appendChild(st.handFront);                                 // la main passe devant le téléphone
+      W.appendChild(st.disc);                                      // le disque lime passe devant l'écran
+      st.tapG = g(W);
+      st.tapA = circle(st.tapG, 0, 0, 15, 'none', C.paper, 10);
+      st.tapB = circle(st.tapG, 0, 0, 15, 'none', C.ink, 5);
+
+      /* ---- pizza, étiquettes ---- */
+      st.pizza = g(W);
+      {
+        const pz = st.pizza;
+        // hors de la colonne d'étiquettes : sous elles (center), ou à l'autre bout du lit (left / right)
+        st.pzBase = st.side === 'center' ? { x: 570, y: 630 } : st.side === 'right' ? { x: 330, y: 520 } : { x: 1590, y: 520 };
+        path(pz, 'M-84 -60 L84 -60 L0 88Z', C.paper, C.ink, 7);
+        rect(pz, -92, -82, 184, 28, 12, C.paper, C.ink, 7);
+        [[-30, -20], [30, -20], [0, 36]].forEach((p) => circle(pz, p[0], p[1], 14, C.red, C.ink, 4));
+        const lb = mono(pz, '10' + NB + '€ = UNE PIZZA', 0, 150, 28, C.paper, { anchor: 'middle', weight: 800 }); fit(lb, 300);
+      }
+      st.lab = [];
+      {
+        const n = st.labels.length;
+        let size = 84;
+        st.labels.forEach((s) => { size = Math.min(size, 560 / (bw(s, 1) || 1)); });
+        size = clamp(Math.floor(size), 64, 84);
+        const base = st.side === 'center' ? [[-1, 380], [1, 300], [-1, 520], [1, 480]] : [[0, 250], [0, 410], [0, 570], [0, 730]];
+        for (let i = 0; i < n; i++) {
+          const [sd, by] = base[i];
+          let anchor, x;
+          if (st.side === 'center') { anchor = sd < 0 ? 'end' : 'start'; x = sd < 0 ? x0 - 30 : x0 + 380 + 30; }
+          else if (st.side === 'right') { anchor = 'end'; x = x0 - 30; }
+          else { anchor = 'start'; x = x0 + 380 + 30; }
+          const lg = g(W);
+          const tn = text(lg, st.labels[i], 0, 0, size, C.paper, { anchor });
+          fit(tn, 556);
+          let w = 0; try { w = tn.getComputedTextLength(); } catch (e) { w = 0; }
+          if (!(w > 0)) w = Math.min(556, bw(st.labels[i], size));
+          const x1 = anchor === 'end' ? -w : 0, x2 = anchor === 'end' ? 0 : w;
+          const sk = line(lg, x1 - 8, -size * 0.32, x2 + 8, -size * 0.32, C.red, 10);
+          st.lab.push({ g: lg, x, y: by, sk, x1: x1 - 8, x2: x2 + 8, anchor });
+        }
+      }
+      st.ring = null;
+      return st;
+    },
+
+    update(st, t, shot) {
+      try { draw(st, t); } catch (e) { /* jamais d'exception */ }
+    }
+  });
+
+  /* ---- positions du pouce : approche, contact, retrait ---- */
+  function thumbTargets(st) {
+    const L = [];
+    const ax = st.x0 + 18, ay = 88;
+    if (st.c.link !== null) L.push({ tc: st.c.link + 1.0, x: ax + st.linkC.x, y: ay + st.linkC.y });
+    if (st.c.deposit !== null) L.push({ tc: st.c.deposit, x: ax + 172, y: ay + 487 });
+    L.sort((a, b) => a.tc - b.tc);
+    return L;
+  }
+
+  function draw(st, t) {
+    const { cx, x0, y0, dir } = st, c = st.c;
+    const NBSP = NB;
+    /* zoom-out : tout le décor recule autour du téléphone */
+    const zs = c.zoom === null ? 1 : lerp(1, 0.62, E.io2(prog(t, c.zoom, c.zoom + 16 / 30)));
+    const zy = y0 + 370;
+    setA(st.world, 'transform', zs === 1 ? '' : `translate(${f2(cx)} ${f2(zy)}) scale(${f2(zs * 1000) / 1000}) translate(${f2(-cx)} ${f2(-zy)})`);
+
+    /* vibration du téléphone (notif) */
+    let sx = 0, sy = 0;
+    for (const tn of st.notifC) { const s = shakeAt(t, tn, 3, 0.25); sx += s[0]; sy += s[1]; }
+    sx = f2(sx); sy = f2(sy);
+    setA(st.ph, 'transform', `translate(${f2(x0 + sx)} ${f2(y0 + sy)})`);
+
+    /* hands-off */
+    const h = c.off === null ? 0 : E.io2(prog(t, c.off, c.off + 0.6));
+    if (st.bed && st.stand) setA(st.stand, 'display', c.off !== null && t >= c.off ? 'inline' : 'none');
+    const hx = 80 * h, hy = 190 * h;
+    const mirror = dir < 0 ? `translate(${2 * cx} 0) scale(-1 1) ` : '';
+    const htr = `translate(${sx} ${sy}) ${mirror}translate(${f2(hx)} ${f2(hy)})`;
+    if (st.hand) {
+      setA(st.handFront, 'transform', htr);
+      setA(st.handBack, 'transform', `translate(${sx} ${sy}) ${mirror}`);
+      const fo = c.off === null ? 1 : 1 - prog(t, c.off, c.off + 0.25);
+      setA(st.handBack, 'opacity', f2(fo)); setA(st.handBack, 'display', fo <= 0.01 ? 'none' : 'inline');
+    }
+
+    /* écrans : glissement de droite à gauche en 10 i */
+    let cur = st.screen0, prev = null, t0 = -1;
+    for (const s of st.screenC) if (t >= s.t && s.to !== cur) { prev = cur; cur = s.to; t0 = s.t; }
+    const sp = t0 < 0 ? 1 : prog(t, t0, t0 + 10 / 30);
+    if (sp >= 1) prev = null;
+    const se = E.io3(sp);
+    for (const n of SCREENS) {
+      const g0 = st.sc[n];
+      if (n === cur) { setA(g0, 'display', 'inline'); setA(g0, 'transform', prev ? `translate(${f2((1 - se) * SW)} 0)` : ''); }
+      else if (n === prev) { setA(g0, 'display', 'inline'); setA(g0, 'transform', `translate(${f2(-se * SW)} 0)`); }
+      else setA(g0, 'display', 'none');
+    }
+    st.cur = cur;
+
+    /* ---- slots : rouleaux et jauge ---- */
+    if (cur === 'slots' || prev === 'slots') {
+      const T0 = 0.6, PERIOD = 2.5, CELL = 130;
+      const k = t < T0 ? -1 : Math.floor((t - T0) / PERIOD);
+      for (let i = 0; i < 3; i++) {
+        const r = st.reels[i];
+        let pos;
+        if (k < 0) pos = r.F[0];
+        else {
+          const kk = Math.min(k, r.F.length - 2), ts = T0 + PERIOD * k, dur = 0.9 + 0.2 * i, p = prog(t, ts, ts + dur);
+          const e = 0.3 * p + 0.7 * (1 - (1 - p) * (1 - p));
+          pos = r.F[kk] + (r.F[kk + 1] - r.F[kk]) * e;
+          const u = (t - (ts + dur)) / (4 / 30);
+          if (u > 0 && u < 1) pos += 0.1 * Math.sin(Math.PI * u);
+        }
+        const cn = Math.round(pos);
+        for (let j = 0; j < 3; j++) {
+          const n = cn - 1 + j, sym = r.strip[((n % 6) + 6) % 6];
+          setA(r.uses[j], 'href', '#' + st.uid + '-' + sym);
+          setA(r.uses[j], 'transform', `translate(50 ${f2(65 + (pos - n) * CELL)}) scale(0.52)`);
+        }
+      }
+      // jauge SOLDE : un cran de moins à chaque tour, jamais de remontée
+      const e0 = T0 + 1.3;
+      let used = 0;
+      if (t >= e0) { const m = Math.floor((t - e0) / PERIOD); used = m + prog(t - e0 - PERIOD * m, 0, 0.25); }
+      const lvl = clamp(1 - used / st.steps, 0.02, 1);
+      setA(st.gauge, 'width', f2(300 * lvl));
+    }
+
+    /* ---- stream : pastille « LE LIEN » ---- */
+    if (cur === 'stream' || prev === 'stream') {
+      let s = 1, press = 0;
+      if (c.link !== null) {
+        const p = prog(t, c.link, c.link + 1.0);
+        s = p >= 1 ? 1 : 1 + 0.08 * Math.sin(Math.PI * ((p * 2) % 1));
+        press = prog(t, c.link + 1.0, c.link + 1.08) * (1 - prog(t, c.link + 1.25, c.link + 1.4));
+      }
+      s = s - 0.05 * press;
+      setA(st.linkPill, 'transform', `translate(${st.linkC.x} ${st.linkC.y}) scale(${f2(s * 1000) / 1000})`);
+    }
+
+    /* ---- site : contrôles, bouton, solde ---- */
+    if (cur === 'site' || prev === 'site') {
+      const rc = [c.noId, c.noAge, c.noLimit];
+      st.rows.forEach((rg, i) => {
+        const tc = rc[i];
+        if (tc === null || t < tc) { setA(rg, 'display', 'none'); return; }
+        const p = prog(t, tc, tc + 0.2);
+        setA(rg, 'display', 'inline'); setA(rg, 'opacity', f2(E.out2(p)));
+        setA(rg, 'transform', `translate(${f2((1 - E.out3(p)) * 40)} 0)`);
+      });
+      const dep = c.deposit !== null && t >= c.deposit;
+      const dp = c.deposit === null ? 0 : prog(t, c.deposit, c.deposit + 0.1);
+      setA(st.btn, 'transform', `translate(0 ${f2(4 * dp)})`);
+      setA(st.btnR, 'display', dep ? 'inline' : 'none');
+      setA(st.btnT, 'display', dep ? 'none' : 'inline');
+      setA(st.btnT2, 'display', dep ? 'inline' : 'none');
+      const popIn = (n, tc) => {
+        if (tc === null || t < tc) { setA(n, 'display', 'none'); return; }
+        const p = prog(t, tc, tc + 0.18);
+        setA(n, 'display', 'inline'); setA(n, 'opacity', f2(p));
+        setA(n, 'transform', `translate(0 ${f2((1 - E.out3(p)) * 24)})`);
+      };
+      popIn(st.cry, c.crypto); popIn(st.eur, c.euros);
+      setA(st.soldeLab, 'display', c.crypto !== null && t >= c.crypto ? 'inline' : 'none');
+    }
+
+    /* ---- notifs ---- */
+    if (cur === 'notifs' || prev === 'notifs') {
+      st.nc.forEach((n, i) => {
+        const tc = st.notifC[i] === undefined ? null : st.notifC[i];
+        if (tc === null || t < tc) { setA(n.g, 'display', 'none'); return; }
+        const p = prog(t, tc, tc + 8 / 30);
+        setA(n.g, 'display', 'inline'); setA(n.g, 'opacity', f2(Math.min(1, p * 2)));
+        setA(n.g, 'transform', `translate(0 ${f2(-(1 - E.out3(p)) * 70)})`);
+        const hp = c.hook === null ? 0 : E.back(prog(t, c.hook + i * 0.08, c.hook + i * 0.08 + 0.25));
+        setA(n.ic, 'display', hp > 0.02 ? 'none' : 'inline'); setA(n.dot, 'display', hp > 0.02 ? 'none' : 'inline');
+        setA(n.hook, 'display', hp > 0.02 ? 'inline' : 'none');
+        setA(n.hook, 'transform', `translate(54 ${n.y + 47}) scale(${f2(Math.max(0.01, hp) * 100) / 100})`);
+      });
+    }
+
+    /* ---- odds + roue du zéro ---- */
+    const zf = c.zero === null ? null : c.zero;         // pose de la roue
+    const L = { x: cx, y: y0 + 18 + 630 };              // point de pose sur l'écran
+    if (st.cur === 'odds' || prev === 'odds') {
+      const hp = c.hide === null ? 0 : prog(t, c.hide + 0.4, c.hide + 0.7);
+      setA(st.ici, 'display', hp > 0 ? 'inline' : 'none'); setA(st.ici, 'opacity', f2(hp));
+    }
+    const sc = x0 + 18;                                 // origine écran en x
+    const comma = { x: sc + st.commaPos.x, y: y0 + 18 + st.commaPos.y };
+    // roue
+    if (zf === null) { setA(st.wheel, 'display', 'none'); setA(st.disc, 'display', 'none'); }
+    else {
+      const flyA = zf + 0.3, flyB = flyA + 1.2, fadeA = flyB, fadeB = fadeA + 10 / 30;
+      const wi = E.back(prog(t, zf, zf + 0.3)), wo = 1 - prog(t, fadeA, fadeB);
+      const S0 = { x: st.wx, y: st.wy - 78 };
+      if (t < zf || wo <= 0.001) setA(st.wheel, 'display', 'none');
+      else { setA(st.wheel, 'display', 'inline'); put(st.wheel, st.wx, st.wy, 0, Math.max(0.01, wi), Math.max(0.01, wi), wo); setA(st.wheel, 'opacity', f2(wo)); }
+      st.wedges[0].setAttribute('fill', t >= flyA ? C.ink : C.lime);
+      if (t < flyA) setA(st.disc, 'display', 'none');
+      else {
+        let x, y, s = 1;
+        const hide0 = c.hide === null ? null : c.hide;
+        const fp = prog(t, flyA, flyB);
+        if (fp < 1) {
+          const e = E.io2(fp);
+          x = lerp(S0.x, L.x, e); y = lerp(S0.y, L.y, e) - 170 * 4 * fp * (1 - fp);
+          s = lerp(0.3, 1, E.out2(prog(t, flyA, flyA + 0.3)));
+        } else { x = L.x; y = L.y; s = 1 + 0.12 * Math.sin(Math.PI * clamp((t - flyB) / 0.2)); }
+        let txtO = 1;
+        if (hide0 !== null && t >= hide0) {
+          const hp = E.io2(prog(t, hide0, hide0 + 0.8));
+          x = lerp(L.x, comma.x, hp); y = lerp(L.y, comma.y, hp); s = lerp(1, 0.17, hp); txtO = 1 - prog(hp, 0, 0.45);
+          if (cur === 'odds' && hp >= 1) setA(st.comma, 'display', 'none'); else setA(st.comma, 'display', 'inline');
+        } else if (st.comma) setA(st.comma, 'display', 'inline');
+        setA(st.disc, 'display', 'inline'); put(st.disc, x, y, 0, s, s, 1);
+        setA(st.discTxt, 'display', txtO > 0.05 ? 'inline' : 'none');
+      }
+    }
+
+    /* ---- pouce ---- */
+    const tg = thumbTargets(st);
+    if (st.hand) {
+      const R = st.B;
+      let tipX, tipY, w = 0, tapAt = null, ev = null;
+      for (const e of tg) if (t >= e.tc - 0.35 && (c.off === null || e.tc < c.off)) ev = e;
+      if (ev) {
+        const a = E.out2(prog(t, ev.tc - 0.35, ev.tc)), b = 1 - E.io2(prog(t, ev.tc + 0.25, ev.tc + 0.55));
+        w = Math.min(a, b);
+        if (t >= ev.tc && t <= ev.tc + 8 / 30) tapAt = { dt: t - ev.tc, x: ev.x, y: ev.y };
+      }
+      const idle = st.idleTip;
+      const tx = ev ? (dir > 0 ? ev.x : 2 * cx - ev.x) : idle.x, ty = ev ? ev.y : idle.y;   // cible dans le repère non miroir
+      tipX = lerp(idle.x, tx, w); tipY = lerp(idle.y, ty, w);
+      // main à plat : le pouce se replie le long de la paume
+      const lx = lerp(tipX, R.x - 86, h), ly = lerp(tipY, R.y - 6, h);
+      setA(st.thumbO, 'x2', f2(lx)); setA(st.thumbO, 'y2', f2(ly));
+      setA(st.thumbP, 'x2', f2(lx)); setA(st.thumbP, 'y2', f2(ly));
+      if (tapAt) {
+        const p = tapAt.dt / (8 / 30), r = lerp(15, 48, E.out2(p));
+        setA(st.tapG, 'display', 'inline'); setA(st.tapG, 'transform', `translate(${f2(tapAt.x)} ${f2(tapAt.y)})`);
+        setA(st.tapA, 'r', f2(r)); setA(st.tapB, 'r', f2(r)); setA(st.tapG, 'opacity', f2(1 - p * 0.9));
+      } else setA(st.tapG, 'display', 'none');
+    } else setA(st.tapG, 'display', 'none');
+
+    /* ---- pizza ---- */
+    {
+      const tc = c.pizza;
+      if (tc === null || t < tc) setA(st.pizza, 'display', 'none');
+      else {
+        const p = E.back(prog(t, tc, tc + 0.35)), o = prog(t, tc, tc + 0.12);
+        const off = (1 - Math.min(1, p)) * 90 * (st.pzBase.x < cx ? -1 : 1);
+        setA(st.pizza, 'display', 'inline'); put(st.pizza, st.pzBase.x + off, st.pzBase.y, -6 * (1 - Math.min(1, p)), Math.max(0.01, 0.6 + 0.4 * p), Math.max(0.01, 0.6 + 0.4 * p), o);
+      }
+    }
+
+    /* ---- étiquettes latérales ---- */
+    st.lab.forEach((l, i) => {
+      const tc = st.labelC[i];
+      if (tc === null || t < tc) { setA(l.g, 'display', 'none'); return; }
+      const p = prog(t, tc, tc + 0.25), s = Math.max(0.01, 0.55 + 0.45 * E.back(p));
+      setA(l.g, 'display', 'inline'); setA(l.g, 'opacity', f2(Math.min(1, p * 3)));
+      setA(l.g, 'transform', `translate(${l.x} ${l.y}) scale(${f2(s * 1000) / 1000})`);
+      const sc2 = st.strikeC[i];
+      const sp2 = sc2 === null ? 0 : prog(t, sc2, sc2 + 0.2);
+      if (sp2 <= 0) setA(l.sk, 'display', 'none');
+      else {
+        setA(l.sk, 'display', 'inline');
+        const a = l.anchor === 'end' ? l.x2 - (l.x2 - l.x1) * sp2 : l.x1;
+        const b = l.anchor === 'end' ? l.x2 : l.x1 + (l.x2 - l.x1) * sp2;
+        setA(l.sk, 'x1', f2(a)); setA(l.sk, 'x2', f2(b));
+      }
+    });
+  }
 })();
 ;
 /* ==== tools/video/composition/components/pictos.js ==== */
@@ -13521,6 +15452,339 @@
       vis(st.band, bq > 0); setA(st.band, 'opacity', f2(bsc));
     }
   });
+})();
+;
+/* ==== tools/video/composition/components/savings-drain.js ==== */
+// Composant `savings-drain` (épisode 8) : l'argent de Sami, saison par saison. Voir EP8-COMPONENTS.md.
+// Fond paper. Gauche : la jauge du compte ; droite : téléphone + lit ; entre les deux, un tuyau où défilent les jetons de dépôt.
+// Mode `payday` : frise de 3 mois, le salaire tombe dans la jauge et repart le jour même par un seul gros jeton red.
+// Cues : save, belief, r10, r100, r500, r1000 (noms = props.rates[].cue), bed, two-months, empty, payday (xN), rent.
+// Fonction pure du temps ; aplats seulement ; aucun dégradé, flou, lueur, filter ; au plus 4 jetons émis par seconde.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt, fr } = ZV;
+  let UID = 0;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const setT = (n, s) => { if (n.__s !== s) { n.__s = s; n.textContent = s; } };
+  const mono = (parent, s, x, y, size, fill, o) => text(parent, s, x, y, size, fill, Object.assign({ mono: true }, o || {}));
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+  // réduit la taille de police pour que le pire cas tienne dans maxW (texte dynamique)
+  function fitSize(n, worst, size, maxW) {
+    const keep = n.textContent;
+    n.textContent = worst;
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) n.setAttribute('font-size', f2(size * maxW / w)); } catch (e) { /* hors DOM */ }
+    n.textContent = keep;
+  }
+  // boîte « sticker » (ombre dure + face) placée derrière le texte `tn`
+  function boxBehind(grp, tn, w, h, face, shadow, r, sw, sh) {
+    const a = rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, r, shadow, C.ink, 4);
+    const b = rect(grp, -w / 2, -h / 2, w, h, r, face, C.ink, sw);
+    grp.insertBefore(a, tn); grp.insertBefore(b, tn);
+  }
+  const eur = (n) => fr(Math.max(0, Math.round(n))) + NB + '€';
+
+  const GX = 140, GY = 150, GW = 300, GH = 630, GI = 8;            // jauge
+  const PX0 = 440, PX1 = 1540, PY = 380, PH = 90;                  // tuyau
+  const SPEED = 640;
+  const TOK = [{ w: 34, h: 22, f: 0, rate: 0.8 }, { w: 100, h: 50, f: 28, rate: 1.6 }, { w: 124, h: 58, f: 32, rate: 2.6 }, { w: 150, h: 66, f: 36, rate: 3.6 }];
+  const POOL = 14;
+
+  ZV.define('savings-drain', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const uid = 'sd' + (++UID);
+      const st = { uid, dur: Math.max(0.1, shot.dur || 1) };
+      st.mode = P.mode === 'payday' ? 'payday' : 'seasons';
+      st.savings = clamp(isNum(P.savings) ? P.savings : 15000, 1, 1e9);
+      st.start = clamp(isNum(P.start_level) ? P.start_level : 0, 0, st.savings);
+      st.months = clamp(Math.round(isNum(P.months) ? P.months : 3), 1, 3);
+      st.belief = str(P.belief, '« UN PEU LE JEU », SE DIT-IL');
+      const dr = [{ cue: 'r10', label: '10' + NB + '€', amount: 10 }, { cue: 'r100', label: '100' + NB + '€ / SEMAINE', amount: 100 }, { cue: 'r500', label: '500' + NB + '€ / SEMAINE', amount: 500 }, { cue: 'r1000', label: '1' + ' ' + '000' + NB + '€ / JOUR', amount: 1000 }];
+      st.rates = (Array.isArray(P.rates) && P.rates.length ? P.rates.slice(0, 6) : dr).map((r, i) => ({
+        cue: str(r && r.cue, dr[i] ? dr[i].cue : 'r' + i), label: str(r && r.label, dr[i] ? dr[i].label : '').replace(/ /g, NB), amount: isNum(r && r.amount) ? r.amount : (dr[i] ? dr[i].amount : 100), tok: TOK[Math.min(i, TOK.length - 1)]
+      }));
+
+      /* ---- repères ---- */
+      const cu = (n) => ZV.cue(shot, n);
+      const c = { save: cu('save'), belief: cu('belief'), bed: cu('bed'), two: cu('two-months'), empty: cu('empty'), rent: cu('rent') };
+      st.rc = st.rates.map((r) => cu(r.cue));
+      st.pay = ZV.cues(shot, 'payday').map((b) => b.t).sort((a, b) => a - b).slice(0, st.months);
+      const none = Object.values(c).every((x) => x === null) && st.rc.every((x) => x === null) && !st.pay.length;
+      if (none) {
+        const f = Math.min(1, st.dur / 14);
+        if (st.mode === 'payday') st.pay = [0.15, 0.43, 0.71].slice(0, st.months).map((x) => x * st.dur);
+        else { c.save = 0.3 * f; c.belief = 3.0 * f; st.rc = st.rates.map((r, i) => (4.4 + 1.2 * i) * f); c.bed = 9.4 * f; c.two = 10.6 * f; c.empty = 12.4 * f; }
+      }
+      if (st.mode === 'payday' && !st.pay.length && !none) st.pay = [];
+      st.c = c;
+
+      /* ---- segments de cadence + liste des jetons (déterministe) ---- */
+      const segs = [];
+      const order = st.rc.map((t, i) => ({ t, i })).filter((x) => x.t !== null).sort((a, b) => a.t - b.t);
+      const tStop = Math.min(c.two !== null ? c.two : Infinity, c.empty !== null ? c.empty : Infinity, st.dur + 1);
+      order.forEach((o, k) => { const end = Math.min(k + 1 < order.length ? order[k + 1].t : Infinity, tStop); if (end > o.t) segs.push({ a: o.t, b: end, i: o.i }); });
+      st.segs = segs;
+      st.tokens = [];
+      if (st.mode === 'seasons') {
+        segs.forEach((s) => { const tk = st.rates[s.i].tok, step = 1 / tk.rate; for (let te = s.a + 0.12; te < s.b - 0.02; te += step) st.tokens.push({ te, i: s.i }); });
+        if (c.empty !== null) { const N = 6, last = st.rates.length - 1; for (let j = 0; j < N; j++) st.tokens.push({ te: c.empty + 1.7 * (1 - Math.sqrt(1 - j / N)) * 1.0 + 0.05, i: last }); }
+        st.tokens.sort((a, b) => a.te - b.te);
+      }
+      // flux naturel (€ par seconde, continu) pour la jauge ; mis à l'échelle pour valoir exactement 5 000 € à `two-months`
+      st.flow = segs.map((s) => ({ a: s.a, b: s.b, v: st.rates[s.i].amount * st.rates[s.i].tok.rate }));
+      st.nat = (t) => { let d = 0; for (const f of st.flow) d += f.v * clamp(t - f.a, 0, f.b - f.a); return d; };
+      st.tStart = (c.save !== null ? c.save + 2.5 : 0);
+      if (c.two !== null) { const N = st.nat(c.two); st.twoN = N; }
+
+      /* ---- décor ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+      const pt = sv('pattern', { id: uid + 'h', width: 16, height: 16, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+      sv('rect', { x: 0, y: 0, width: 16, height: 16, fill: C.lime }, pt); sv('rect', { x: 0, y: 0, width: 5, height: 16, fill: C.ink }, pt);
+      const clipB = sv('clipPath', { id: uid + 'cb' }, defs); sv('rect', { x: 0, y: 0, width: 1920, height: GY + 2 }, clipB);
+
+      /* tuyau */
+      rect(root, PX0 + 8, PY + 8, PX1 - PX0, PH, 6, C.ink);
+      rect(root, PX0, PY, PX1 - PX0, PH, 6, C.pocket, C.ink, 6);
+      line(root, PX0 + 20, PY + PH / 2, PX1 - 20, PY + PH / 2, '#2A2A2A', 3, { 'stroke-dasharray': '2 24', 'stroke-linecap': 'butt' });
+      /* jetons (réserve) */
+      st.tk = [];
+      for (let k = 0; k < POOL; k++) {
+        const tg = g(root); tg.setAttribute('display', 'none');
+        const r = rect(tg, 0, 0, 100, 50, 12, C.red, C.ink, 4);
+        const tx = mono(tg, '', 50, 34, 28, C.paper, { anchor: 'middle', weight: 800 });
+        st.tk.push({ g: tg, r, tx });
+      }
+      /* gros jeton du jour de paie */
+      st.big = g(root); st.big.setAttribute('display', 'none');
+      rect(st.big, 0, 0, 240, 70, 14, C.red, C.ink, 5);
+      { const t = text(st.big, 'SALAIRE', 120, 49, 40, C.paper, { anchor: 'middle' }); fit(t, 200); }
+
+      /* jauge */
+      st.gaugeG = g(root);
+      rect(st.gaugeG, GX + 10, GY + 10, GW, GH, 20, C.ink);
+      rect(st.gaugeG, GX, GY, GW, GH, 20, C.white);
+      st.fill = rect(st.gaugeG, GX + GI, GY + GH - GI, GW - 2 * GI, 0, 6, C.lime);
+      st.slice = rect(st.gaugeG, GX + GI, GY + GI, GW - 2 * GI, 36, 6, `url(#${uid}h)`, C.ink, 3);
+      rect(st.gaugeG, GX, GY, GW, GH, 20, 'none', C.ink, 8);
+      st.gaugeG.insertBefore(st.fill, st.slice);
+
+      /* blocs « SALAIRE » qui tombent dans la jauge */
+      st.blk = [];
+      { const bg = g(root, { 'clip-path': `url(#${uid}cb)` }); const nb = st.mode === 'payday' ? 1 : 6;
+        for (let k = 0; k < nb; k++) { const b = g(bg); b.setAttribute('display', 'none'); const w = st.mode === 'payday' ? 230 : 210, h = st.mode === 'payday' ? 66 : 50; rect(b, -w / 2 + 6, -h / 2 + 6, w, h, 10, C.ink); rect(b, -w / 2, -h / 2, w, h, 10, C.paper, C.ink, 6); const t = text(b, 'SALAIRE', 0, h * 0.18, st.mode === 'payday' ? 44 : 32, C.ink, { anchor: 'middle' }); fit(t, w - 24); st.blk.push(b); } }
+
+      /* solde, étiquette, compteur */
+      st.bal = text(root, eur(st.start), GX, 92, 84, C.ink);
+      fitSize(st.bal, eur(st.savings), 84, 360);
+      st.balLab = mono(root, st.mode === 'payday' ? 'SOLDE' : 'DE CÔTÉ', GX, 134, 26, C.ink, { weight: 800 });
+      st.cnt = mono(root, 'PARTIS : ' + eur(0), PX0 + 60, 585, 40, C.ink, { weight: 800 });
+      fitSize(st.cnt, 'PARTIS : ' + eur(st.savings), 40, 560);
+      if (st.mode === 'payday') { st.bal.setAttribute('display', 'none'); st.cnt.setAttribute('display', 'none'); }
+
+      /* étiquette « belief » à droite de la jauge */
+      st.beliefLab = mono(root, st.belief, GX + GW + 24, 186, 24, C.ink, { weight: 800 }); fit(st.beliefLab, 640);
+
+      /* stickers de rythme */
+      st.rs = st.rates.map((r) => {
+        const sg = g(root); sg.setAttribute('display', 'none');
+        const t = text(sg, r.label, 0, 19, 56, C.lime, { anchor: 'middle' });
+        let w = 300; try { w = t.getComputedTextLength(); } catch (e) { w = r.label.length * 34; } if (!(w > 0)) w = r.label.length * 34;
+        w = Math.min(w, 640); if (w >= 640) { t.setAttribute('textLength', 640); t.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+        const bw = w + 64;
+        boxBehind(sg, t, bw, 84, C.ink, C.lime, 16, 6, 10);
+        return sg;
+      });
+
+      /* téléphone + lit */
+      st.pg = g(root);
+      const PG = st.pg;
+      rect(PG, 1440 + 8, 640 + 8, 400, 120, 24, C.ink);
+      rect(PG, 1440, 640, 400, 120, 24, C.paper, C.ink, 6);
+      rect(PG, 1458, 618, 110, 54, 22, C.white, C.ink, 5);
+      rect(PG, 1590, 690, 236, 56, 16, C.pocket, C.ink, 4);
+      rect(PG, 1540 + 12, 220 + 12, 220, 420, 34, C.ink);
+      rect(PG, 1540, 220, 220, 420, 34, C.pocket, C.ink, 8);
+      rect(PG, 1556, 250, 188, 360, 22, C.ink);
+      rect(PG, 1610, 236, 80, 12, 6, C.ink);
+      st.scr = [0, 1, 2].map((i) => rect(PG, 1572 + i * 60, 300, 52, 52, 8, C.paper));
+      st.pbar = rect(PG, 1572, 400, 156, 22, 6, C.paper); rect(PG, 1572, 440, 100, 22, 6, C.pocket, C.paper, 3);
+      rect(PG, 1572, 400, 156, 22, 6, 'none', C.paper, 3);
+      st.bedLab = g(root);
+      { const t = text(st.bedLab, 'DEPUIS SON LIT', 0, 12, 34, C.lime, { anchor: 'middle' }); fit(t, 300); boxBehind(st.bedLab, t, 340, 60, C.ink, C.lime, 14, 5, 8); }
+      st.bedLab.setAttribute('display', 'none');
+
+      /* « EN 2 MOIS », tampon « PLUS RIEN » */
+      st.two = g(root);
+      { rect(st.two, -150 + 10, -42 + 10, 300, 84, 14, C.ink); rect(st.two, -150, -42, 300, 84, 14, C.red, C.ink, 6); const t = text(st.two, 'EN 2 MOIS', 0, 19, 56, C.ink, { anchor: 'middle' }); fit(t, 260); }
+      st.two.setAttribute('display', 'none');
+      st.stamp = g(root);
+      { rect(st.stamp, -170 + 8, -46 + 8, 340, 92, 10, C.paper); rect(st.stamp, -170, -46, 340, 92, 10, C.ink, C.ink, 5); const t = text(st.stamp, 'PLUS RIEN', 0, 17, 52, C.paper, { anchor: 'middle' }); fit(t, 300); }
+      st.stamp.setAttribute('display', 'none');
+
+      /* le loyer */
+      st.rent = g(root);
+      { rect(st.rent, -160 + 10, -60 + 10, 320, 120, 16, C.ink); rect(st.rent, -160, -60, 320, 120, 16, C.paper, C.ink, 6);
+        const t = text(st.rent, 'LE LOYER', -140, 14, 42, C.ink); fit(t, 210);
+        text(st.rent, '?', 140, 40, 130, C.red, { anchor: 'end' }); }
+      st.rent.setAttribute('display', 'none');
+
+      /* frise de 3 mois (mode payday) */
+      st.cells = [];
+      if (st.mode === 'payday') {
+        const X0 = 560, CW = 40, CH = 26;
+        for (let m = 0; m < st.months; m++) {
+          const y = 110 + m * 30;
+          mono(root, 'MOIS ' + (m + 1), X0 - 14, y + 19, 18, C.ink, { anchor: 'end', weight: 800 });
+          for (let d = 1; d <= 30; d++) {
+            const x = X0 + (d - 1) * CW;
+            const r = rect(root, x + 1, y, CW - 3, CH, 3, C.paper, C.ink, 3);
+            const t = mono(root, String(d), x + (CW - 3) / 2 + 1, y + 19, 18, C.ink, { anchor: 'middle', weight: 700 });
+            if (d === 28) st.cells.push({ r, t, x: x + (CW - 3) / 2 + 1, y });
+          }
+        }
+        st.same = g(root); st.same.setAttribute('display', 'none');
+        { const t = mono(st.same, 'LE JOUR MÊME', 0, 0, 24, C.red, { anchor: 'middle', weight: 800 }); fit(t, 200);
+          path(st.same, 'M-10 12 L10 12 L0 26Z', C.red, C.ink, 2); }
+        st.sameX = st.cells.length ? st.cells[0].x : 1659;
+      }
+      return st;
+    },
+
+    update(st, t, shot) { try { draw(st, t); } catch (e) { /* jamais d'exception */ } }
+  });
+
+  function draw(st, t) {
+    const c = st.c, S = st.savings;
+    /* ---- niveau du compte ---- */
+    let lvl, partis = 0, emptied = false, lvlFrac;
+    const payday = st.mode === 'payday';
+    let payLvl = 0, payIdx = -1, payP = 0;
+    if (payday) {
+      for (let m = 0; m < st.pay.length; m++) if (t >= st.pay[m] - 0.001) { payIdx = m; payP = t - st.pay[m]; }
+      if (payIdx >= 0) payLvl = 0.7 * E.out2(prog(payP, 0.28, 0.55)) * (1 - E.in2(prog(payP, 0.62, 1.1)));
+      lvl = payLvl * S;
+    } else {
+      const base = c.save === null ? st.start : st.start + (S - st.start) * (1 - Math.pow(1 - prog(t, c.save, c.save + 2.5), 1.6));
+      const baseAt = (tt) => (c.save === null ? st.start : st.start + (S - st.start) * (1 - Math.pow(1 - prog(tt, c.save, c.save + 2.5), 1.6)));
+      const Dat = (tt) => {
+        if (c.two !== null && tt >= c.two) return 5000;
+        const nat = st.nat(tt);
+        if (c.two !== null) {
+          if (st.twoN > 0) return 5000 * nat / st.twoN;
+          return 5000 * prog(tt, st.tStart, c.two);
+        }
+        return Math.min(nat, 0.75 * S);
+      };
+      const te = c.empty !== null ? Math.min(t, c.empty) : t;
+      const D = Math.min(Dat(te), baseAt(te));
+      lvl = Math.max(0, base - D);
+      partis = D;
+      if (c.empty !== null && t > c.empty) {
+        const l0 = Math.max(0, baseAt(c.empty) - Math.min(Dat(c.empty), baseAt(c.empty))), p = prog(t, c.empty, c.empty + 1.8), q = Math.pow(p, 1.6);
+        lvl = l0 * (1 - q); partis = D + l0 * q; emptied = p >= 1;
+      }
+    }
+    lvlFrac = clamp(lvl / S, 0, 1);
+    const IH = GH - 2 * GI, fh = IH * lvlFrac;
+    setA(st.fill, 'y', f2(GY + GH - GI - fh)); setA(st.fill, 'height', f2(fh));
+    if (!payday) {
+      setT(st.bal, eur(lvl)); setA(st.bal, 'fill', emptied ? C.red : C.ink);
+      setT(st.cnt, 'PARTIS : ' + eur(partis));
+    }
+
+    /* tranche « belief » : en haut de la jauge, lime hachurée */
+    if (c.belief === null || t < c.belief || payday) { setA(st.slice, 'display', 'none'); setA(st.beliefLab, 'display', 'none'); }
+    else {
+      const p = E.out2(prog(t, c.belief, c.belief + 0.3));
+      const top = GY + GH - GI - fh, hh = Math.min(36, fh);
+      setA(st.slice, 'display', hh > 2 ? 'inline' : 'none'); setA(st.slice, 'y', f2(top)); setA(st.slice, 'height', f2(hh * p));
+      setA(st.beliefLab, 'display', hh > 2 ? 'inline' : 'none'); setA(st.beliefLab, 'opacity', f2(p));
+      setA(st.beliefLab, 'y', f2(clamp(top + 28, 186, 346)));
+    }
+
+    /* blocs SALAIRE */
+    if (payday) {
+      const b = st.blk[0];
+      if (payIdx < 0 || payP > 0.7) setA(b, 'display', 'none');
+      else { const k = prog(payP, 0, 0.42); setA(b, 'display', 'inline'); setA(b, 'transform', `translate(${GX + GW / 2} ${f2(lerp(-80, GY + 20, E.in2(k)))})`); }
+    } else {
+      st.blk.forEach((b, j) => {
+        const t0 = c.save === null ? null : c.save + j * 0.4, k = t0 === null ? -1 : prog(t, t0, t0 + 0.4);
+        if (t0 === null || t < t0 || k >= 1) { setA(b, 'display', 'none'); return; }
+        setA(b, 'display', 'inline'); setA(b, 'transform', `translate(${GX + GW / 2} ${f2(lerp(-70, GY + 24, E.in2(k)))})`);
+      });
+    }
+
+    /* jetons dans le tuyau */
+    let used = 0;
+    const emitted = payday ? [] : st.tokens;
+    const ypos = PY + (PH - 0) / 2;
+    // premier jeton encore dans le tuyau (liste triée par instant d'émission)
+    let first = 0; while (first < emitted.length && (t - emitted[first].te) * SPEED > 1300) first++;
+    for (let k = first; k < emitted.length && used < POOL; k++) {
+      const e = emitted[k]; if (e.te > t) break;
+      const tk = st.rates[e.i].tok, node = st.tk[k % POOL], x = 360 + (t - e.te) * SPEED;
+      if (x > 1580) continue;
+      setA(node.g, 'display', 'inline'); setA(node.g, 'transform', `translate(${f2(x)} ${f2(ypos - tk.h / 2)})`);
+      setA(node.r, 'width', tk.w); setA(node.r, 'height', tk.h); setA(node.r, 'rx', Math.min(12, tk.h / 3));
+      if (tk.f) { setA(node.tx, 'display', 'inline'); setA(node.tx, 'x', tk.w / 2); setA(node.tx, 'y', f2(tk.h / 2 + tk.f * 0.35)); setA(node.tx, 'font-size', tk.f); setT(node.tx, fr(st.rates[e.i].amount)); }
+      else setA(node.tx, 'display', 'none');
+      used++; node.on = t;
+    }
+    const aliveSet = new Set();
+    for (let k = first; k < emitted.length; k++) { if (emitted[k].te > t) break; const x = 360 + (t - emitted[k].te) * SPEED; if (x <= 1580) aliveSet.add(k % POOL); }
+    st.tk.forEach((n, i) => { if (!aliveSet.has(i)) setA(n.g, 'display', 'none'); });
+    // gros jeton du jour de paie
+    if (payday && payIdx >= 0 && payP >= 0.6 && payP < 2.2) {
+      const x = 330 + (payP - 0.6) * 760; setA(st.big, 'display', x < 1580 ? 'inline' : 'none'); setA(st.big, 'transform', `translate(${f2(x)} ${f2(ypos - 35)})`);
+    } else setA(st.big, 'display', 'none');
+
+    /* rythme courant */
+    let cur = -1, tcur = 0;
+    st.rc.forEach((tc, i) => { if (tc !== null && t >= tc && tc >= tcur - 1e-9 && (cur < 0 || tc >= tcur)) { cur = i; tcur = tc; } });
+    st.rs.forEach((sg, i) => {
+      if (payday || i !== cur || (c.empty !== null && t >= c.empty + 1.8)) { setA(sg, 'display', 'none'); return; }
+      const p = prog(t, tcur, tcur + 0.25), s = 0.6 + 0.4 * E.back(p);
+      setA(sg, 'display', 'inline'); setA(sg, 'transform', `translate(990 282) scale(${f2(s * 1000) / 1000})`);
+    });
+
+    /* téléphone + lit : secousse unique, étiquette */
+    let sx = 0, sy = 0;
+    if (c.bed !== null) { const s = shakeAt(t, c.bed, 4, 0.4); sx = s[0]; sy = s[1]; }
+    setA(st.pg, 'transform', `translate(${f2(sx)} ${f2(sy)})`);
+    if (c.bed === null || t < c.bed) setA(st.bedLab, 'display', 'none');
+    else { const p = E.back(prog(t, c.bed, c.bed + 0.3)); setA(st.bedLab, 'display', 'inline'); setA(st.bedLab, 'transform', `translate(1640 ${f2(804 - (1 - Math.min(1, p)) * 0)}) scale(${f2(Math.max(0.01, p) * 1000) / 1000})`); }
+
+    /* « EN 2 MOIS » et tampon « PLUS RIEN » */
+    if (c.two === null || t < c.two || payday) setA(st.two, 'display', 'none');
+    else { const p = E.back(prog(t, c.two, c.two + 0.3)); setA(st.two, 'display', 'inline'); setA(st.two, 'transform', `translate(1220 585) rotate(-3) scale(${f2(Math.max(0.01, p) * 1000) / 1000})`); }
+    if (c.empty === null || t < c.empty + 1.8 || payday) setA(st.stamp, 'display', 'none');
+    else { const p = E.in2(1 - prog(t, c.empty + 1.8, c.empty + 2.05)); const s = 1 + 0.6 * p; setA(st.stamp, 'display', 'inline'); setA(st.stamp, 'opacity', f2(1 - p)); setA(st.stamp, 'transform', `translate(${GX + GW / 2} ${GY + GH / 2}) rotate(-6) scale(${f2(s * 1000) / 1000})`); }
+
+    /* loyer */
+    if (c.rent === null || t < c.rent) setA(st.rent, 'display', 'none');
+    else { const p = E.back(prog(t, c.rent, c.rent + 0.35)); setA(st.rent, 'display', 'inline'); setA(st.rent, 'transform', `translate(1260 700) rotate(3) scale(${f2(Math.max(0.01, p) * 1000) / 1000})`); }
+
+    /* frise des paies */
+    if (payday) {
+      st.cells.forEach((cl, m) => {
+        const tp = st.pay[m], on = tp !== undefined && t >= tp + 0.55;
+        setA(cl.r, 'fill', on ? C.red : C.paper); setA(cl.t, 'fill', on ? C.paper : C.ink);
+      });
+      if (payIdx < 0 || payP < 0.6) setA(st.same, 'display', 'none');
+      else {
+        const p = E.back(prog(payP, 0.6, 0.85)), cl = st.cells[payIdx] || st.cells[0];
+        setA(st.same, 'display', 'inline');
+        setA(st.same, 'transform', `translate(${f2(st.sameX)} 82) scale(${f2(Math.max(0.01, p) * 1000) / 1000})`);
+      }
+    }
+  }
 })();
 ;
 /* ==== tools/video/composition/components/sealed-room.js ==== */

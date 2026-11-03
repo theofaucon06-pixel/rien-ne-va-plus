@@ -24,6 +24,7 @@
   }
   let UID = 0;
 
+  const FLAP = 'M1560 50V110H1620Z';
   const ROW_Y = [240, 380, 520, 660];
   const DEF_CLAUSES = [
     { text: 'DU RÉEL', sub: 'COMPOSITE OU FICTIF : JE TE LE DIS' },
@@ -58,8 +59,7 @@
     return { grp, w, h };
   }
 
-  ZV.define('promise-charter', {
-    init(root, shot) {
+  function build(root, shot) {
       const p = (shot && shot.props) || {};
       const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
       const cueT = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).sort((a, c) => a.t - c.t)[0]; return b ? b.t : null; };
@@ -99,7 +99,7 @@
       const SHEET = 'M300 50H1560L1620 110V800H300Z';
       path(sh, SHEET, C.lime, null, 0, { transform: 'translate(16 16)' });
       path(sh, SHEET, C.paper, C.ink, 8);
-      path(sh, 'M1560 50V110H1620Z', C.ink, C.ink, 8);
+      path(sh, FLAP, C.white, C.ink, 8);
 
       /* en-tête */
       const kn = text(sh, kicker, 360, 114, 24, C.ink, { mono: true, weight: 700 });
@@ -176,7 +176,7 @@
         fit(bt, 18, 276, 14);
         // loupe plate (verre creux : le texte dessous reste lisible)
         st.lens = g(v);
-        line(st.lens, 24, -24, 38, -40, C.ink, 12, { 'stroke-linecap': 'round' });
+        line(st.lens, 24, -24, 34, -34, C.ink, 12, { 'stroke-linecap': 'round' });
         circle(st.lens, 0, 0, 34, 'none', C.ink, 8);
         st.lensX = 1568; st.lensY = y0 + 92;
         // coche lime sur pastille ink
@@ -195,10 +195,10 @@
         rect(v, 1300, y0 + 6, 220, 80, 18, C.paper, C.ink, 6);
         rect(v, 1342, y0 + 76, 22, 14, 0, C.paper);
         // index levé (silhouette plate)
-        const fx = 1410, fy = y0 + 48;
-        rect(v, fx - 7, fy - 30, 14, 36, 7, C.ink);
-        rect(v, fx - 23, fy - 6, 46, 32, 9, C.ink);
-        rect(v, fx - 32, fy + 1, 16, 14, 6, C.ink);
+        const fx = 1410, fy = y0 + 50, fk = g(v, { transform: `translate(${fx} ${fy}) scale(1.2) translate(${-fx} ${-fy})` });
+        rect(fk, fx - 7, fy - 30, 14, 36, 7, C.ink);
+        rect(fk, fx - 23, fy - 6, 46, 32, 9, C.ink);
+        rect(fk, fx - 32, fy + 1, 16, 14, 6, C.ink);
         st.x1 = line(v, 1314, y0 + 18, 1506, y0 + 74, C.red, 14, { visibility: 'hidden' });
         st.x2 = line(v, 1506, y0 + 18, 1314, y0 + 74, C.red, 14, { visibility: 'hidden' });
         st.xy0 = y0;
@@ -207,22 +207,22 @@
       /* ---- 4 : pas de système ---- */
       {
         const R = st.rows[3], v = R.v, y0 = R.y0;
-        const H = y0 + 36;                   // charnière (arrière de l'ouverture)
-        // corps de la boîte
-        rect(v, 1250, H, 320, 84, 0, C.ink);
-        rect(v, 1258, H + 6, 304, 40, 0, C.pocket);
-        rect(v, 1266, H + 12, 288, 28, 0, 'none', C.paper, 4, { 'stroke-dasharray': '10 8', 'stroke-linejoin': 'miter' });
-        const bl = text(v, boxTxt, 1410, y0 + 109, 22, C.lime, { anchor: 'middle', mono: true, weight: 800 });
+        const H = y0 + 30;                   // charnière (arrière de l'ouverture)
+        // corps de la boîte : ouverture (intérieur vide) puis face avant portant l'étiquette
+        rect(v, 1250, H, 320, 90, 0, C.ink);
+        rect(v, 1258, H + 6, 304, 50, 0, C.pocket);
+        rect(v, 1266, H + 13, 288, 36, 0, 'none', C.paper, 4, { 'stroke-dasharray': '10 8', 'stroke-linejoin': 'miter' });
+        const bl = text(v, boxTxt, 1410, y0 + 111, 22, C.lime, { anchor: 'middle', mono: true, weight: 800 });
         fit(bl, 22, 292, 18);
         // couvercle : bascule autour de la charnière (hauteur apparente = L·cos θ)
         st.lid = g(v);
-        st.lidR = rect(st.lid, 0, 0, 320, 50, 0, C.paper, C.ink, 6, { 'vector-effect': 'non-scaling-stroke' });
+        st.lidR = rect(st.lid, 0, 0, 320, 60, 0, C.paper, C.ink, 6, { 'vector-effect': 'non-scaling-stroke' });
         st.lidH = H;
         // tampon
         st.nclip = g(v, { 'clip-path': clipNone });
         const sb = stampBox(st.nclip, C.red, splitStamp(noneTxt), 36, 36, 20, 8, 150, 300);
         st.nstamp = sb.grp;
-        st.nx = 1450; st.ny = y0 + 26;
+        st.nx = 1450; st.ny = y0 + 22;
       }
 
       /* ---------- tampon « sealed » ---------- */
@@ -233,11 +233,33 @@
       }
       // bordure de la feuille par-dessus les rangées qui glissent
       path(sh, SHEET, 'none', C.ink, 8);
-      path(sh, 'M1560 50V110H1620Z', C.ink, C.ink, 8);
+      path(sh, FLAP, C.white, C.ink, 8);
+      return st;
+  }
+
+  ZV.define('promise-charter', {
+    init(root, shot) {
+      const st = build(root, shot);
+      st.lastT = 0;
+      // les mesures de texte dépendent des polices : si elles ne sont pas encore chargées, on reconstruit une fois qu'elles le sont
+      try {
+        const ok = document.fonts.check('800 50px "Bricolage Grotesque"', 'ÉA') && document.fonts.check('800 22px "JetBrains Mono"', 'A¹');
+        if (!ok) {
+          Promise.all([document.fonts.load('800 50px "Bricolage Grotesque"', 'ÉA'), document.fonts.load('800 22px "JetBrains Mono"', 'A¹'), document.fonts.load('600 22px "JetBrains Mono"', 'A¹')]).then(() => {
+            while (root.firstChild) root.removeChild(root.firstChild);
+            const t = st.lastT;
+            for (const k in st) delete st[k];
+            Object.assign(st, build(root, shot));
+            st.lastT = t;
+            try { draw(st, t); } catch (e) { /* rien */ }
+          }).catch(() => {});
+        }
+      } catch (e) { /* hors navigateur */ }
       return st;
     },
 
     update(st, t, shot) {
+      st.lastT = t;
       try { draw(st, t); } catch (e) { /* jamais d'exception */ }
     }
   });
@@ -258,7 +280,7 @@
     /* feuille */
     const ps = ph(t, st.tS, 14 * I);
     const es = E.out3(ps);
-    setA(st.sheet, 'visibility', on(t, st.tS) ? 'visible' : 'hidden');
+    setA(st.sheet, 'display', on(t, st.tS) ? 'inline' : 'none');
     setA(st.sheet, 'transform', `translate(0 ${f2((1 - es) * 900)}) rotate(${f2(lerp(-4, -1, es))} 960 425)`);
     // titre lettre à lettre (2 i par lettre) après l'arrivée de la feuille
     let n = st.titleLen;
@@ -269,7 +291,7 @@
     for (let i = 0; i < 4; i++) {
       const R = st.rows[i], t0 = st.tC[i];
       const p1 = ph(t, t0, 10 * I);
-      setA(R.g, 'visibility', on(t, t0) ? 'visible' : 'hidden');
+      setA(R.g, 'display', on(t, t0) ? 'inline' : 'none');
       setA(R.g, 'transform', `translate(${f2(-(1 - E.out3(p1)) * 340)} 0)`);
       const pc = ph(t, t0 == null ? null : t0 + 10 * I, 6 * I);
       setA(R.box, 'fill', pc > 0 ? C.lime : C.paper);

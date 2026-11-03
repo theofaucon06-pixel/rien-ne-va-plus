@@ -903,7 +903,7 @@ export const EPISODES = [
 
   {
     slug: 'le-casino-dans-la-poche',
-    status: 'soon',
+    status: 'published',
     number: 8,
     title: 'Le casino dans la poche',
     hook: 'Il n’a jamais mis les pieds dans un casino. Il n’en a pas eu besoin : le casino tenait dans sa poche.',
@@ -912,7 +912,9 @@ export const EPISODES = [
     themes: ['ligne', 'maths', 'histoires'],
     mechanics: ['poche', 'pari'],
     witnesses: ['sami', 'parieur'],
-    audio: null,
+    audio: { file: 'assets/podcast/08-le-casino-dans-la-poche.mp3', bytes: 8080122, seconds: 505 },
+    experience: 'motion',
+    poster: 3.1,
     sections: [
       {
         h: 'Trois heures du matin',
