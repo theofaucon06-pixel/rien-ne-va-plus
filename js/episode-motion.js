@@ -1373,6 +1373,612 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/card-shoe.js ==== */
+// Composant `card-shoe` (épisode 5) : le sabot qui a de la mémoire, le comptage, la maison qui change le jeu. Voir EP5-COMPONENTS.md.
+// Trois modes : memory | count | rules. Fonction pure du temps : la séquence de cartes, les tournées et les mélanges sont simulés dans init() à partir des cues ;
+// update() ne fait que poser des attributs. Aplats seulement : aucun dégradé, flou, lueur ni filter.
+// Cues : shoe, deal (répétable), discard, meter, burst (n), memory, shuffle ; count : rich, poor, no-gadget, edge ; rules : decks, cut, rules, edge, same.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, rng } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const bwEst = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.28 : /[0-9]/.test(ch) ? 0.5 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≈]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  // largeur réelle mesurée à l'init (sonde cachée) ; repli sur l'estimation si la mesure est impossible
+  let PROBE = null; const BWC = {};
+  const bw = (s, size) => {
+    s = String(s); const k = size + '|' + s;
+    if (BWC[k] !== undefined) return BWC[k];
+    if (PROBE) { try { PROBE.textContent = s; PROBE.setAttribute('font-size', size); const w = PROBE.getComputedTextLength(); if (w > 0) { BWC[k] = w; return w; } } catch (e) { /* hors DOM */ } }
+    return bwEst(s, size);
+  };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const SH = '#2A2A2A';
+  // groupe centré sur (0,0) : position / rotation / échelle / opacité (avec cache)
+  const putc = (n, x, y, r, sx, sy, o) => {
+    if (r === undefined) r = 0; if (sx === undefined) sx = 1; if (sy === undefined) sy = sx; if (o === undefined) o = 1;
+    const hid = o <= 0.001 || !sx || !sy;
+    setA(n, 'display', hid ? 'none' : 'inline');
+    if (hid) return;
+    setA(n, 'transform', `translate(${f2(x)} ${f2(y)}) rotate(${f2(r)}) scale(${f2(sx)} ${f2(sy)})`);
+    setA(n, 'opacity', f2(o));
+  };
+  const popS = (t, t0, d) => (t0 == null || t < t0 ? 0 : E.back(prog(t, t0, t0 + (d || 0.3))));
+  function mkTag(parent, lines, size, fill, tfill, o) {
+    o = o || {};
+    const ls = Array.isArray(lines) ? lines : [lines];
+    const lh = size * 1.12, px = o.padX || 26, py = o.padY || 14;
+    let tw = 0; ls.forEach((s) => { tw = Math.max(tw, o.mono ? mw(s, size) : bw(s, size)); });
+    const w = tw + px * 2, h = ls.length * lh + py * 2 - (lh - size) * 0.2;
+    const grp = g(parent);
+    const sh = o.sh || 9, r = o.r === undefined ? 14 : o.r;
+    rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, r, o.shc || (fill === C.paper ? C.lime : fill === C.pocket ? C.paper : C.paper));
+    rect(grp, -w / 2, -h / 2, w, h, r, fill, o.stroke || C.ink, o.sw || 6);
+    ls.forEach((s, i) => text(grp, s, 0, -h / 2 + py + size * 0.82 + i * lh, size, tfill, { anchor: 'middle', mono: o.mono, len: f2(o.mono ? mw(s, size) : bw(s, size)) }));
+    return { g: grp, w, h };
+  }
+  const mlab = (parent, s, x, y, size, fill, anchor) => text(parent, s, x, y, size, fill, { mono: true, anchor: anchor || 'start', len: f2(mw(s, size)) });
+
+  const DEF_SEQ = ['R', '4', '9', 'D', '2', 'A', '6', '10', '3', 'V', '5', '8', '2', '4', '6', '3', '7', '5', '2', 'A', '10'];
+  const catOf = (r) => (/^[2-6]$/.test(r) ? 0 : /^[7-9]$/.test(r) ? 1 : 2);
+  const SUITS = ['heart', 'spade', 'diamond', 'club'];
+
+  function drawSuit(parent, name, col) {
+    const s = g(parent);
+    if (name === 'heart') path(s, 'M0 26 L-29 -3 A16 16 0 0 1 0 -16 A16 16 0 0 1 29 -3 Z', col, C.ink, 3);
+    else if (name === 'diamond') path(s, 'M0 -30 L22 0 L0 30 L-22 0Z', col, C.ink, 3);
+    else if (name === 'spade') path(s, 'M0 -30 L29 2 A15 15 0 0 1 3 17 L9 30 L-9 30 L-3 17 A15 15 0 0 1 -29 2 Z', col, C.ink, 3);
+    else { circle(s, 0, -13, 13, col); circle(s, -15, 7, 13, col); circle(s, 15, 7, 13, col); path(s, 'M-7 30 L0 2 L7 30Z', col); }
+    return s;
+  }
+  function mkCard(parent, rank, suit) {
+    const grp = g(parent);
+    const red = suit === 'heart' || suit === 'diamond';
+    rect(grp, -52, -76, 120, 168, 12, SH);
+    const face = g(grp), back = g(grp);
+    rect(face, -60, -84, 120, 168, 12, C.paper, C.ink, 5);
+    text(face, rank, -44, -22, 64, red ? C.red : C.ink, { len: f2(bw(rank, 64) > 80 ? 80 : bw(rank, 64)) });
+    const sg = drawSuit(face, suit, red ? C.red : C.ink);
+    sg.setAttribute('transform', 'translate(0 26) scale(1.05)');
+    rect(back, -60, -84, 120, 168, 12, C.pocket, C.paper, 5);
+    rect(back, -46, -70, 92, 140, 6, 'none', C.paper, 2);
+    text(back, '0', 0, 26, 84, C.lime, { anchor: 'middle', len: f2(bw('0', 84)) });
+    return { g: grp, face, back };
+  }
+  function pictoEye(p) {
+    line(p, -44, -42, 44, -42, C.paper, 6); line(p, 0, -42, 0, -26, C.paper, 6);
+    path(p, 'M-38 6 C-20 -22 20 -22 38 6 C20 34 -20 34 -38 6Z', C.white, C.ink, 4);
+    circle(p, 0, 6, 11, C.lime, C.ink, 3); circle(p, 0, 6, 4, C.ink);
+  }
+  function pictoEar(p) {
+    path(p, 'M-6 -36 C-36 -36 -36 12 -6 12 L8 12', 'none', C.paper, 9);
+    rect(p, 4, 2, 30, 20, 8, C.lime, C.ink, 4);
+    path(p, 'M18 22 C18 40 -4 36 -4 46', 'none', C.paper, 4);
+  }
+  function pictoBox(p) {
+    rect(p, -36, -16, 72, 52, 8, C.paper, C.ink, 4);
+    line(p, 22, -16, 34, -42, C.paper, 5); circle(p, 34, -44, 6, C.lime, C.ink, 3);
+    rect(p, -26, -8, 34, 22, 3, C.lime, C.ink, 3); circle(p, 22, 4, 6, C.ink); circle(p, 22, 22, 6, C.ink);
+  }
+
+  /* ---- géométrie ---- */
+  const LANE_Y = 385, SLOT_Y = 292, PX = 1610;
+  const GX0 = 370, GW = 1500, GY = 668, GH = 80;
+
+  ZV.define('card-shoe', {
+    init(root, shot) {
+      const P = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const dur = isNum(shot && shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const mode = P.mode === 'count' || P.mode === 'rules' ? P.mode : 'memory';
+      const decks = clamp(Math.round(num(P.decks, 6)), 1, 12);
+      const seq = Array.isArray(P.sequence) && P.sequence.length ? P.sequence.map((x) => String(x).toUpperCase()) : DEF_SEQ;
+      const bubble = str(P.bubble, 'LA BILLE : AUCUNE MÉMOIRE');
+      const edgeTxt = str(P.edge, '1 À 2 %');
+      const uid = 'cs' + (++UID);
+      PROBE = text(root, '', 0, -500, 100, 'none'); PROBE.setAttribute('visibility', 'hidden');
+      ['RICHE EN FIGURES', 'PAUVRE EN FIGURES'].forEach((l) => bw(l, 32));
+      const cbs = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t);
+      const c1 = (n) => { const a = cbs(n)[0]; return a ? a.t : null; };
+      const NAMES = ['shoe', 'deal', 'discard', 'meter', 'burst', 'memory', 'shuffle', 'rich', 'poor', 'no-gadget', 'edge', 'decks', 'cut', 'rules', 'same'];
+      const noCue = !NAMES.some((n) => cbs(n).length);
+      const rules = mode === 'rules';
+      const st = { dur, mode, decks, uid, noCue, rules };
+      st.T = {};
+      NAMES.forEach((n) => { st.T[n] = c1(n); });
+      const T = st.T;
+      st.bandW = clamp(288 / decks, 24, 48);
+      st.MAXLINE = rules ? 3 : 5;
+      st.LX0 = rules ? 920 : 620;
+      st.SP = rules ? 130 : 140;
+      st.PY = rules ? 392 : 348;
+      st.EXTN = 7;
+
+      /* ---- simulation (déterministe) ---- */
+      const evs = [];
+      const pri = { shuffle: 0, discard: 1, deal: 2, burst: 3 };
+      cbs('deal').forEach((b) => evs.push({ t: b.t, type: 'deal' }));
+      cbs('discard').forEach((b) => evs.push({ t: b.t, type: 'discard' }));
+      cbs('shuffle').forEach((b) => evs.push({ t: b.t, type: 'shuffle' }));
+      cbs('burst').forEach((b) => evs.push({ t: b.t, type: 'burst', n: clamp(Math.round(num(b.n, 14)), 1, 40), d: num(b.dur, 2.5) }));
+      if (rules) {
+        for (let i = 0; i < 3; i++) evs.push({ t: -6 + i * 0.1, type: 'deal' });
+        const tc = T.cut;
+        if (tc != null) {
+          evs.push({ t: tc + 0.6, type: 'discard' }, { t: tc + 1.2, type: 'shuffle' });
+          [1.7, 1.95, 2.2].forEach((d) => evs.push({ t: tc + d, type: 'deal' }));
+          evs.push({ t: tc + 3.0, type: 'discard' }, { t: tc + 3.6, type: 'shuffle' });
+          [4.1, 4.35, 4.6].forEach((d) => evs.push({ t: tc + d, type: 'deal' }));
+        }
+      }
+      evs.sort((a, b) => a.t - b.t || pri[a.type] - pri[b.type]);
+      const cards = [], rounds = [], shufTs = [];
+      let seqPos = 0, lineC = [], pile = [], cur = null;
+      const rr = rng(5151);
+      const mk = (emit, kind) => {
+        const rank = seq[seqPos++ % seq.length];
+        const c = { rank, suit: SUITS[Math.floor(rr() * 4)], cat: catOf(rank), emit, kind, round: null, k: 0, discT: null, retT: null, base: emit < -1 };
+        cards.push(c); return c;
+      };
+      const sweep = (t) => { lineC.forEach((c, i) => { c.discT = t + i * 0.03; pile.push(c); }); lineC = []; cur = null; };
+      if (rules) for (let i = 0; i < 14; i++) { const c = mk(-9, 'burst'); c.rank = seq[i % seq.length]; c.cat = catOf(c.rank); pile.push(c); }
+      for (const ev of evs) {
+        if (cards.length > 150) break;
+        if (ev.type === 'deal') {
+          if (lineC.length >= st.MAXLINE) sweep(ev.t);
+          const c = mk(ev.t, 'deal');
+          if (!cur) { cur = { cards: [] }; rounds.push(cur); }
+          c.round = cur; c.k = lineC.length; cur.cards.push(c); lineC.push(c);
+        } else if (ev.type === 'discard') { if (lineC.length) sweep(ev.t); }
+        else if (ev.type === 'burst') {
+          for (let j = 0; j < ev.n; j++) { const c = mk(ev.t + ev.d * Math.pow(j / ev.n, 1 / 1.8), 'burst'); pile.push(c); }
+        } else if (ev.type === 'shuffle') {
+          const all = lineC.concat(pile);
+          all.forEach((c, i) => { c.retT = ev.t + 0.35 * (i / Math.max(1, all.length - 1)); c.shufBase = ev.t; });
+          lineC = []; pile = []; cur = null; seqPos = 0; shufTs.push(ev.t);
+        }
+      }
+      st.cards = cards; st.shufTs = shufTs;
+      const spacing = (c) => { const m = c.round ? c.round.cards.length : 1; return m > 1 ? Math.min(st.SP, (1300 - st.LX0 - 120) / (m - 1)) : st.SP; };
+      cards.forEach((c) => {
+        if (c.kind === 'deal') c.lx = st.LX0 + 60 + c.k * spacing(c);
+        c.land = c.kind === 'burst' ? c.emit + 0.3 : c.discT != null ? c.discT + 0.4 : null;
+      });
+      st.pileH = (t) => { let n = 6; for (const c of cards) if (c.land != null && c.land <= t && (c.retT == null || t < c.retT)) n++; return Math.min(n, 140); };
+      cards.forEach((c) => {
+        if (c.retT == null) return;
+        const inPile = c.land != null && c.land <= c.shufBase + 0.0001;
+        const flying = c.land != null && !inPile;
+        c.retFrom = inPile || flying ? [PX, st.PY - st.pileH(c.shufBase - 1e-4) + 84, false] : [c.lx, LANE_Y, true];
+      });
+
+      /* ---- décor ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 60, -600, 120, 2300, 0, C.pocket);
+      const B = g(root);
+      st.laneG = g(B);
+      rect(st.laneG, st.LX0 - 24, 290, 1324 - st.LX0 + 24, 192, 18, C.pocket, SH, 4);
+
+      /* sabot */
+      st.shoeG = g(B);
+      const sg = st.shoeG;
+      st.shP1 = path(sg, 'M0 0', SH); st.shP1.setAttribute('transform', 'translate(10 10)');
+      st.shP2 = path(sg, 'M0 0', C.ink, C.paper, 8);
+      st.win = rect(sg, 128, 352, 300, 188, 6, C.pocket, C.paper, 4);
+      st.bands = [];
+      const NB = decks + st.EXTN;
+      for (let i = 0; i < NB; i++) st.bands.push(rect(sg, 0, 384, 10, 146, 2, C.paper, C.ink, 3));
+      st.cut = rect(sg, 0, 366, 12, 164, 2, C.red, C.ink, 3);
+      st.slot = rect(sg, 0, 266, 34, 48, 4, C.ink, C.paper, 5);
+      st.shLab = null;
+      if (!rules) {
+        st.shLab = mlab(sg, `${decks} PAQUETS · SANS REMISE`, 100, 226, 24, C.paper);
+      }
+      st.mixTag = mkTag(B, 'MÉLANGE', 40, C.paper, C.ink, { sh: 8 });
+      st.decksTag = mkTag(B, 'PLUS DE PAQUETS', 40, C.lime, C.ink, { sh: 8 });
+      st.cutTag = mkTag(B, 'MÉLANGE PLUS TÔT', 36, C.paper, C.ink, { sh: 8 });
+      st.cutArrow = g(B);
+      st.cutArr = path(st.cutArrow, 'M0 0', C.red, C.ink, 3);
+      st.memTag = mkTag(B, 'LE SABOT, LUI, SE SOUVIENT', 40, C.lime, C.ink, { sh: 9 });
+
+      /* défausse */
+      st.disG = g(B);
+      st.dBody = rect(st.disG, PX - 52, 0, 120, 10, 12, SH);
+      st.dMain = rect(st.disG, PX - 60, 0, 120, 10, 12, C.pocket, C.paper, 5);
+      st.dTop = rect(st.disG, PX - 60, 0, 120, 168, 12, C.pocket, C.paper, 5);
+      st.dIn = rect(st.disG, PX - 46, 0, 92, 140, 6, 'none', C.paper, 2);
+      st.dZero = text(st.disG, '0', PX, 0, 84, C.lime, { anchor: 'middle', len: f2(bw('0', 84)) });
+      mlab(st.disG, 'DÉFAUSSE', PX, st.PY + 168 + 44, 26, C.paper, 'middle');
+      st.discTag = mkTag(B, ['NE REVIENT PAS', 'AVANT LE MÉLANGE'], 34, C.paper, C.ink, { sh: 8 });
+
+      /* jauge */
+      st.gG = g(B);
+      mlab(st.gG, 'CE QUI RESTE DANS LE SABOT', GX0, 650, 26, C.paper);
+      const segs = [[C.paper, C.ink], [C.pocket, C.paper], [C.lime, C.ink]];
+      st.ghost = [0, 1].map(() => line(st.gG, 0, 658, 0, 760, C.paper, 3, { 'stroke-dasharray': '6 6', 'stroke-linecap': 'butt' }));
+      st.gSh = rect(st.gG, GX0 + 9, GY + 9, GW, GH, 4, SH);
+      st.seg = segs.map((s) => rect(st.gG, GX0, GY, 10, GH, 2, s[0], s[1], 4));
+      const legs = ['PETITES · 2 À 6', 'MOYENNES · 7 À 9', 'FIGURES ET AS'];
+      st.leg = legs.map((s) => mlab(st.gG, s, 0, 784, 22, C.paper, 'middle'));
+      st.richLab = text(st.gG, '', 0, GY + 53, 32, C.ink, { anchor: 'middle' });
+      st.richLab.__s = '';
+      st.sliceMini = rect(st.gG, GX0 - 2, GY - 6, 24, GH + 12, 3, 'none', C.lime, 4);
+      // cartouche de la bille
+      st.memG = g(B);
+      rect(st.memG, 40, 650, 300, 134, 12, SH);
+      rect(st.memG, 30, 640, 300, 134, 12, C.pocket, C.paper, 5);
+      circle(st.memG, 74, 707, 24, C.white, C.ink, 5);
+      circle(st.memG, 66, 699, 7, C.paper);
+      {
+        const i = bubble.indexOf(' : ');
+        const ls = i > 0 ? [bubble.slice(0, i + 2), bubble.slice(i + 3)] : [bubble];
+        ls.forEach((s, k) => text(st.memG, s, 116, 700 + k * 36, 24, C.paper, { mono: true, len: f2(Math.min(mw(s, 24), 200)) }));
+      }
+
+      /* count : jetons, gadgets, tranche */
+      st.chG = g(B);
+      st.chips = [];
+      for (let k = 0; k < 10; k++) {
+        const c = g(st.chG);
+        rect(c, -50, -(k + 1) * 22, 100, 22, 3, C.lime, C.ink, 3.5);
+        for (let q = -1; q <= 1; q++) rect(c, q * 30 - 10, -(k + 1) * 22 + 5, 20, 12, 2, C.ink);
+        st.chips.push(c);
+      }
+      rect(st.chG, -58, 0, 116, 8, 2, SH);
+      st.chLab = text(B, '', 1336, 318, 26, C.paper, { mono: true });
+      st.chLab.__s = '';
+      st.gad = g(B);
+      st.gadI = [pictoEye, pictoEar, pictoBox].map((fn, i) => { const p = g(st.gad); fn(p); const s = line(p, -46, 46, 46, -46, C.red, 8); return { p, s, x: 1520 + i * 120 }; });
+      mlab(st.gad, 'PAS DE GADGET', 1640, 246, 26, C.paper, 'middle');
+      st.slice = g(B);
+      rect(st.slice, 0, 0, 22, 30, 2, C.lime, C.ink, 3);
+      st.sliceT = text(B, edgeTxt, 1400, 616, 44, C.lime, { len: f2(bw(edgeTxt, 44)) });
+      const kick = 'BIEN FAIT, AVEC BEAUCOUP D\'ARGENT DERRIÈRE';
+      st.kick = mlab(B, kick, 1870, 652, 22, C.paper, 'end');
+
+      /* rules : feuille */
+      st.sheetLab = mlab(B, 'RÈGLES MODIFIÉES', 1360, 82, 26, C.paper);
+      st.sheet = g(B);
+      rect(st.sheet, 1370, 106, 480, 208, 6, SH);
+      rect(st.sheet, 1360, 96, 480, 208, 6, C.paper, C.ink, 6);
+      text(st.sheet, 'RÈGLES', 1396, 148, 44, C.ink, { len: f2(bw('RÈGLES', 44)) });
+      st.rl = [0, 1, 2].map((i) => {
+        const y = 172 + i * 44, w = [300, 360, 250][i];
+        rect(st.sheet, 1396, y, w, 14, 4, C.ink);
+        const strike = rect(st.sheet, 1390, y + 4, w + 12, 6, 2, C.red);
+        const nw = [220, 0, 330][i];
+        const nb = nw ? rect(st.sheet, 1396, y + 18, nw, 14, 4, C.lime, C.ink, 3) : null;
+        return { strike, nb, w, y, fix: i !== 1 };
+      });
+
+      /* voiles / cadre / panneau edge */
+      st.veilS = rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      st.cardsG = g(root);
+      st.clipR = rect(sv('clipPath', { id: uid + 'k' }, sv('defs', null, root)), 0, 0, 1920, 1080, 0, '#000');
+      st.cardsG.setAttribute('clip-path', `url(#${uid}k)`);
+      st.cn = cards.map((c) => { const n = mkCard(st.cardsG, c.rank, c.suit); n.g.setAttribute('display', 'none'); return n; });
+      st.veilE = rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      st.eP = g(root);
+      rect(st.eP, 700, 130, 650, 520, 12, SH);
+      rect(st.eP, 690, 120, 650, 520, 12, C.pocket, C.paper, 6);
+      st.eCap = mkTag(st.eP, 'L\'AVANTAGE D\'USTON FOND', 36, C.paper, C.ink, { sh: 8 });
+      st.eCap.g.setAttribute('transform', 'translate(1015 196)');
+      rect(st.eP, 730, 462, 570, 8, 2, C.paper);
+      mlab(st.eP, 'AVANTAGE JOUEUR', 730, 440, 22, C.paper);
+      mlab(st.eP, 'AVANTAGE MAISON', 730, 510, 22, C.red);
+      st.eUp = rect(st.eP, 955, 462, 120, 10, 3, C.lime, C.ink, 4);
+      st.eDn = rect(st.eP, 955, 470, 120, 10, 3, C.red, C.ink, 4);
+      st.eTxt = text(st.eP, edgeTxt, 1105, 400, 60, C.lime, { len: f2(bw(edgeTxt, 60)) });
+      st.eKick = null;
+      st.sameO = g(root);
+      st.sameFrame = rect(st.sameO, 0, 0, 10, 10, 18, 'none', C.paper, 8);
+      st.sameTag = mkTag(st.sameO, 'VU DE LA TABLE : LE MÊME JEU', 40, C.paper, C.ink, { sh: 8 });
+      PROBE.parentNode.removeChild(PROBE); PROBE = null;
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const T = st.T, rules = st.rules, mode = st.mode, decks = st.decks;
+        const nc = st.noCue;
+        const pS = T.shoe == null ? 1 : E.out3(prog(t, T.shoe, T.shoe + 0.55));
+        const pPop = T.shoe == null ? 1 : popS(t, T.shoe, 0.35);
+
+        /* consommation du sabot (par catégorie) */
+        const cons = (tt) => {
+          let k = -1;
+          for (let i = 0; i < st.shufTs.length; i++) if (st.shufTs[i] <= tt) k = i;
+          const from = k >= 0 ? st.shufTs[k] : -1e9;
+          const v = [0, 0, 0];
+          for (const c of st.cards) if (c.emit >= from && c.emit <= tt + 0.0001) v[c.cat] += E.out2(prog(tt, c.emit, c.emit + 0.2));
+          if (k >= 0) {
+            const w = 1 - E.io2(prog(tt, st.shufTs[k], st.shufTs[k] + 0.6));
+            if (w > 0) { const pv = cons(st.shufTs[k] - 1e-4); for (let j = 0; j < 3; j++) v[j] += pv[j] * w; }
+          }
+          return v;
+        };
+        const v = cons(t);
+        const consumed = v[0] + v[1] + v[2];
+
+        /* extension du sabot (rules) */
+        const ext = rules && T.decks != null ? Math.min(st.EXTN, Math.max(0, (t - T.decks) / 0.25)) : 0;
+        const bw0 = st.bandW;
+        const xr = 212 + (decks + ext) * bw0;
+        const totalW = (decks + ext) * bw0;
+        const effW = Math.max(0, totalW - consumed * bw0 / 52);
+        const d1 = `M100 560 L100 340 L${f2(xr - 110)} 262 L${f2(xr)} 262 L${f2(xr)} 560 Z`;
+        setA(st.shP1, 'd', d1); setA(st.shP2, 'd', d1);
+        setA(st.win, 'width', f2(xr - 66 - 128));
+        setA(st.slot, 'x', f2(xr - 24));
+        st.bands.forEach((b, i) => {
+          const w = clamp(effW - i * bw0, 0, bw0);
+          if (w < 7) { vis(b, false); return; }
+          vis(b, true); setA(b, 'x', f2(140 + i * bw0 + 2)); setA(b, 'width', f2(w - 4));
+        });
+        // carte de coupe
+        let cutFrac = 0.25;
+        if (rules && T.cut != null) cutFrac = lerp(0.25, 0.7, E.io3(prog(t, T.cut, T.cut + 0.8)));
+        let lift = 0;
+        for (const ts of st.shufTs) lift = Math.max(lift, 92 * E.out2(prog(t, ts, ts + 0.25)) * (1 - E.in2(prog(t, ts + 0.6, ts + 0.9))));
+        const cutX = Math.min(140 + cutFrac * totalW, 140 + effW - 8);
+        vis(st.cut, effW > 40);
+        setA(st.cut, 'x', f2(cutX - 6));
+        setA(st.cut, 'transform', `translate(0 ${f2(-lift)})`);
+
+        /* groupes de gauche */
+        setA(st.shoeG, 'transform', `translate(${f2(-(1 - pS) * 640)} 0)`);
+        vis(st.shoeG, pS > 0.001);
+        putc(st.laneG, 0, 0, 0, 1, 1, pS > 0.001 ? 1 : 0);
+        if (st.shLab) {
+          // étiquette « 6 PAQUETS · SANS REMISE » : posée avec le sabot
+          vis(st.shLab, T.shoe == null ? true : pS > 0.3);
+        }
+        // stickers d'étiquette
+        putc(st.memTag.g, 480, 150, -2, popS(t, T.memory), popS(t, T.memory), T.memory != null && t >= T.memory ? 1 : 0);
+        putc(st.discTag.g, 1610, 170, 2, popS(t, T.discard), popS(t, T.discard), T.discard != null && t >= T.discard ? 1 : 0);
+        const tMix = st.shufTs.length ? Math.max.apply(null, st.shufTs.filter((x) => x <= t).concat([-1])) : -1;
+        const mixOn = T.shuffle != null && t >= T.shuffle;
+        putc(st.mixTag.g, 720, 240, -3, mixOn ? popS(t, T.shuffle) : 0, mixOn ? popS(t, T.shuffle) : 0, mixOn ? 1 : 0);
+        const tagOn = !(T.same != null && t >= T.same);
+        putc(st.decksTag.g, 480, 206, -2, popS(t, T.decks), popS(t, T.decks), T.decks != null && t >= T.decks && tagOn ? 1 : 0);
+        putc(st.cutTag.g, 300, 612, -2, popS(t, T.cut), popS(t, T.cut), T.cut != null && t >= T.cut && tagOn ? 1 : 0);
+        // flèche rouge de la coupe
+        if (T.cut != null && t >= T.cut) {
+          const x0 = 140 + 0.25 * totalW, x1 = 140 + cutFrac * totalW;
+          const L = Math.max(0, x1 - x0) * E.out2(prog(t, T.cut, T.cut + 0.5));
+          vis(st.cutArrow, L > 4);
+          if (L > 4) setA(st.cutArr, 'd', `M${f2(x0)} 320 H${f2(x0 + L - 22)} V308 L${f2(x0 + L + 8)} 326 L${f2(x0 + L - 22)} 344 V332 H${f2(x0)} Z`);
+        } else vis(st.cutArrow, false);
+
+        /* défausse : (rules) elle reste, la feuille est au-dessus */
+        const h = st.pileH(t);
+        const topY = st.PY - h;
+        setA(st.disG, 'transform', `translate(${f2((1 - pS) * 520)} 0)`); vis(st.disG, pS > 0.001);
+        setA(st.dBody, 'y', f2(topY + 8)); setA(st.dBody, 'height', f2(168 + h));
+        setA(st.dMain, 'y', f2(topY)); setA(st.dMain, 'height', f2(168 + h));
+        setA(st.dTop, 'y', f2(topY)); setA(st.dIn, 'y', f2(topY + 14));
+        setA(st.dZero, 'y', f2(topY + 110));
+
+        /* cartes */
+        for (let i = 0; i < st.cards.length; i++) {
+          const c = st.cards[i], n = st.cn[i];
+          const s = cardSt(st, c, t, h, xr);
+          if (!s) { vis(n.g, false); continue; }
+          const pop = c.base ? pPop : 1;
+          if (pop <= 0.001) { vis(n.g, false); continue; }
+          putc(n.g, s.x, s.y, s.rot || 0, (s.sx === undefined ? 1 : s.sx) * pop, pop, 1);
+          vis(n.face, s.face); vis(n.back, !s.face);
+        }
+        setA(st.clipR, 'x', f2(xr)); setA(st.clipR, 'width', f2(1920 - xr));
+
+        /* jauge */
+        const tG = [T.meter, T.rich, T.poor].filter((x) => x != null);
+        const tGauge = tG.length ? Math.min.apply(null, tG) : null;
+        const gp = tGauge == null ? (nc ? 1 : 0) : E.out3(prog(t, tGauge, tGauge + 0.4));
+        if (rules) { vis(st.gG, false); vis(st.memG, false); } else {
+          putc(st.gG, 0, (1 - gp) * 40, 0, 1, 1, gp);
+          const rem = [Math.max(1, 20 * decks - v[0]), Math.max(1, 12 * decks - v[1]), Math.max(1, 20 * decks - v[2])];
+          const sum = rem[0] + rem[1] + rem[2];
+          let fr = [rem[0] / sum, rem[1] / sum, rem[2] / sum];
+          const f0 = [20 / 52, 12 / 52, 20 / 52];
+          // basculement riche / pauvre (mode count)
+          let rich = 0, ovp = 0, richLabel = '';
+          if (mode === 'count') {
+            const sw = [];
+            cbsOf(st, 'rich').forEach((x) => sw.push({ t: x, to: 1 }));
+            cbsOf(st, 'poor').forEach((x) => sw.push({ t: x, to: 0 }));
+            sw.sort((a, b) => a.t - b.t);
+            if (sw.length) {
+              ovp = E.io2(prog(t, sw[0].t, sw[0].t + 0.6));
+              let val = sw[0].to; let prev = sw[0].to;
+              for (let i = 0; i < sw.length; i++) {
+                if (t < sw[i].t) break;
+                const from = i === 0 ? sw[0].to : sw[i - 1].to;
+                val = i === 0 ? sw[0].to : lerp(from, sw[i].to, E.io2(prog(t, sw[i].t, sw[i].t + 0.6)));
+                prev = sw[i].to;
+                richLabel = prev ? 'RICHE EN FIGURES' : 'PAUVRE EN FIGURES';
+              }
+              if (t >= sw[0].t) {
+                rich = val;
+                const tgt = lerp(0.25, 0.5, rich);
+                const nat = fr[2];
+                const fg = lerp(nat, tgt, ovp);
+                const ratio = fr[0] / (fr[0] + fr[1]);
+                fr = [(1 - fg) * ratio, (1 - fg) * (1 - ratio), fg];
+              }
+            }
+          }
+          let x = GX0;
+          const mids = [];
+          for (let i = 0; i < 3; i++) {
+            const w = fr[i] * GW;
+            setA(st.seg[i], 'x', f2(x)); setA(st.seg[i], 'width', f2(w));
+            mids.push(x + w / 2); x += w;
+          }
+          st.leg.forEach((l, i) => setA(l, 'x', f2(mids[i])));
+          const g0 = [f0[0] * GW + GX0, (f0[0] + f0[1]) * GW + GX0];
+          st.ghost.forEach((l, i) => { setA(l, 'x1', f2(g0[i])); setA(l, 'x2', f2(g0[i])); });
+          // étiquette riche / pauvre dans le tronçon lime
+          if (richLabel) {
+            const wseg = fr[2] * GW;
+            if (st.richLab.__s !== richLabel) { st.richLab.__s = richLabel; st.richLab.textContent = richLabel; }
+            const len = Math.min(bw(richLabel, 32), wseg - 34);
+            setA(st.richLab, 'textLength', f2(len)); setA(st.richLab, 'lengthAdjust', 'spacingAndGlyphs');
+            setA(st.richLab, 'x', f2(mids[2])); vis(st.richLab, true);
+          } else vis(st.richLab, false);
+          vis(st.sliceMini, mode === 'count' && T.edge != null && t >= T.edge);
+          // cartouche bille
+          const mp = popS(t, T.memory);
+          putc(st.memG, 0, 0, 0, 1, 1, T.memory != null && t >= T.memory ? Math.min(1, mp) : 0);
+          setA(st.memG, 'transform', `translate(0 ${f2((1 - Math.min(1, mp)) * 30)})`);
+
+          // jetons
+          if (mode === 'count') {
+            const sw2 = [];
+            cbsOf(st, 'rich').forEach((x) => sw2.push({ t: x, to: 1 }));
+            cbsOf(st, 'poor').forEach((x) => sw2.push({ t: x, to: 0 }));
+            sw2.sort((a, b) => a.t - b.t);
+            if (sw2.length && t >= sw2[0].t - 0.001) {
+              let cnt = 1; let lab = '';
+              for (let i = 0; i < sw2.length; i++) {
+                if (t < sw2[i].t) break;
+                const base = i === 0 ? 0 : sw2[i - 1].to;
+                const a = i === 0 ? 1 : lerp(1, 10, base), b = lerp(1, 10, sw2[i].to);
+                const sp = sw2[i].to ? 0.7 : 0.5;
+                cnt = lerp(a, b, E.out2(prog(t, sw2[i].t, sw2[i].t + sp)));
+                lab = sw2[i].to ? 'MISE GROSSE' : 'MISE PETITE';
+              }
+              vis(st.chG, true);
+              setA(st.chG, 'transform', 'translate(1372 560)');
+              st.chips.forEach((c, k) => { const s = clamp(cnt - k); if (s <= 0.01) vis(c, false); else { vis(c, true); setA(c, 'transform', `translate(0 0) scale(1 ${f2(s)})`); } });
+              if (st.chLab.__s !== lab) { st.chLab.__s = lab; st.chLab.textContent = lab; setA(st.chLab, 'textLength', f2(mw(lab, 26))); }
+              setA(st.chLab, 'y', f2(Math.max(318, 560 - cnt * 22 - 22)));
+              vis(st.chLab, true);
+            } else { vis(st.chG, false); vis(st.chLab, false); }
+          } else { vis(st.chG, false); vis(st.chLab, false); }
+        }
+        if (mode !== 'count') { vis(st.gad, false); vis(st.slice, false); vis(st.sliceT, false); vis(st.kick, false); }
+        else {
+          // pas de gadget
+          const ng = T['no-gadget'];
+          vis(st.gad, ng != null && t >= ng);
+          if (ng != null && t >= ng) {
+            st.gadI.forEach((it, i) => {
+              const s = popS(t, ng + i * 0.18, 0.3);
+              putc(it.p, it.x, 150, 0, s * 1.2, s * 1.2, s > 0 ? 1 : 0);
+              const q = prog(t, ng + 0.5 + i * 0.18, ng + 0.7 + i * 0.18);
+              setA(it.s, 'x2', f2(lerp(-46, 46, q))); setA(it.s, 'y2', f2(lerp(46, -46, q)));
+              vis(it.s, q > 0);
+            });
+          }
+          // tranche 1 à 2 %
+          const te = T.edge;
+          const on = te != null && t >= te;
+          vis(st.slice, on); vis(st.sliceT, on); vis(st.kick, on);
+          if (on) {
+            const q = E.out3(prog(t, te, te + 0.5));
+            setA(st.slice, 'transform', `translate(1361 ${f2(lerp(552, 588, q))})`);
+            setA(st.sliceT, 'opacity', f2(prog(t, te + 0.3, te + 0.5)));
+            setA(st.kick, 'opacity', f2(prog(t, te + 0.7, te + 0.9)));
+          }
+        }
+        if (mode === 'count') { /* sticker mémoire non utilisé */ }
+
+        /* rules : feuille */
+        const tr = T.rules;
+        if (rules && tr != null && t >= tr) {
+          const q = E.back(prog(t, tr, tr + 0.5));
+          setA(st.sheet, 'transform', `translate(0 ${f2(-(1 - q) * 360)})`); vis(st.sheet, true);
+          setA(st.sheetLab, 'opacity', f2(prog(t, tr + 0.3, tr + 0.5))); vis(st.sheetLab, true);
+          st.rl.forEach((r, i) => {
+            const t1 = tr + 0.7 + i * 0.35;
+            const q1 = prog(t, t1, t1 + 0.25);
+            const hasFix = r.fix;
+            vis(r.strike, hasFix && q1 > 0);
+            if (hasFix) setA(r.strike, 'width', f2((r.w + 12) * q1));
+            if (r.nb) { const q2 = prog(t, t1 + 0.3, t1 + 0.55); vis(r.nb, q2 > 0); setA(r.nb, 'width', f2(Math.max(1, (i === 0 ? 220 : 330) * q2))); }
+          });
+        } else { vis(st.sheet, false); vis(st.sheetLab, false); }
+
+        /* same / edge */
+        const tS = T.same;
+        const sameOn = rules && tS != null && t >= tS;
+        const tE = T.edge;
+        const edgeOn = rules && tE != null && t >= tE && !(tS != null && t >= tS);
+        setA(st.veilS, 'opacity', f2(sameOn ? 0.62 * prog(t, tS, tS + 0.25) : 0)); vis(st.veilS, sameOn);
+        vis(st.sameO, sameOn);
+        if (sameOn) {
+          const x0 = st.LX0 - 28;
+          setA(st.sameFrame, 'x', x0); setA(st.sameFrame, 'y', 280); setA(st.sameFrame, 'width', 1328 - x0); setA(st.sameFrame, 'height', 212);
+          const p = popS(t, tS + 0.1);
+          putc(st.sameTag.g, rules ? 979 : 960, 215, -1.5, p, p, 1);
+        }
+        setA(st.veilE, 'opacity', f2(edgeOn ? 0.62 * prog(t, tE, tE + 0.25) : 0)); vis(st.veilE, edgeOn);
+        vis(st.eP, edgeOn);
+        if (edgeOn) {
+          const q = E.out3(prog(t, tE, tE + 0.35));
+          setA(st.eP, 'transform', `translate(0 ${f2((1 - q) * 40)})`);
+          const melt = E.io2(prog(t, tE + 0.3, tE + 1.8));
+          const hu = 220 * (1 - melt);
+          vis(st.eUp, hu > 3); setA(st.eUp, 'y', f2(462 - hu)); setA(st.eUp, 'height', f2(Math.max(1, hu)));
+          setA(st.eTxt, 'y', f2(462 - hu * 0.5 + 24)); setA(st.eTxt, 'opacity', f2(clamp(hu / 100)));
+          vis(st.eTxt, hu > 6);
+          const hd = 74 * E.back(prog(t, tE + 1.8, tE + 2.25));
+          vis(st.eDn, hd > 3); setA(st.eDn, 'height', f2(Math.max(1, hd)));
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+
+  function cbsOf(st, name) {
+    if (!st.__cb) st.__cb = {};
+    if (!st.__cb[name]) st.__cb[name] = st.__beats(name);
+    return st.__cb[name];
+  }
+
+  // état d'une carte à l'instant t (null = invisible)
+  function cardSt(st, c, t, h, xr) {
+    if (t < c.emit) return null;
+    const sx0 = xr - 40, sy0 = 330;
+    const px = PX, py = st.PY - h + 84;
+    if (c.retT != null && t >= c.retT) {
+      const p = prog(t, c.retT, c.retT + 0.25);
+      if (p >= 1) return null;
+      const e = E.in2(p), fr = c.retFrom || [px, py, false];
+      return { x: lerp(fr[0], sx0, e), y: lerp(fr[1], sy0, e), sx: 1 - 0.3 * e, rot: -10 * e, face: fr[2] };
+    }
+    if (c.kind === 'burst') {
+      const p = prog(t, c.emit, c.emit + 0.3);
+      if (p >= 1) return null;
+      const e = E.io2(p);
+      return { x: lerp(sx0, px, e), y: lerp(sy0, py, e) - 50 * Math.sin(Math.PI * p), rot: 12 * p, face: true };
+    }
+    if (c.discT != null && t >= c.discT) {
+      const p = prog(t, c.discT, c.discT + 0.4);
+      if (p >= 1) return null;
+      const e = E.io2(p), q = clamp(p / 0.45);
+      return { x: lerp(c.lx, px, e), y: lerp(LANE_Y, py, e) - 40 * Math.sin(Math.PI * p), sx: Math.max(Math.abs(1 - 2 * q), 0.04), rot: 6 * p, face: q < 0.5 };
+    }
+    const p = prog(t, c.emit, c.emit + 0.3333);
+    const e = E.out3(p), q = clamp((p - 0.2) / 0.6);
+    return { x: lerp(sx0, c.lx, e), y: lerp(sy0, LANE_Y, e), sx: Math.max(Math.abs(1 - 2 * q), 0.04), face: q >= 0.5 };
+  }
+  // rattache la lecture des cues à l'état (init n'a pas accès direct depuis update)
+  const _init = ZV.REG['card-shoe'].init;
+  ZV.REG['card-shoe'].init = function (root, shot) {
+    const st = _init.call(this, root, shot);
+    const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+    st.__beats = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((a, b) => a - b);
+    return st;
+  };
+})();
+;
 /* ==== tools/video/composition/components/chapter-card.js ==== */
 // Composant « chapter-card » : voir tools/video/composition/INTERFACE.md. Fonction pure du temps du plan, aplats seulement.
 (() => {
@@ -2558,6 +3164,332 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/craps-layout.js ==== */
+// Composant `craps-layout` (épisode 5) : le tapis de craps, 20 cases toutes du même style. Voir EP5-COMPONENTS.md.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter ; éclats ≤ 4 changements/s ; dés ≤ ~1,1 tour/s.
+// Cues : table, dice, noise, convert, twenty, pass, seven, ratio, same, nineteen.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, text, put, rng } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => n.setAttribute('visibility', on ? 'visible' : 'hidden');
+  const meas = (n, est) => { try { const L = n.getComputedTextLength(); if (L > 0) return L; } catch (e) { /* estimation */ } return est; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const S = (v, d) => (v == null || v === '' ? d : String(v));
+  const pop = (t, t0, d) => Math.max(0.001, E.back(prog(t, t0, t0 + (d || 0.3))));
+
+  function mkPlate(parent, lines, o) {
+    o = o || {};
+    const grp = g(parent), r = o.r === undefined ? 14 : o.r, off = o.sh === undefined ? 8 : o.sh;
+    const sh = rect(grp, 0, 0, 1, 1, r, o.shadow || C.ink);
+    const pl = rect(grp, 0, 0, 1, 1, r, o.fill || C.paper, o.stroke || C.ink, o.sw || 6);
+    let w = 0, h = 0;
+    const ts = lines.map((L) => {
+      const n = text(grp, L.s, 0, 0, L.size, L.fill || o.textFill || C.ink, { anchor: 'middle', mono: L.mono });
+      w = Math.max(w, meas(n, L.mono ? mw(L.s, L.size) : String(L.s).length * L.size * 0.58)); h += L.size * (L.lh || 1.15);
+      return { n, L };
+    });
+    const px = o.padX === undefined ? 28 : o.padX, py = o.padY === undefined ? 14 : o.padY;
+    w += px * 2; h += py * 2;
+    let y = -h / 2 + py;
+    for (const k of ts) { const lh = k.L.size * (k.L.lh || 1.15); k.n.setAttribute('y', f2(y + lh / 2 + k.L.size * 0.33)); y += lh; }
+    for (const [n, d] of [[sh, off], [pl, 0]]) { n.setAttribute('x', f2(-w / 2 + d)); n.setAttribute('y', f2(-h / 2 + d)); n.setAttribute('width', f2(w)); n.setAttribute('height', f2(h)); }
+    return { g: grp, w, h };
+  }
+  // bulle de BD : paper bordé ink 6, queue en bas à gauche
+  function mkBubble(parent, str) {
+    const grp = g(parent);
+    const n0 = text(grp, str, 0, 0, 46, C.ink, { anchor: 'middle' });
+    const w = meas(n0, str.length * 46 * 0.58) + 56, h = 96;
+    rect(grp, -w / 2 + 8, -h / 2 + 8, w, h, 22, C.ink);
+    path(grp, `M${f2(-w / 2 + 34)} ${h / 2 - 4}L${f2(-w / 2 + 22)} ${h / 2 + 30}L${f2(-w / 2 + 76)} ${h / 2 - 4}`, C.paper, C.ink, 6);
+    rect(grp, -w / 2, -h / 2, w, h, 22, C.paper, C.ink, 6);
+    rect(grp, -w / 2 + 40, h / 2 - 6, 32, 10, 0, C.paper);
+    n0.parentNode.appendChild(n0); n0.setAttribute('y', f2(46 * 0.35));
+    return { g: grp, w, h };
+  }
+  const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  // dé plat centré sur (0,0), côté s ; renvoie {g, pips} (les points se règlent avec setFace)
+  function mkDie(parent, s, face) {
+    const grp = g(parent), k = s / 3.6, o = { g: grp, pips: [], s };
+    rect(grp, -s / 2 + s * 0.08, -s / 2 + s * 0.08, s, s, s * 0.16, C.ink);
+    rect(grp, -s / 2, -s / 2, s, s, s * 0.16, C.white, C.ink, Math.max(3, s * 0.06));
+    for (let i = 0; i < 9; i++) { const cx = ((i % 3) - 1) * s * 0.27, cy = (Math.floor(i / 3) - 1) * s * 0.27; o.pips.push(circle(grp, f2(cx), f2(cy), f2(Math.max(2.6, k * 0.32 * 1.6)), C.ink)); }
+    o.set = (f) => { const a = PIPS[f] || PIPS[1]; for (let i = 0; i < 9; i++) vis(o.pips[i], a.indexOf(i) >= 0); };
+    o.set(face);
+    return o;
+  }
+  const mkChip = (parent, r, fill) => {
+    const grp = g(parent);
+    circle(grp, 4, 5, r, C.ink);
+    circle(grp, 0, 0, r, fill, C.ink, 5);
+    circle(grp, 0, 0, r * 0.6, 'none', C.ink, 3).setAttribute('stroke-dasharray', '8 6');
+    return grp;
+  };
+
+  // les 20 cases : [id, libellé | null, x, y, w, h, taille, dés]
+  const CELLS = (() => {
+    const a = [];
+    const add = (id, lab, x, y, w, h, size, dice) => a.push({ id, lab, x, y, w, h, size, dice, cx: x + w / 2, cy: y + h / 2 });
+    add('gros6', 'GROS 6', 140, 130, 130, 120, 32); add('gros8', 'GROS 8', 278, 130, 130, 120, 32);
+    ['4', '5', '6', '8', '9', '10'].forEach((n, i) => add('p' + n, n, 424 + i * 134, 130, 128, 120, 64));
+    add('nvp', 'NE VIENS PAS', 1242, 130, 538, 120, 46);
+    add('niq7', "N'IMPORTE QUEL 7", 1350, 270, 430, 80, 38);
+    add('niqc', "N'IMPORTE QUEL CRAPS", 1350, 358, 430, 80, 34);
+    add('d2', '2', 1350, 446, 138, 74, 40, [1, 1]); add('d22', null, 1496, 446, 138, 74, 0, [2, 2]); add('d33', null, 1642, 446, 138, 74, 0, [3, 3]);
+    add('d44', null, 1350, 528, 211, 82, 0, [4, 4]); add('d55', null, 1569, 528, 211, 82, 0, [5, 5]);
+    add('champ', 'CHAMP', 140, 380, 1190, 80, 46);
+    add('viens', 'VIENS', 140, 470, 1190, 140, 70);
+    add('npp', 'NE PASSE PAS', 140, 630, 1640, 60, 40);
+    add('pass', 'LIGNE DE PASSE', 140, 700, 1640, 80, 46);
+    return a;
+  })();
+  const ORDER = CELLS.map((c, i) => i).sort((p, q) => (CELLS[p].cy * 0.6 + CELLS[p].cx * 0.4) - (CELLS[q].cy * 0.6 + CELLS[q].cx * 0.4));
+  const REST = [[200, 322, -8], [322, 324, 9]];
+
+  ZV.define('craps-layout', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const st = { dur: isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10 };
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t);
+      const c1 = (n) => { const b = cl(n)[0]; return b ? b.t : null; };
+      const c = st.c = {};
+      for (const n of ['table', 'dice', 'noise', 'convert', 'twenty', 'pass', 'seven', 'ratio', 'same', 'nineteen']) c[n] = c1(n);
+      const allT = beats.filter((b) => b && b.do === 'cue' && isNum(b.t)).map((b) => b.t);
+      st.auto = allT.length === 0;
+      const others = beats.filter((b) => b && b.do === 'cue' && isNum(b.t) && b.name !== 'table').map((b) => b.t);
+      st.tT = c.table != null ? c.table : Math.max(0, Math.min(0.1, (others.length ? Math.min(...others) : 9) - 0.5));
+      if (c.table != null && others.length && Math.min(...others) < c.table) st.tT = Math.max(0, Math.min(...others) - 0.5);
+      const endOf = (t0, names) => { let m = Infinity; for (const b of beats) if (b && b.do === 'cue' && isNum(b.t) && names.indexOf(b.name) >= 0 && b.t > t0 + 0.05 && b.t < m) m = b.t; return m; };
+      const LATER = ['twenty', 'pass', 'seven', 'ratio', 'same', 'nineteen'];
+      const faces = Array.isArray(P.faces) && P.faces.length >= 2 ? [clamp(Math.round(+P.faces[0]) || 3, 1, 6), clamp(Math.round(+P.faces[1]) || 4, 1, 6)] : [3, 4];
+      const calls = Array.isArray(P.calls) && P.calls.length >= 2 ? [S(P.calls[0], '4 POUR 1'), S(P.calls[1], '5 CONTRE 1')] : ['4 POUR 1', '5 CONTRE 1'];
+      const passEdge = S(P.pass_edge, '1,41 %'), sevenEdge = S(P.seven_edge, '16,67 %'), ratio = S(P.ratio, '≈ × 12'), per1000 = S(P.per_1000, 'SUR 1 000 € : ≈ 14 € / ≈ 167 €');
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      st.frame = path(root, 'M80 790L80 110L1840 110L1840 790Z', 'none', C.paper, 6, { pathLength: 1, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' });
+
+      /* ---- cases ---- */
+      const G = g(root);
+      st.cells = CELLS.map((cd) => {
+        const cg = g(G);
+        rect(cg, -cd.w / 2, -cd.h / 2, cd.w, cd.h, 8, C.pocket, C.paper, 4);
+        if (cd.lab) {
+          const n = text(cg, cd.lab, cd.dice ? -42 : 0, cd.size * 0.35, cd.size, C.paper, { anchor: 'middle' });
+          const m = meas(n, cd.lab.length * cd.size * 0.58);
+          if (!cd.dice && m > cd.w - 28) { n.setAttribute('textLength', f2(cd.w - 28)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+        }
+        if (cd.dice) {
+          const ds = cd.id === 'd2' ? 28 : cd.w > 200 ? 38 : 32, dx = cd.id === 'd2' ? [2, 36] : cd.w > 200 ? [-26, 26] : [-19, 19];
+          dx.forEach((x, i) => { const d = mkDie(cg, ds, cd.dice[i]); d.g.setAttribute('transform', `translate(${x} 0)`); });
+        }
+        return cg;
+      });
+      st.rings = g(root);
+      st.twenty = CELLS.map((cd) => rect(st.rings, cd.x - 3, cd.y - 3, cd.w + 6, cd.h + 6, 10, 'none', C.lime, 4, { visibility: 'hidden' }));
+      st.rPass = rect(root, 134, 694, 1652, 92, 12, 'none', C.lime, 8, { visibility: 'hidden', pathLength: 1 });
+      st.rSeven = rect(root, 1342, 262, 446, 96, 12, 'none', C.red, 8, { visibility: 'hidden', pathLength: 1 });
+
+      /* ---- « À VENDRE » ---- */
+      st.tags = [];
+      const rt = rng(5150);
+      CELLS.forEach((cd, i) => {
+        if (cd.id === 'pass') { st.tags.push(null); return; }
+        const tg = g(root);
+        rect(tg, -52 + 4, -13 + 4, 104, 26, 4, C.ink);
+        rect(tg, -52, -13, 104, 26, 4, C.red, C.ink, 3);
+        text(tg, 'À VENDRE', 0, 6, 16, C.ink, { anchor: 'middle', mono: true, weight: 800 });
+        tg.setAttribute('visibility', 'hidden');
+        st.tags.push({ g: tg, x: cd.x + cd.w - 62, y: cd.y - 2, rot: -9 + rt() * 14 });
+      });
+
+      /* ---- dés ---- */
+      st.faces = faces;
+      st.dice = [mkDie(root, 80, faces[0]), mkDie(root, 80, faces[1])];
+      st.dice.forEach((d) => d.g.setAttribute('visibility', 'hidden'));
+
+      /* ---- éclats ---- */
+      st.shG = g(root);
+      const rs = rng(808);
+      const spots = [[44, 190], [40, 340], [46, 490], [42, 640], [1876, 200], [1880, 350], [1874, 500], [1878, 650], [420, 60], [780, 56], [1140, 62], [1500, 58]];
+      st.sh = spots.map((p, k) => {
+        const n = path(st.shG, 'M0 -22L11 -7L-6 2L9 13L-3 24', 'none', C.paper, 7, { visibility: 'hidden' });
+        const on = []; for (let j = 0; j < 64; j++) on.push(rs() > 0.5);
+        return { n, x: p[0], y: p[1], rot: (rs() - 0.5) * 50, on };
+      });
+
+      /* ---- voile + « convert » ---- */
+      st.veil = rect(root, 80, 110, 1760, 680, 0, C.ink, null, 0, { opacity: 0, visibility: 'hidden' });
+      st.cv = g(root); st.cv.setAttribute('visibility', 'hidden');
+      st.pnl = [[370, 452, 490, 172], [980, 452, 640, 172]].map((q) => { const o = g(st.cv); rect(o, q[0] + 8, q[1] + 8, q[2], q[3], 14, C.ink); rect(o, q[0], q[1], q[2], q[3], 14, C.pocket, C.paper, 4); return o; });
+      const chA = [-126, -42, 42, 126].map((x) => { const q = mkChip(st.cv, 38, C.paper); q.setAttribute('transform', `translate(${615 + x} 520)`); return { g: q, x: 615 + x }; });
+      st.ringA = circle(st.cv, 615 - 126, 520, 50, 'none', C.lime, 7);
+      const chB = [-225, -141, -57, 27, 111].map((x) => { const q = mkChip(st.cv, 38, C.paper); q.setAttribute('transform', `translate(${1250 + x} 520)`); return { g: q, x: 1250 + x }; });
+      const limeB = mkChip(st.cv, 38, C.lime); limeB.setAttribute('transform', 'translate(1475 520)');
+      st.chips = chA.concat(chB); st.chips.push({ g: limeB, x: 1475 });
+      st.plus = text(st.cv, '+', 1418, 542, 64, C.paper, { anchor: 'middle' });
+      st.cvL1 = text(st.cv, 'TA MISE COMPRISE', 615, 606, 28, C.paper, { mono: true, anchor: 'middle' });
+      st.cvL2 = text(st.cv, 'TA MISE EN PLUS', 1475, 606, 28, C.lime, { mono: true, anchor: 'middle' });
+      st.band = mkPlate(st.cv, [{ s: 'DEUX FAÇONS DE DIRE UN PAIEMENT', size: 32 }], { fill: C.lime, padX: 26, padY: 8 });
+      
+      st.bub = [mkBubble(root, calls[0]), mkBubble(root, calls[1])];
+      st.bub.forEach((b) => b.g.setAttribute('visibility', 'hidden'));
+
+      /* ---- étiquettes ---- */
+      st.pEdge = mkPlate(root, [{ s: passEdge, size: 52, lh: 1 }], { fill: C.lime, padX: 24, padY: 8 });
+      st.sEdge = mkPlate(root, [{ s: sevenEdge, size: 96, fill: C.red, lh: 0.95 }], { fill: C.pocket, stroke: C.red, shadow: C.ink, padX: 26, padY: 8 });
+      st.sEdgeX = 1330 - st.sEdge.w / 2;
+      st.ratio = mkPlate(root, [{ s: ratio, size: 80, lh: 0.95 }], { fill: C.lime, padX: 30, padY: 10 });
+      st.per = mkPlate(root, [{ s: per1000, size: 28, mono: true, fill: C.ink }], { fill: C.paper, padX: 20, padY: 6, sw: 5, sh: 6, r: 8 });
+      st.same1 = mkPlate(root, [{ s: 'MÊMES DÉS · MÊME CROUPIER · MÊME COULEUR', size: 26, mono: true, fill: C.ink }], { fill: C.paper, padX: 20, padY: 6, sw: 5, sh: 6, r: 8 });
+      st.same2 = mkPlate(root, [{ s: 'RIEN NE LE SIGNALE', size: 52 }], { fill: C.lime, padX: 28, padY: 10 });
+      [st.pEdge, st.sEdge, st.ratio, st.per, st.same1, st.same2].forEach((p) => p.g.setAttribute('visibility', 'hidden'));
+      st.cnt = text(root, '', 1840, 94, 38, C.lime, { mono: true, anchor: 'end' });
+      st.cnt.setAttribute('visibility', 'hidden');
+
+      /* ---- fins de scène ---- */
+      const bStart = [c.noise, c.convert].filter((x) => x != null);
+      const bS = bStart.length ? Math.min(...bStart) : null;
+      c.shE = c.noise == null ? 0 : Math.min(c.noise + 3.2, endOf(c.noise, ['convert'].concat(LATER)));
+      c.bubS = bS; c.bubE = bS == null ? 0 : endOf(bS - 0.01, LATER);
+      c.cvE = c.convert == null ? 0 : endOf(c.convert, LATER);
+      c.twE = c.twenty == null ? 0 : endOf(c.twenty, ['pass', 'seven', 'ratio', 'same', 'nineteen']);
+      const lastE = (t0) => (t0 == null ? 0 : endOf(t0, ['same', 'nineteen']));
+      c.passE = lastE(c.pass); c.sevE = lastE(c.seven); c.ratE = lastE(c.ratio);
+      c.sameE = c.same == null ? 0 : endOf(c.same, ['nineteen']);
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const c = st.c;
+        const fadeOut = (te) => (te > 0 && t > te ? 1 - prog(t, te, te + 0.25) : 1);
+        const live = (t0, te) => t0 != null && t >= t0 && (te === Infinity || t < te + 0.25);
+
+        /* tapis */
+        const fp = prog(t, st.tT, st.tT + 0.47);
+        vis(st.frame, fp > 0); setA(st.frame, 'stroke-dasharray', `${f2(fp)} 2`);
+        ORDER.forEach((ci, k) => {
+          const cd = CELLS[ci], t0 = st.tT + 0.3 + k * 0.03, s = pop(t, t0, 0.3);
+          put(st.cells[ci], cd.cx, cd.cy, 0, s, s, t >= t0 ? 1 : 0);
+        });
+
+        /* dés */
+        st.dice.forEach((d, i) => {
+          let on = false;
+          if (c.dice != null && t >= c.dice) {
+            on = true;
+            const q = t - c.dice - i * 0.12, tA = 0.9, tB = 0.45, R0 = REST[i];
+            const x0 = 2000 + i * 140, wall = 120 + i * 6;
+            if (q < 0) { on = false; }
+            else if (q < tA) {
+              const p = q / tA;
+              const x = x0 + (wall - x0) * E.out2(p);
+              const y = 322 - 110 * Math.abs(Math.sin(p * Math.PI * 3)) * (1 - p) - 12 * i;
+              d.g.setAttribute('transform', `translate(${f2(x)} ${f2(y)}) rotate(${f2(R0[2] + 400 * (1 - p) * (i ? -1 : 1))})`);
+              d.set(((Math.floor(q * 5) + i * 3) % 6) + 1);
+            } else if (q < tA + tB) {
+              const p = (q - tA) / tB;
+              d.g.setAttribute('transform', `translate(${f2(wall + (R0[0] - wall) * E.out2(p))} ${f2(R0[1] - 46 * Math.sin(p * Math.PI))}) rotate(${f2(R0[2] + 30 * (1 - p) * (i ? 1 : -1))})`);
+              d.set(((Math.floor(q * 5) + i * 3) % 6) + 1);
+            } else {
+              d.g.setAttribute('transform', `translate(${R0[0]} ${R0[1]}) rotate(${R0[2]})`);
+              d.set(st.faces[i]);
+            }
+          } else if (st.auto && t >= 0.8) { on = true; const R0 = REST[i]; d.g.setAttribute('transform', `translate(${R0[0]} ${R0[1]}) rotate(${R0[2]})`); d.set(st.faces[i]); }
+          vis(d.g, on);
+        });
+
+        /* éclats (≤ 4 changements/s par éclat) */
+        const shOn = c.noise != null && t >= c.noise && t < c.shE + 0.25;
+        const slot = shOn ? Math.floor((t - c.noise) / 0.3) : 0;
+        st.sh.forEach((q, k) => {
+          const on = shOn && q.on[(slot + k * 5) % 64] && t < c.shE;
+          vis(q.n, on);
+          if (on) setA(q.n, 'transform', `translate(${q.x} ${q.y}) rotate(${f2(q.rot + ((slot + k) % 3) * 12)})`);
+        });
+
+        /* bulles (noise → convert) */
+        st.bub.forEach((b, i) => {
+          const on = live(c.bubS, c.bubE);
+          vis(b.g, on); if (!on) return;
+          const t0 = c.bubS + i * 0.18;
+          const mv = c.convert != null ? E.io3(prog(t, c.convert, c.convert + 0.5)) : 0;
+          const x0 = i ? 990 : 620, y0 = 312, x1 = i ? 1190 : 615, y1 = 318;
+          const s = (c.noise != null && c.convert != null && c.noise < c.convert ? pop(t, t0, 0.3) : (c.noise != null ? pop(t, t0, 0.3) : pop(t, c.convert, 0.3))) * (1 + 0.15 * mv);
+          put(b.g, x0 + (x1 - x0) * mv, y0 + (y1 - y0) * mv, (i ? 4 : -4) * (1 - mv), s, s, fadeOut(c.bubE));
+        });
+
+        /* voile + chips + bandeau */
+        const cOn = live(c.convert, c.cvE);
+        const ca = cOn ? fadeOut(c.cvE) : 0;
+        setA(st.veil, 'opacity', f2(0.62 * ca * (c.convert != null ? prog(t, c.convert, c.convert + 0.3) : 0))); vis(st.veil, cOn);
+        vis(st.cv, cOn); setA(st.cv, 'opacity', f2(ca));
+        if (cOn) {
+          st.chips.forEach((q, i) => { const t0 = c.convert + 0.6 + i * 0.07, s = pop(t, t0, 0.25); put(q.g, q.x, 520, 0, s, s, t >= t0 ? 1 : 0); });
+          const tr = c.convert + 1.2;
+          setA(st.ringA, 'opacity', f2(prog(t, tr, tr + 0.2)));
+          const tl = c.convert + 1.4;
+          st.pnl.forEach((o, i) => { setA(o, 'opacity', f2(prog(t, c.convert + 0.45 + i * 0.1, c.convert + 0.7 + i * 0.1))); });
+          for (const [n, k] of [[st.cvL1, 0], [st.cvL2, 0.25], [st.plus, 0.1]]) setA(n, 'opacity', f2(prog(t, tl + k, tl + k + 0.25)));
+          const tb = c.convert + 2.0, sb = pop(t, tb, 0.3);
+          put(st.band.g, 960, 78, 0, sb, sb, t >= tb ? 1 : 0);
+        }
+
+        /* « twenty » */
+        const twOn = live(c.twenty, c.twE);
+        if (twOn) {
+          const n = Math.min(20, Math.floor((t - c.twenty) / 0.13) + 1);
+          for (let i = 0; i < 20; i++) vis(st.twenty[i], i < n);
+          setA(st.rings, 'opacity', f2(fadeOut(c.twE)));
+          setA(st.cnt, 'opacity', f2(fadeOut(c.twE)));
+          const s = n + (n < 2 ? ' MISE' : ' MISES');
+          if (st.cnt.__s !== s) { st.cnt.__s = s; st.cnt.textContent = s; }
+          setA(st.cnt, 'fill', C.lime);
+        } else for (let i = 0; i < 20; i++) vis(st.twenty[i], false);
+
+        /* contours pass / seven */
+        const pOn = live(c.pass, c.passE), sOn = live(c.seven, c.sevE);
+        vis(st.rPass, pOn); vis(st.pEdge.g, pOn);
+        if (pOn) { setA(st.rPass, 'stroke-dasharray', `${f2(E.out3(prog(t, c.pass, c.pass + 0.5)))} 2`); setA(st.rPass, 'opacity', f2(fadeOut(c.passE))); const s = pop(t, c.pass + 0.3, 0.3); put(st.pEdge.g, 1620, 740, -2, s, s, fadeOut(c.passE)); }
+        vis(st.rSeven, sOn); vis(st.sEdge.g, sOn);
+        if (sOn) { setA(st.rSeven, 'stroke-dasharray', `${f2(E.out3(prog(t, c.seven, c.seven + 0.5)))} 2`); setA(st.rSeven, 'opacity', f2(fadeOut(c.sevE))); const s = pop(t, c.seven + 0.3, 0.3); put(st.sEdge.g, st.sEdgeX, 316, 2, s, s, fadeOut(c.sevE)); }
+
+        /* ratio */
+        const rOn = live(c.ratio, c.ratE);
+        vis(st.ratio.g, rOn); vis(st.per.g, rOn && t >= c.ratio + 0.9);
+        if (rOn) {
+          const s = pop(t, c.ratio, 0.3); put(st.ratio.g, 1150, 540, -3, s, s, fadeOut(c.ratE));
+          const tp = c.ratio + 0.9, s2 = pop(t, tp, 0.3); put(st.per.g, 960, 78, 0, s2, s2, fadeOut(c.ratE));
+        }
+
+        /* same */
+        const sm = live(c.same, c.sameE);
+        vis(st.same1.g, sm); vis(st.same2.g, sm && t >= c.same + 0.9);
+        if (sm) {
+          const s = pop(t, c.same, 0.3); put(st.same1.g, 960, 78, 0, s, s, fadeOut(c.sameE));
+          const t2 = c.same + 0.9, s2 = pop(t, t2, 0.3); put(st.same2.g, 800, 318, -3, s2, s2, fadeOut(c.sameE));
+        }
+
+        /* nineteen */
+        const nOn = c.nineteen != null && t >= c.nineteen;
+        if (nOn) {
+          const k = clamp(Math.floor((t - c.nineteen) / (1.5 / 19)) + 1, 0, 19);
+          let j = 0;
+          st.tags.forEach((q) => { if (!q) return; j++; const t0 = c.nineteen + (j - 1) * (1.5 / 19); vis(q.g, j <= k); if (j <= k) { const s = pop(t, t0, 0.2); put(q.g, q.x, q.y, q.rot, s, s, 1); } });
+          vis(st.cnt, true); setA(st.cnt, 'opacity', 1);
+          const s = String(k); if (st.cnt.__s !== s) { st.cnt.__s = s; st.cnt.textContent = s; }
+          setA(st.cnt, 'fill', C.red);
+        } else st.tags.forEach((q) => { if (q) vis(q.g, false); });
+        if (!nOn) vis(st.cnt, twOn);
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/criteria-sheet.js ==== */
 // Composant `criteria-sheet` (épisode 4) : la fiche officielle des critères. Voir EP4-COMPONENTS.md.
 // Fond ink, feuille paper inclinée, 9 lignes de critère illisibles (barres) dont UNE écrite en clair et surlignée.
@@ -2871,6 +3803,387 @@
           const k = E.out3(sp);
           put(st.sign, st.signX, 752, 2, 0.85 + 0.15 * k, 0.85 + 0.15 * k, at(4) && T[4] + 0.2 <= t ? clamp(sp * 4) : 0);
         }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/disguise-loop.js ==== */
+// Composant `disguise-loop` (épisode 5) : « On le reconnaît. On le sort. » Voir EP5-COMPONENTS.md.
+// Fond paper. Une entrée de casino générique, un œil plat, une silhouette SANS visage (déguisements = formes plates), deux mains qui poussent dehors.
+// Cues : enter (répétable), spot (répétable), out (répétable), banned, night, recall, name. Fonction pure du temps : l'état de la silhouette est reconstruit
+// depuis la liste des cues. Aplats seulement : aucun dégradé, flou, lueur ni filter. Jamais de coup montré.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const SH = '#2A2A2A';
+  const bwEst = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.28 : /[0-9]/.test(ch) ? 0.5 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≈]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.34 : 0.56); return a; };
+  let PROBE = null; const BWC = {};
+  const bw = (s, size) => {
+    s = String(s); const k = size + '|' + s;
+    if (BWC[k] !== undefined) return BWC[k];
+    if (PROBE) { try { PROBE.textContent = s; PROBE.setAttribute('font-size', size); const w = PROBE.getComputedTextLength(); if (w > 0) { BWC[k] = w; return w; } } catch (e) { /* hors DOM */ } }
+    return bwEst(s, size);
+  };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const putc = (n, x, y, r, sx, sy, o) => {
+    if (r === undefined) r = 0; if (sx === undefined) sx = 1; if (sy === undefined) sy = sx; if (o === undefined) o = 1;
+    const hid = o <= 0.001 || !sx || !sy;
+    setA(n, 'display', hid ? 'none' : 'inline');
+    if (hid) return;
+    setA(n, 'transform', `translate(${f2(x)} ${f2(y)}) rotate(${f2(r)}) scale(${f2(sx)} ${f2(sy)})`);
+    setA(n, 'opacity', f2(o));
+  };
+  const popS = (t, t0, d) => (t0 == null || t < t0 ? 0 : E.back(prog(t, t0, t0 + (d || 0.3))));
+  const mlab = (parent, s, x, y, size, fill, anchor) => text(parent, s, x, y, size, fill, { mono: true, anchor: anchor || 'start', len: f2(mw(s, size)) });
+  function mkTag(parent, lines, size, fill, tfill, o) {
+    o = o || {};
+    const ls = Array.isArray(lines) ? lines : [lines];
+    const lh = size * 1.12, px = o.padX || 26, py = o.padY || 14;
+    let tw = 0; ls.forEach((s) => { tw = Math.max(tw, bw(s, size)); });
+    const w = tw + px * 2, h = ls.length * lh + py * 2 - (lh - size) * 0.2;
+    const grp = g(parent);
+    const sh = o.sh || 9, r = o.r === undefined ? 14 : o.r;
+    rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, r, o.shc || (fill === C.lime ? C.ink : fill === C.paper ? C.lime : C.ink));
+    rect(grp, -w / 2, -h / 2, w, h, r, fill, C.ink, o.sw || 6);
+    ls.forEach((s, i) => text(grp, s, 0, -h / 2 + py + size * 0.82 + i * lh, size, tfill, { anchor: 'middle', mono: o.mono, len: f2(o.mono ? mw(s, size) : bw(s, size)) }));
+    return { g: grp, w, h };
+  }
+
+  const SX = 420;                       // x de repos de la silhouette
+  const GROUND = 794;
+  const DC = [960, 460];                // centre de la porte
+  const S1 = 204 / 680;                 // échelle d'une porte miniature
+  const CELL = (c, r) => [560 + c * 300, 212 + r * 232];
+  const MAIN = [1, 1];
+
+  function mkDoor(parent, band) {
+    const d = g(parent);
+    rect(d, 620, 230, 680, 570, 0, C.ink);
+    rect(d, 632, 236, 656, 558, 0, C.pocket);
+    rect(d, 632, 744, 656, 50, 0, C.ink);
+    rect(d, 632, 236, 656, 8, 0, C.lime);
+    const bats = [0, 1].map((i) => {
+      const b = g(d);
+      rect(b, 0, 0, 328, 558, 0, C.pocket, C.paper, 6);
+      rect(b, 28, 40, 272, 220, 4, 'none', C.paper, 3);
+      rect(b, 28, 300, 272, 220, 4, 'none', C.paper, 3);
+      circle(b, 296, 280, 13, C.lime, C.ink, 4);
+      b.setAttribute('transform', i ? 'translate(1288 236) scale(-1 1)' : 'translate(632 236) scale(1 1)');
+      return b;
+    });
+    rect(d, 620, 120, 680, 116, 0, C.paper, C.ink, 8);
+    circle(d, 668, 178, 14, C.lime, C.ink, 5); circle(d, 1252, 178, 14, C.lime, C.ink, 5);
+    text(d, 'CASINO', 960, 204, 80, C.ink, { anchor: 'middle', len: f2(bw('CASINO', 80)) });
+    let bg = null;
+    if (band) {
+      bg = g(d);
+      const bnd = g(bg, { transform: 'translate(960 470) rotate(-14)' });
+      rect(bnd, -350 + 10, -64 + 10, 700, 128, 8, C.ink);
+      rect(bnd, -350, -64, 700, 128, 8, C.red, C.ink, 8);
+      text(bnd, 'INTERDIT', 0, 34, 100, C.ink, { anchor: 'middle', len: f2(bw('INTERDIT', 100)) });
+    }
+    return { g: d, bats, band: bg };
+  }
+  const batT = (b, i, o) => {
+    const sx = lerp(1, 0.16, o);
+    setA(b, 'transform', i ? `translate(1288 236) scale(${f2(-sx)} 1)` : `translate(632 236) scale(${f2(sx)} 1)`);
+  };
+
+  /* ---- déguisements (formes plates) ---- */
+  const DRAW = {
+    costume(p) {
+      path(p, 'M-16 -442 L0 -420 L-16 -404 Z', C.paper); path(p, 'M16 -442 L0 -420 L16 -404 Z', C.paper);
+      path(p, 'M0 -426 L13 -408 L9 -330 L0 -298 L-9 -330 L-13 -408 Z', C.lime, C.ink, 3);
+      path(p, 'M104 -238 V-262 H150 V-238', 'none', C.ink, 9);
+      rect(p, 66, -240, 124, 86, 8, C.red, C.ink, 5);
+      rect(p, 116, -208, 24, 16, 3, C.ink);
+    },
+    wig(p) {
+      [[-46, -494, 24], [-22, -520, 26], [14, -524, 26], [44, -496, 24], [-54, -464, 18], [54, -464, 18], [0, -508, 30]].forEach((c) => circle(p, c[0], c[1], c[2], C.lime, C.ink, 5));
+    },
+    beard(p) { path(p, 'M-36 -456 Q-44 -406 0 -398 Q44 -406 36 -456 Q0 -438 -36 -456 Z', C.paper, C.ink, 5); },
+    hat(p) {
+      rect(p, -72, -532, 144, 18, 8, C.red, C.ink, 5);
+      rect(p, -40, -588, 80, 62, 10, C.red, C.ink, 5);
+      rect(p, -40, -548, 80, 12, 0, C.ink);
+      circle(p, -18, -480, 14, 'none', C.paper, 6); circle(p, 18, -480, 14, 'none', C.paper, 6);
+      line(p, -4, -480, 4, -480, C.paper, 5); line(p, -32, -482, -46, -486, C.paper, 5); line(p, 32, -482, 46, -486, C.paper, 5);
+    }
+  };
+
+  ZV.define('disguise-loop', {
+    init(root, shot) {
+      const P = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const dur = isNum(shot && shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((a, b) => a - b);
+      const name = str(P.name, 'KEN USTON'), role = str(P.role, 'EX-VICE-PRÉSIDENT · BOURSE DE SAN FRANCISCO');
+      const fake = str(P.fake, 'FAUX NOM'), night = str(P.night, 'SELON LUI : DES VIGILES, LA MÂCHOIRE CASSÉE'), recall = str(P.recall, 'L\'HOMME DU DÉBUT');
+      const diss = (Array.isArray(P.disguises) && P.disguises.length ? P.disguises : ['costume', 'wig', 'beard', 'hat']).map(String).filter((d) => DRAW[d]);
+      if (!diss.length) diss.push('costume');
+      const st = { dur, name, role, fake, diss };
+      PROBE = text(root, '', 0, -500, 100, 'none'); PROBE.setAttribute('visibility', 'hidden');
+      st.enters = cl('enter'); st.spots = cl('spot'); st.outs = cl('out');
+      st.tBanned = cl('banned'); st.tNight = cl('night'); st.tRecall = cl('recall')[0]; st.tName = cl('name')[0];
+      const NAMES = ['enter', 'spot', 'out', 'banned', 'night', 'recall', 'name'];
+      st.noCue = !NAMES.some((n) => cl(n).length);
+      // événements ordonnés qui pilotent la silhouette
+      st.evs = [];
+      st.enters.forEach((t, i) => st.evs.push({ t, k: 'E', n: i }));
+      st.outs.forEach((t) => st.evs.push({ t, k: 'O' }));
+      st.tNight.forEach((t) => st.evs.push({ t, k: 'N' }));
+      st.evs.sort((a, b) => a.t - b.t);
+      // intervalles « banned » : jusqu'au prochain cue qui montre à nouveau la scène
+      st.ban = st.tBanned.map((t) => {
+        let e = null;
+        [st.enters, st.spots, st.outs, st.tNight, st.tRecall != null ? [st.tRecall] : [], st.tName != null ? [st.tName] : []].forEach((a) => a.forEach((x) => { if (x > t + 0.01 && (e == null || x < e)) e = x; }));
+        return { a: t, b: e };
+      });
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 40, -600, 80, 2300, 0, '#EAE6DA');
+
+      /* ---- monde (porte, sol, silhouette) ---- */
+      st.W = g(root);
+      st.ground = rect(st.W, 0, GROUND, 1920, 14, 0, C.ink);
+      st.door = mkDoor(st.W, true);
+      st.frame = rect(st.W, SX - 100, 262, 200, GROUND - 262 + 6, 6, 'none', C.red, 6);
+      st.sil = g(st.W);                       // origine = pieds, centré sur x
+      const S = st.sil;
+      rect(S, -38, -204, 30, 204, 8, C.ink); rect(S, 8, -204, 30, 204, 8, C.ink);
+      line(S, -66, -414, -86, -250, C.ink, 30); line(S, 66, -414, 86, -250, C.ink, 30);
+      path(S, 'M-62 -430 L62 -430 L52 -190 L-52 -190 Z', C.ink, C.ink, 14);
+      rect(S, -14, -452, 28, 28, 4, C.ink);
+      circle(S, 0, -478, 42, C.ink);
+      st.dis = {};
+      diss.forEach((d) => { if (!st.dis[d]) { const gg = g(S); DRAW[d](gg); st.dis[d] = gg; } });
+      st.badge = g(st.W);                     // le badge ne s'incline pas avec la silhouette
+      st.bsh = rect(st.badge, -90, -90, 200, 56, 8, C.ink);
+      st.bg = rect(st.badge, -100, -100, 200, 56, 8, C.paper, C.ink, 6);
+      st.bt = [0, 1, 2].map(() => text(st.badge, '', 0, 0, 30, C.ink, { mono: true, anchor: 'middle' }));
+      st.bar = rect(st.badge, -120, 0, 240, 22, 2, C.ink);
+      st.spotTag = mkTag(st.W, 'RECONNU', 44, C.red, C.ink, { sh: 8 });
+      {
+        const ls = bw(recall, 44) > 330 ? (() => { const w = recall.split(' '); let best = null; for (let k = 1; k < w.length; k++) { const a = w.slice(0, k).join(' '), b = w.slice(k).join(' '); const m = Math.max(bw(a, 44), bw(b, 44)); if (!best || m < best.m) best = { a, b, m }; } return best ? [best.a, best.b] : [recall]; })() : [recall];
+        st.rec = g(st.W);
+        st.recTag = mkTag(st.rec, ls, 44, C.lime, C.ink, { sh: 9 });
+        path(st.rec, 'M0 -16 H24 V-32 L52 0 L24 32 V16 H0 Z', C.lime, C.ink, 5);
+        st.recW = st.recTag.w;
+        st.recArrow = st.rec.lastChild;
+      }
+
+      /* ---- grille « banned » ---- */
+      st.minis = [];
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) {
+        if (c === MAIN[0] && r === MAIN[1]) continue;
+        const m = g(root);
+        mkDoor(m, true);
+        st.minis.push({ g: m, c, r, i: st.minis.length });
+      }
+      st.partout = mkTag(root, 'PARTOUT', 64, C.lime, C.ink, { sh: 10 });
+
+      /* ---- hud : œil, compteur, carte de nuit, mains ---- */
+      st.eye = g(root);
+      path(st.eye, 'M -112 0 C -60 -78 60 -78 112 0 C 60 78 -60 78 -112 0 Z', C.white, C.ink, 8);
+      st.iris = g(st.eye);
+      circle(st.iris, 0, 0, 46, C.lime, C.ink, 5); circle(st.iris, 0, 0, 20, C.ink);
+      st.cnt = mkTag(root, 'SORTI : 0', 30, C.lime, C.ink, { sh: 7, padX: 16, padY: 9, sw: 5 });
+      st.cntT = st.cnt.g.querySelectorAll('text')[0];
+      st.nightG = g(root);
+      {
+        const maxc = 26, words = night.split(' '), ls = []; let cur = '';
+        words.forEach((w) => { if ((cur + ' ' + w).trim().length > maxc && cur) { ls.push(cur); cur = w; } else cur = (cur + ' ' + w).trim(); });
+        if (cur) ls.push(cur);
+        const w = Math.max.apply(null, ls.map((s) => mw(s, 26))) + 48, h = ls.length * 40 + 36;
+        st.nightLs = ls; st.nightW = w;
+        const x0 = 1860 - w, y0 = 340;
+        rect(st.nightG, x0 + 10, y0 + 10, w, h, 10, C.red);
+        rect(st.nightG, x0, y0, w, h, 10, C.ink, C.ink, 6);
+        st.nightT = ls.map((s, i) => { const n = text(st.nightG, '', x0 + 24, y0 + 50 + i * 40, 26, C.paper, { mono: true }); return n; });
+        st.nx0 = x0;
+      }
+      st.hands = [0, 1].map((i) => {
+        const h = g(root);
+        rect(h, -30, -34, 70, 68, 18, C.ink);
+        rect(h, -74, -30, 48, 16, 8, C.ink); rect(h, -78, -8, 52, 16, 8, C.ink); rect(h, -72, 14, 46, 16, 8, C.ink);
+        rect(h, -10, -50, 30, 24, 10, C.ink);
+        return h;
+      });
+      PROBE.parentNode.removeChild(PROBE); PROBE = null;
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+
+        /* ---- état de la silhouette ---- */
+        let cur = st.enters.length ? { m: 'absent' } : { m: 'idle', t0: -1, d: 0, pass: 0 };
+        let nEnter = 0;
+        for (const e of st.evs) {
+          if (e.t > t) break;
+          if (e.k === 'E') { nEnter++; cur = { m: 'in', t0: e.t, d: e.n, pass: e.n }; }
+          else if (e.k === 'O') { if (cur.m === 'in' || cur.m === 'idle') cur = { m: 'out', t0: e.t, d: cur.d, pass: cur.pass }; }
+          else cur = { m: 'night', t0: e.t, d: -1, pass: cur.pass || 0 };
+        }
+        let sx = SX, sVis = false, sRot = 0, sBob = 0, door = 0;
+        if (cur.m === 'in') {
+          const p = prog(t, cur.t0, cur.t0 + 0.9);
+          sx = lerp(-220, SX, E.out3(p)); sVis = true;
+          sBob = p < 1 ? Math.abs(Math.sin(p * 9)) * 6 : 0;
+          door = E.out3(prog(t, cur.t0 + 0.4, cur.t0 + 0.8));
+        } else if (cur.m === 'idle') { sVis = true; door = 0.6; }
+        else if (cur.m === 'out') {
+          const q = prog(t, cur.t0, cur.t0 + 0.467);
+          sx = lerp(SX, -280, E.in2(q)); sVis = q < 1;
+          door = 1 - E.out3(prog(t, cur.t0 + 0.5, cur.t0 + 0.9));
+        } else if (cur.m === 'night') {
+          sVis = true; sx = SX - 10; sRot = -7 * E.out3(prog(t, cur.t0 + 0.2, cur.t0 + 0.8));
+          door = 1 - E.out3(prog(t, cur.t0, cur.t0 + 0.4));
+        }
+        const night = cur.m === 'night';
+
+        /* ---- banned : dézoom vers la grille de 12 portes ---- */
+        let bp = 0;
+        for (const b of st.ban) {
+          if (t < b.a) continue;
+          const v = b.b != null && t >= b.b ? 1 - E.io3(prog(t, b.b, b.b + 0.35)) : E.io3(prog(t, b.a, b.a + 0.65));
+          bp = Math.max(bp, v);
+        }
+        const cel = CELL(MAIN[0], MAIN[1]);
+        const sc = lerp(1, S1, bp);
+        const cxw = lerp(DC[0], cel[0], bp), cyw = lerp(DC[1], cel[1], bp);
+        setA(st.W, 'transform', `translate(${f2(cxw - sc * DC[0])} ${f2(cyw - sc * DC[1])}) scale(${f2(sc)})`);
+        vis(st.ground, bp < 0.5);
+        vis(st.door.band, bp > 0.02);
+        if (bp > 0.02) setA(st.door.band, 'opacity', f2(clamp((bp - 0.3) / 0.4)));
+        // portes
+        const om = bp > 0.02 ? 0 : door;
+        batT(st.door.bats[0], 0, door * (1 - clamp(bp * 3))); batT(st.door.bats[1], 1, door * (1 - clamp(bp * 3)));
+        st.minis.forEach((m) => {
+          const t0 = (st.ban.length ? 0 : 0);
+          // pop échelonné pendant le dézoom
+          const p = clamp((bp - 0.15 - m.i * 0.05) / 0.35);
+          const s = S1 * E.back(p);
+          const c = CELL(m.c, m.r);
+          putc(m.g, c[0] - s * DC[0], c[1] - s * DC[1], 0, s, s, p > 0 ? 1 : 0);
+        });
+        const pp = clamp((bp - 0.5) / 0.5);
+        putc(st.partout.g, 225, 440, -6, E.back(pp), E.back(pp), pp > 0 ? 1 : 0);
+
+        /* ---- silhouette + déguisement ---- */
+        const sil = sVis && bp < 0.34 ? 1 : 0;
+        const fade = 1 - clamp(bp * 3);
+        putc(st.sil, sx, GROUND + 0, sRot, 1, 1, sil * fade);
+        if (sil) {
+          setA(st.sil, 'transform', `translate(${f2(sx)} ${f2(GROUND - sBob)}) rotate(${f2(sRot)})`);
+          const dn = cur.d >= 0 ? st.diss[Math.min(cur.d, st.diss.length - 1)] : null;
+          for (const k in st.dis) vis(st.dis[k], k === dn);
+        }
+
+        /* ---- badge ---- */
+        let l1, l2 = null, l3 = null, redact = false;
+        const nameOn = st.tName != null && t >= st.tName;
+        if (nameOn) {
+          l1 = st.name;
+          const i = st.role.indexOf(' · ');
+          if (i > 0) { l2 = st.role.slice(0, i); l3 = st.role.slice(i + 3); }
+          else { const w = st.role.split(' '); const h = Math.ceil(w.length / 2); l2 = w.slice(0, h).join(' '); l3 = w.slice(h).join(' '); }
+        } else if (cur.pass >= 1 && cur.m !== 'night') { l1 = st.fake; redact = true; }
+        else l1 = cur.m === 'night' ? '' : 'UN CLIENT';
+        const sz1 = nameOn ? 34 : 30, sz2 = 24;
+        const wTxt = Math.max(mw(l1 || '', sz1), l2 ? mw(l2, sz2) : 0, l3 ? mw(l3, sz2) : 0, redact ? 240 : 0);
+        const bw_ = wTxt + 50;
+        const nl = (l1 ? 1 : 0) + (l2 ? 1 : 0) + (l3 ? 1 : 0) + (redact ? 1 : 0);
+        const bh = !l1 ? 0 : (nameOn ? 46 + 80 : redact ? 56 + 38 : 56);
+        const by = -(GROUND - 186);          // bas du badge à y = 186 (repère local : y écran − GROUND)
+        const top = by - bh;
+        const bPop = nameOn ? popS(t, st.tName, 0.3) : 1;
+        vis(st.badge, !!l1 && sil > 0);
+        setA(st.badge, 'transform', `translate(${f2(sx)} ${f2(GROUND)})`);
+        if (l1) {
+          setA(st.bg, 'x', f2(-bw_ / 2)); setA(st.bg, 'y', f2(top)); setA(st.bg, 'width', f2(bw_)); setA(st.bg, 'height', f2(bh));
+          setA(st.bsh, 'x', f2(-bw_ / 2 + 8)); setA(st.bsh, 'y', f2(top + 8)); setA(st.bsh, 'width', f2(bw_)); setA(st.bsh, 'height', f2(bh));
+          const set = (n, s, y, size) => { if (s == null) { vis(n, false); return; } vis(n, true); if (n.__s !== s) { n.__s = s; n.textContent = s; setA(n, 'textLength', f2(mw(s, size))); } setA(n, 'font-size', size); setA(n, 'y', f2(y)); };
+          set(st.bt[0], l1, top + (nameOn ? 38 : 38), sz1);
+          set(st.bt[1], l2, top + 78, sz2);
+          set(st.bt[2], l3, top + 108, sz2);
+          vis(st.bar, redact);
+          if (redact) { setA(st.bar, 'x', f2(-120)); setA(st.bar, 'y', f2(top + 56)); setA(st.bar, 'width', 240); setA(st.bar, 'height', 22); }
+          setA(st.badge, 'opacity', f2(Math.min(1, bPop)));
+        }
+        void nl;
+
+        /* ---- spot : cadre rouge + RECONNU ; le cadre dure jusqu'au `out` suivant ---- */
+        let spotOn = false, spotT = null;
+        const enders = st.outs.map((x) => x + 0.05).concat(st.enters, st.tNight, st.tBanned);
+        for (const s of st.spots) if (s <= t) {
+          const ended = enders.some((x) => x > s + 0.01 && x <= t);
+          if (!ended) { spotOn = true; spotT = s; }
+        }
+        spotOn = spotOn && sil > 0 && cur.m !== 'out';
+        if (spotOn) {
+          const q = popS(t, spotT, 0.25);
+          setA(st.frame, 'x', f2(sx - 100)); vis(st.frame, true);
+          setA(st.frame, 'opacity', f2(Math.min(1, q)));
+          putc(st.spotTag.g, 160, 650, -6, q, q, 1);
+        } else { vis(st.frame, false); putc(st.spotTag.g, 160, 650, -6, 0, 0, 0); }
+
+        /* ---- recall ---- */
+        const tr = st.tRecall;
+        const rp = tr != null && t >= tr && sil > 0 ? popS(t, tr, 0.3) : 0;
+        putc(st.rec, 165, 470, -5, rp, rp, rp > 0 ? 1 : 0);
+        if (rp > 0) { setA(st.recArrow, 'transform', `translate(${f2(st.recW / 2 + 4)} 0)`); }
+
+        /* ---- œil : s'ouvre à 0,2 s, balaie ; se tourne vers la silhouette au `spot` ---- */
+        const open = E.out3(prog(t, 0.2, 0.7));
+        const eyeOn = bp < 0.05 ? 1 : 0;
+        const look = spotOn ? E.out3(prog(t, spotT, spotT + 0.25)) : 0;
+        const swx = Math.sin(t * 1.4) * 22, swy = Math.cos(t * 0.9) * 5;
+        const ix = lerp(swx, -34, look), iy = lerp(swy, 8, look);
+        putc(st.eye, 1640, 200, 0, 1.05, 1.05 * Math.max(0.04, open), eyeOn ? 1 : 0);
+        setA(st.iris, 'transform', `translate(${f2(ix)} ${f2(iy)})`);
+
+        /* ---- compteur « SORTI : n » ---- */
+        let nOut = 0, tLast = null;
+        for (const o of st.outs) if (o <= t) { nOut++; tLast = o; }
+        const cs = nOut > 0 ? 1 + 0.25 * (1 - E.out3(prog(t, tLast, tLast + 0.25))) : 0;
+        putc(st.cnt.g, 30 + st.cnt.w / 2, 78, 0, cs, cs, nOut > 0 ? 1 : 0);
+        const ctxt = 'SORTI : ' + nOut;
+        if (st.cntT.__s !== ctxt) { st.cntT.__s = ctxt; st.cntT.textContent = ctxt; }
+
+        /* ---- carte de nuit (typewriter, sous l'œil) ---- */
+        const tn = st.tNight.filter((x) => x <= t).pop();
+        const nOn = night && tn != null;
+        vis(st.nightG, nOn);
+        if (nOn) {
+          const total = st.nightLs.reduce((a, s) => a + s.length, 0);
+          let shown = Math.floor(total * prog(t, tn + 0.5, tn + 2.0));
+          st.nightLs.forEach((s, i) => { const part = s.slice(0, Math.max(0, Math.min(s.length, shown))); shown -= s.length; const n = st.nightT[i]; if (n.__s !== part) { n.__s = part; n.textContent = part; } });
+          setA(st.nightG, 'opacity', f2(prog(t, tn + 0.4, tn + 0.6)));
+        }
+
+        /* ---- mains qui poussent : arrivent par le bord du cadre, jamais de coup ---- */
+        let hOn = 0, hx = 2100;
+        const lastOut = st.outs.filter((x) => x - 0.3 <= t).pop();
+        if (lastOut != null && bp < 0.05 && cur.m === 'out' && cur.t0 === lastOut) {
+          const arrive = E.out3(prog(t, lastOut - 0.3, lastOut - 0.02));
+          const push = prog(t, lastOut, lastOut + 0.467);
+          const back = E.in2(prog(t, lastOut + 0.5, lastOut + 0.85));
+          hx = lerp(2100, SX + 176, arrive) + (sx - SX) * 1 + back * 1900;
+          hOn = 1;
+        } else {
+          // la main arrive juste avant le cue (la silhouette est encore en place)
+          const nextOut = st.outs.find((x) => x > t);
+          if (nextOut != null && bp < 0.05 && t >= nextOut - 0.3 && sil > 0) { hx = lerp(2100, SX + 176, E.out3(prog(t, nextOut - 0.3, nextOut - 0.02))); hOn = 1; }
+        }
+        st.hands.forEach((h, i) => putc(h, hx, i ? 560 : 440, i ? 4 : -4, 1, 1, hOn));
       } catch (e) { /* jamais d'exception */ }
     }
   });
@@ -5897,6 +7210,275 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/money-wheel.js ==== */
+// Composant `money-wheel` (épisode 5) : la grande roue de l'entrée, 54 cases, une aiguille, le tableau des mises. Voir EP5-COMPONENTS.md.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter. Vitesse de pointe ≤ 0,35 tour/s.
+// Cues : count, bet, spin (dur), land, simple, edge, worst, lights, entrance.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, text, put } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => n.setAttribute('visibility', on ? 'visible' : 'hidden');
+  const meas = (n, est) => { try { const L = n.getComputedTextLength(); if (L > 0) return L; } catch (e) { /* estimation */ } return est; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const S = (v) => (v == null || v === '' ? null : String(v));
+
+  const CX = 700, CY = 450, R = 340;
+  const SEQ = ['★', 1, 2, 1, 5, 1, 2, 10, 1, 2, 1, 5, 1, 20, 2, 1, 2, 5, 1, 1, 2, 10, 1, 1, 5, 2, 1, '◆', 2, 1, 1, 5, 2, 1, 10, 2, 1, 1, 5, 2, 1, 20, 1, 2, 1, 5, 2, 1, 10, 1, 2, 1, 2, 1];
+  const N = SEQ.length, STEP = 360 / N;
+  const STY = { 1: [C.paper, C.ink], 2: [C.lime, C.ink], 5: [C.red, C.paper], 10: [C.pocket, C.paper], 20: [C.ink, C.lime], '★': [C.red, C.white], '◆': [C.lime, C.ink] };
+  const CASES = ['1', '2', '5', '10', '20', '★', '◆'];
+  const MARGIN = { 1: 11, 2: 17, 5: 22, 10: 19, 20: 22, '★': 24, '◆': 24 };    // longueurs relatives des barres (pas des valeurs affichées)
+  const BX = 1180, BW = 220, BH = 72, BY0 = 140, BP = 88, BARX = 1430, BSC = 12.5;
+  const caseY = (k) => BY0 + k * BP;
+  const rad = (a) => a * Math.PI / 180;
+  const pt = (r, a) => [r * Math.sin(rad(a)), -r * Math.cos(rad(a))];
+  const wedge = (r0, r1, a0, a1) => {
+    const A = pt(r0, a0), B = pt(r1, a0), Cc = pt(r1, a1), D = pt(r0, a1), f = (p) => f2(p[0]) + ' ' + f2(p[1]);
+    return `M${f(A)}L${f(B)}A${r1} ${r1} 0 0 1 ${f(Cc)}L${f(D)}A${r0} ${r0} 0 0 0 ${f(A)}Z`;
+  };
+  const star = (cx, cy, ro, ri) => { let d = ''; for (let k = 0; k < 10; k++) { const r = k % 2 ? ri : ro, a = rad(k * 36); d += (k ? 'L' : 'M') + f2(cx + r * Math.sin(a)) + ' ' + f2(cy - r * Math.cos(a)); } return d + 'Z'; };
+  const diamond = (cx, cy, rx, ry) => `M${cx} ${cy - ry}L${cx + rx} ${cy}L${cx} ${cy + ry}L${cx - rx} ${cy}Z`;
+  const wrap = (x) => x - Math.round(x);
+
+  function mkPlate(parent, lines, o) {
+    o = o || {};
+    const grp = g(parent), r = o.r === undefined ? 14 : o.r, off = o.sh === undefined ? 8 : o.sh;
+    const sh = rect(grp, 0, 0, 1, 1, r, o.shadow || C.ink);
+    const pl = rect(grp, 0, 0, 1, 1, r, o.fill || C.paper, o.stroke || C.ink, o.sw || 6);
+    let w = 0, h = 0;
+    const ts = lines.map((L) => {
+      const n = text(grp, L.s, 0, 0, L.size, L.fill || o.textFill || C.ink, { anchor: 'middle', mono: L.mono });
+      w = Math.max(w, meas(n, L.mono ? mw(L.s, L.size) : String(L.s).length * L.size * 0.58)); h += L.size * 1.15;
+      return { n, L };
+    });
+    const px = o.padX === undefined ? 28 : o.padX, py = o.padY === undefined ? 14 : o.padY;
+    w += px * 2; h += py * 2;
+    let y = -h / 2 + py;
+    for (const k of ts) { const lh = k.L.size * 1.15; k.n.setAttribute('y', f2(y + lh / 2 + k.L.size * 0.33)); y += lh; }
+    for (const [n, d] of [[sh, off], [pl, 0]]) { n.setAttribute('x', f2(-w / 2 + d)); n.setAttribute('y', f2(-h / 2 + d)); n.setAttribute('width', f2(w)); n.setAttribute('height', f2(h)); }
+    return { g: grp, w, h };
+  }
+
+  ZV.define('money-wheel', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const st = { dur: isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10 };
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t);
+      const c1 = (n) => { const b = cl(n)[0]; return b ? b.t : null; };
+      const c = st.c = {}; for (const n of ['count', 'bet', 'spin', 'land', 'simple', 'edge', 'worst', 'lights', 'entrance']) c[n] = c1(n);
+      st.edgeLow = S(P.edge_low) || '11 %'; st.edgeHigh = S(P.edge_high) || '24 %'; const countLabel = S(P.count_label) || '54 CASES';
+      let L = Math.round(+P.land); if (!isFinite(L)) L = 6; L = ((L % N) + N) % N; st.L = L;
+      const betK = Math.max(0, CASES.indexOf(S(P.bet) || '★')); st.betK = betK;
+
+      /* ---- rotation : décélération puissance 2.2, pointe ≤ 0,35 tour/s ---- */
+      let sdur = 6; const sb = cl('spin')[0]; if (sb && isNum(+sb.dur) && +sb.dur > 0.5) sdur = +sb.dur;
+      const cw = ((N - L) % N) * STEP;
+      const cap = 0.34 * 360 * sdur / 2.2;
+      let best = null, small = null;
+      for (let k = 0; k < 5; k++) for (const v of [cw + 360 * k, cw - 360 * (k + 1)]) {
+        if (Math.abs(v) <= cap && (best === null || Math.abs(v) > Math.abs(best))) best = v;
+        if (small === null || Math.abs(v) < Math.abs(small)) small = v;
+      }
+      if (best === null || Math.abs(best) < 60) { best = small; sdur = Math.max(sdur, Math.abs(best) * 2.2 / (0.34 * 360)); }
+      st.phiF = best; st.sdur = sdur; st.dir = best < 0 ? -1 : 1;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+
+      /* ---- roue ---- */
+      const WG = g(root, { transform: `translate(${CX} ${CY})` });
+      const rot = st.rot = g(WG);
+      st.outl = [];
+      for (let i = 0; i < N; i++) {
+        const v = SEQ[i], sty = STY[v] || STY[1];
+        path(rot, wedge(76, R, (i - 0.5) * STEP, (i + 0.5) * STEP), sty[0], C.ink, 3);
+      }
+      circle(rot, 0, 0, 252, 'none', C.ink, 3);
+      for (let i = 0; i < N; i++) {
+        const v = SEQ[i], sty = STY[v] || STY[1], a = i * STEP;
+        if (v === '★' || v === '◆') {
+          const gg = g(rot, { transform: `rotate(${f2(a)})` });
+          if (v === '★') path(gg, star(0, -292, 19, 8), sty[1], C.ink, 2); else path(gg, diamond(0, -292, 12, 20), sty[1], C.ink, 2);
+        } else text(rot, String(v), 0, 0, 32, sty[1], { anchor: 'middle' }).setAttribute('transform', `rotate(${f2(a)}) translate(0 -292) rotate(-90) translate(0 ${f2(32 * 0.35)})`);
+      }
+      for (let i = 0; i < N; i++) { const p = pt(326, (i + 0.5) * STEP); circle(rot, f2(p[0]), f2(p[1]), 7, C.paper, C.ink, 2); }
+      st.landOut = path(rot, wedge(76, R, (L - 0.5) * STEP, (L + 0.5) * STEP), 'none', C.paper, 8, { visibility: 'hidden', 'stroke-linejoin': 'miter' });
+      st.cg = g(rot);
+      for (let i = 0; i < N; i++) st.outl.push(path(st.cg, wedge(78, R - 2, (i - 0.5) * STEP, (i + 0.5) * STEP), 'none', C.lime, 5, { visibility: 'hidden', 'stroke-linejoin': 'miter' }));
+      circle(WG, 0, 0, 345, 'none', C.paper, 10);
+      circle(WG, 0, 0, 70, C.paper, C.ink, 8);
+      circle(WG, 0, 0, 16, C.ink);
+
+      /* ---- ampoules ---- */
+      st.bulbs = g(root);
+      st.bl = [];
+      for (let j = 0; j < 27; j++) { const p = pt(368, (j + 0.5) * 360 / 27); st.bl.push(circle(st.bulbs, f2(CX + p[0]), f2(CY + p[1]), 9, C.paper, C.ink, 3)); }
+      st.bulbs.setAttribute('visibility', 'hidden');
+
+      /* ---- aiguille ---- */
+      st.needle = g(root, { transform: `translate(${CX} 90)` });
+      st.nd = g(st.needle);
+      path(st.nd, 'M-11 -4L11 -4L6 40L0 50L-6 40Z', C.red, C.ink, 4);
+      circle(st.needle, 0, 0, 9, C.paper, C.ink, 4);
+
+      /* ---- compteur « 54 CASES » ---- */
+      st.cnt = g(root); st.cnt.setAttribute('visibility', 'hidden');
+      const m = countLabel.match(/^\s*(\d+)\s*(.*)$/);
+      st.cntN = m ? +m[1] : N; st.cntHas = !!m;
+      st.cNum = text(st.cnt, String(st.cntN), 175, 478, 112, C.lime, { anchor: 'middle' });
+      st.cRest = text(st.cnt, m ? m[2] : countLabel, 175, 524, 34, C.paper, { mono: true, anchor: 'middle' });
+      rect(st.cnt, 95, 540, 160, 8, 0, C.lime);
+
+      /* ---- tableau des mises ---- */
+      rect(root, 1160 + 10, 92 + 10, 700, 690, 10, C.ink);
+      rect(root, 1160, 92, 700, 690, 10, C.pocket, C.paper, 4);
+      st.title = text(root, 'TABLEAU DES MISES', 1190, 128, 26, C.paper, { mono: true, anchor: 'start', spacing: 1 });
+      st.kick = text(root, 'SELON LA CASE, LA MAISON GARDE', 1190, 128, 26, C.lime, { mono: true, anchor: 'start', spacing: 1 });
+      st.kick.setAttribute('visibility', 'hidden');
+      st.cases = CASES.map((id, k) => {
+        const y = caseY(k), sty = STY[id], cy = y + BH / 2, o = {};
+        rect(root, BX + 10, y + 10, BW, BH, 8, C.ink);
+        rect(root, BX, y, BW, BH, 8, sty[0], C.ink, 6);
+        if (id === '10' || id === '20') rect(root, BX + 6, y + 6, BW - 12, BH - 12, 4, 'none', C.paper, 2);
+        if (id === '★') path(root, star(BX + 62, cy, 26, 11), sty[1], C.ink, 3);
+        else if (id === '◆') path(root, diamond(BX + 62, cy, 18, 28), sty[1], C.ink, 3);
+        else text(root, id, BX + 62, cy + 20, 58, sty[1], { anchor: 'middle' });
+        circle(root, BX + 165, cy, 28, 'none', sty[1], 3).setAttribute('stroke-dasharray', '7 6');
+        o.y = y; o.cy = cy; return o;
+      });
+      // barres de marge
+      st.bars = CASES.map((id, k) => {
+        const cy = caseY(k) + BH / 2, o = { id, len: MARGIN[id] * BSC };
+        o.r = rect(root, BARX, cy - 18, 1, 36, 4, C.red, C.paper, 3);
+        o.t = id === '1' ? st.edgeLow : id === '★' || id === '◆' ? st.edgeHigh : null;
+        o.tx = o.t ? text(root, o.t, 0, cy + 13, 38, C.paper, { mono: true, anchor: 'start' }) : null;
+        o.cy = cy; return o;
+      });
+      // étiquettes « simple »
+      st.simple = ['AUCUNE RÈGLE À APPRENDRE', 'AUCUNE DÉCISION', 'UN SEUL GESTE'].map((s, i) => {
+        const pl = mkPlate(root, [{ s, size: 24, mono: true }], { fill: C.paper, padX: 14, padY: 8, sw: 5, sh: 6, r: 8 });
+        return { pl, x: BARX - 10 + pl.w / 2, y: 200 + i * 78 };
+      });
+      // voile + cercles + gros 24 %
+      st.veil = rect(root, 1166, 130, 688, 444, 0, C.ink, null, 0, { opacity: 0, visibility: 'hidden' });
+      st.rings = [5, 6].map((k) => rect(root, BX - 4, caseY(k) - 4, BW + 8, BH + 8, 10, 'none', C.red, 8, { visibility: 'hidden', pathLength: 1 }));
+      st.big = text(root, st.edgeHigh, 1630, 408, 140, C.red, { anchor: 'middle' });
+      const bl = meas(st.big, st.edgeHigh.length * 140 * 0.6);
+      if (bl > 440) { st.big.setAttribute('textLength', 440); st.big.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+      st.big.setAttribute('visibility', 'hidden');
+      st.pas = mkPlate(root, [{ s: 'PAS 2,7 %', size: 46 }], { fill: C.lime, padX: 26, padY: 12 }); st.pas.g.setAttribute('visibility', 'hidden');
+      // jeton
+      st.chip = g(root);
+      circle(st.chip, 5, 6, 34, C.ink);
+      circle(st.chip, 0, 0, 34, C.white, C.ink, 6);
+      circle(st.chip, 0, 0, 20, 'none', C.ink, 4).setAttribute('stroke-dasharray', '9 6');
+      st.chip.setAttribute('visibility', 'hidden');
+      // panneau d'entrée
+      st.ent = g(root);
+      path(st.ent, 'M38 112L66 112L66 98L94 118L66 138L66 124L38 124Z', C.paper, C.ink, 3);
+      st.entPl = mkPlate(st.ent, [{ s: "PRÈS DE L'ENTRÉE", size: 22, mono: true }], { fill: C.paper, padX: 14, padY: 8, sw: 5, sh: 6, r: 8 });
+      st.entPl.g.setAttribute('transform', `translate(${f2(104 + st.entPl.w / 2)} 118)`);
+      st.ent.setAttribute('visibility', 'hidden');
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const c = st.c;
+        /* rotation */
+        let phi = 0, rate = 0;
+        if (c.spin != null) {
+          const p = prog(t, c.spin, c.spin + st.sdur);
+          phi = st.phiF * (1 - Math.pow(1 - p, 2.2));
+          rate = p < 1 && p > 0 ? Math.abs(st.phiF * 2.2 * Math.pow(1 - p, 1.2) / st.sdur) / STEP : 0;
+        } else if (c.land != null) phi = st.phiF;
+        setA(st.rot, 'transform', `rotate(${f2(phi)})`);
+        /* aiguille : flexion à chaque picot (dent de scie), amplitude réduite aux fortes cadences */
+        const o = wrap(phi / STEP + 0.5), u = st.dir * o;
+        const saw = u <= 0 ? clamp((u + 0.45) / 0.45, 0, 1) : Math.max(0, 1 - u / 0.1);
+        const amp = 22 * (rate > 7 ? clamp(7 / rate, 0.18, 1) : 1);
+        setA(st.nd, 'transform', `rotate(${f2(-st.dir * amp * saw)})`);
+
+        /* contour « count » + compteur */
+        if (c.count != null && t >= c.count) {
+          const p = prog(t, c.count, c.count + 1.8);
+          const k = Math.min(N, Math.floor(N * p) + (p > 0 ? 1 : 0));
+          for (let i = 0; i < N; i++) vis(st.outl[i], i < k);
+          const fade = c.spin != null && t >= c.spin ? 1 - prog(t, c.spin, c.spin + 0.4) : 1;
+          setA(st.cg, 'opacity', f2(fade));
+          vis(st.cnt, true);
+          const n = Math.round(st.cntN * E.out2(p));
+          const s = st.cntHas ? String(n) : String(Math.min(N, Math.round(N * E.out2(p))));
+          if (st.cNum.__s !== s) { st.cNum.__s = s; st.cNum.textContent = s; }
+          setA(st.cnt, 'opacity', f2(clamp(prog(t, c.count, c.count + 0.2))));
+        } else { for (let i = 0; i < N; i++) vis(st.outl[i], false); vis(st.cnt, false); }
+
+        /* case d'arrêt */
+        if (c.land != null && t >= c.land) {
+          const p = prog(t, c.land, c.land + 0.35);
+          vis(st.landOut, true); setA(st.landOut, 'opacity', f2(Math.min(1, E.out3(p) * 1.2)));
+          setA(st.landOut, 'stroke-width', f2(8 + 10 * (1 - E.out3(p))));
+        } else vis(st.landOut, false);
+
+        /* ampoules : bascule toutes les 0,4 s (2,5 changements/s) */
+        const lon = c.lights != null && t >= c.lights;
+        vis(st.bulbs, lon);
+        if (lon) { const ph = Math.floor((t - c.lights) / 0.4); for (let j = 0; j < st.bl.length; j++) setA(st.bl[j], 'fill', (j + ph) % 2 ? C.lime : C.paper); }
+
+        /* panneau « près de l'entrée » */
+        if (c.entrance != null && t >= c.entrance) { const s = E.back(prog(t, c.entrance, c.entrance + 0.3)); vis(st.ent, true); st.ent.setAttribute('opacity', f2(Math.min(1, s))); st.ent.setAttribute('transform', `translate(${f2(-60 * (1 - E.out3(prog(t, c.entrance, c.entrance + 0.3))))} 0)`); } else vis(st.ent, false);
+
+        /* étiquettes « simple » (s'effacent à edge / worst) */
+        const sEnd = Math.min(c.edge == null ? Infinity : c.edge, c.worst == null ? Infinity : c.worst);
+        st.simple.forEach((q, i) => {
+          const t0 = c.simple == null ? null : c.simple + i * 0.35;
+          const on = t0 != null && t >= t0 && t < sEnd + 0.3;
+          vis(q.pl.g, on); if (!on) return;
+          const s = E.back(prog(t, t0, t0 + 0.3)), a = t > sEnd ? 1 - prog(t, sEnd, sEnd + 0.3) : 1;
+          put(q.pl.g, q.x, q.y, i % 2 ? 1.5 : -1.5, Math.max(s, 0.001), Math.max(s, 0.001), a);
+        });
+
+        /* marges */
+        const eOn = c.edge != null && t >= c.edge;
+        vis(st.kick, eOn); setA(st.title, 'opacity', eOn ? f2(1 - prog(t, c.edge, c.edge + 0.25)) : 1);
+        setA(st.kick, 'opacity', eOn ? f2(prog(t, c.edge + 0.1, c.edge + 0.35)) : 0);
+        st.bars.forEach((b, k) => {
+          const t0 = c.edge == null ? null : c.edge + 0.15 + k * 0.1;
+          const on = t0 != null && t >= t0;
+          vis(b.r, on); if (b.tx) vis(b.tx, false);
+          if (!on) return;
+          const p = E.out3(prog(t, t0, t0 + 0.55));
+          const w = Math.max(2, b.len * p);
+          setA(b.r, 'width', f2(w));
+          if (b.tx) { setA(b.tx, 'x', f2(BARX + w + 16)); vis(b.tx, p > 0.85); }
+        });
+
+        /* pire marge */
+        const wOn = c.worst != null && t >= c.worst;
+        setA(st.veil, 'opacity', wOn ? f2(0.9 * E.out2(prog(t, c.worst, c.worst + 0.3))) : 0); vis(st.veil, wOn);
+        st.rings.forEach((r, i) => { vis(r, wOn); if (wOn) setA(r, 'stroke-dasharray', `${f2(E.out3(prog(t, c.worst + 0.1 + i * 0.1, c.worst + 0.6 + i * 0.1)))} 2`); });
+        vis(st.big, wOn); vis(st.pas.g, wOn);
+        if (wOn) {
+          const s = E.back(prog(t, c.worst + 0.15, c.worst + 0.55));
+          setA(st.big, 'transform', `translate(1630 ${f2(408 - 70)}) scale(${f2(Math.max(s, 0.001))}) translate(-1630 ${f2(-(408 - 70))})`);
+          const s2 = E.back(prog(t, c.worst + 0.5, c.worst + 0.8));
+          put(st.pas.g, 1630, 520, -3, Math.max(s2, 0.001), Math.max(s2, 0.001), 1);
+        }
+
+        /* jeton */
+        if (c.bet != null && t >= c.bet) {
+          const p = prog(t, c.bet, c.bet + 0.9), cy = st.cases[st.betK].cy;
+          vis(st.chip, true);
+          put(st.chip, BX + 165, cy - (1 - E.bounce(p)) * (cy + 60), 0, 1, 1, 1);
+        } else vis(st.chip, false);
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/newspaper.js ==== */
 // Composant `newspaper` : unes de journaux (spin), couverture de partition (sheet), partition qui danse contre tertre immobile (split).
 (() => {
@@ -8294,6 +9876,423 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/price-floor.js ==== */
+// Composant `price-floor` (épisode 5) : le tarif de la salle. Voir EP5-COMPONENTS.md.
+// Mode `plan` : la salle vue de dessus, quatre tables, caméra, voiles, stickers (en repère écran, ancrés sur les tables).
+// Mode `bars` : ce que la maison garde sur 1 000 € misés. Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+// Cues plan : room, focus (table), faille, others, turn, shine, tags, entrance. Cues bars : row-<id>, ratio (from,to,text), avg, worst.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, text, put } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => n.setAttribute('visibility', on ? 'visible' : 'hidden');
+  const meas = (n, est) => { try { const L = n.getComputedTextLength(); if (L > 0) return L; } catch (e) { /* estimation */ } return est; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const rectHit = (a, b) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+
+  // plaque (sticker) centrée sur (0,0) : lignes [{s,size,mono,fill}] ; renvoie {g,w,h}
+  function mkPlate(parent, lines, o) {
+    o = o || {};
+    const grp = g(parent);
+    const r = o.r === undefined ? 14 : o.r, off = o.sh === undefined ? 8 : o.sh;
+    const sh = rect(grp, 0, 0, 1, 1, r, o.shadow || C.ink);
+    const pl = rect(grp, 0, 0, 1, 1, r, o.fill || C.paper, o.stroke || C.ink, o.sw || 6);
+    let w = 0, h = 0;
+    const ts = lines.map((L) => {
+      const n = text(grp, L.s, 0, 0, L.size, L.fill || o.textFill || C.ink, { anchor: 'middle', mono: L.mono, spacing: L.spacing });
+      const m = meas(n, L.mono ? mw(L.s, L.size) : String(L.s).length * L.size * 0.58);
+      w = Math.max(w, m); h += L.size * (L.lh || 1.15);
+      return { n, L };
+    });
+    const padX = o.padX === undefined ? 30 : o.padX, padY = o.padY === undefined ? 16 : o.padY;
+    w += padX * 2; h += padY * 2;
+    let y = -h / 2 + padY;
+    for (const k of ts) { const lh = k.L.size * (k.L.lh || 1.15); k.n.setAttribute('y', f2(y + lh / 2 + k.L.size * 0.33)); y += lh; }
+    sh.setAttribute('x', f2(-w / 2 + off)); sh.setAttribute('y', f2(-h / 2 + off)); sh.setAttribute('width', f2(w)); sh.setAttribute('height', f2(h));
+    pl.setAttribute('x', f2(-w / 2)); pl.setAttribute('y', f2(-h / 2)); pl.setAttribute('width', f2(w)); pl.setAttribute('height', f2(h));
+    return { g: grp, w, h, pl };
+  }
+  const arrowPoly = (ax, ay, bx, by, sw, hl, hw) => {
+    const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+    const bxs = bx - ux * hl, bys = by - uy * hl;
+    const P = [[ax + nx * sw / 2, ay + ny * sw / 2], [bxs + nx * sw / 2, bys + ny * sw / 2], [bxs + nx * hw / 2, bys + ny * hw / 2], [bx, by], [bxs - nx * hw / 2, bys - ny * hw / 2], [bxs - nx * sw / 2, bys - ny * sw / 2], [ax - nx * sw / 2, ay - ny * sw / 2]];
+    return 'M' + P.map((p) => f2(p[0]) + ' ' + f2(p[1])).join('L') + 'Z';
+  };
+
+  const ANCH = { wheel: [340, 440], roulette: [760, 440], craps: [1150, 440], blackjack: [1570, 440] };
+  const TABS = ['wheel', 'roulette', 'craps', 'blackjack'];
+  const LAB = { wheel: 'LA GRANDE ROUE', roulette: 'ROULETTE', craps: 'CRAPS', blackjack: 'BLACKJACK' };
+  const DEF_ROWS = [
+    { id: 'bj', label: 'BLACKJACK BIEN JOUÉ', value: 5, text: '≈ 5 €' },
+    { id: 'pass', label: 'CRAPS · LIGNE DE PASSE', value: 14, text: '≈ 14 €' },
+    { id: 'roulette', label: 'ROULETTE', value: 27, text: '27 €' },
+    { id: 'wheel', label: 'GRANDE ROUE', value: [110, 240], text: '110 À 240 €' },
+    { id: 'seven', label: "CRAPS · N'IMPORTE QUEL 7", value: 167, text: '≈ 167 €' }];
+  const DEF_TAGS = { blackjack: '≈ 5 €', roulette: '27 €', wheel: '110 À 240 €', craps: '14 À 167 €' };
+  const SC = 1000 / 240;                                                      // px par euro
+
+  /* ================================ PLAN ================================ */
+  function buildTable(W, id, ax, ay) {
+    const tg = g(W);
+    let labY = 200;
+    if (id === 'wheel') {
+      const rot = g(tg);
+      const cols = [C.lime, C.paper, C.red];
+      for (let k = 0; k < 18; k++) {
+        const a0 = (k * 20 - 90) * Math.PI / 180, a1 = ((k + 1) * 20 - 90) * Math.PI / 180, R = 100;
+        path(rot, `M0 0L${f2(R * Math.cos(a0))} ${f2(R * Math.sin(a0))}A${R} ${R} 0 0 1 ${f2(R * Math.cos(a1))} ${f2(R * Math.sin(a1))}Z`, cols[k % 3], C.ink, 3);
+      }
+      circle(rot, 0, 0, 22, C.paper, C.ink, 5);
+      circle(tg, 0, 0, 102, 'none', C.paper, 7);
+      path(tg, 'M-12 -124L12 -124L0 -100Z', C.red, C.ink, 4);
+      tg.__rot = rot;
+      tg.__bulbs = [];
+      for (let j = 0; j < 18; j++) {
+        const a = (j * 20 + 10) * Math.PI / 180;
+        const b = circle(tg, f2(Math.sin(a) * 126), f2(-Math.cos(a) * 126), 7, C.paper, C.ink, 3);
+        b.setAttribute('visibility', 'hidden');
+        tg.__bulbs.push(b);
+      }
+    } else if (id === 'roulette') {
+      sv('ellipse', { cx: 0, cy: 0, rx: 150, ry: 92, fill: C.pocket, stroke: C.paper, 'stroke-width': 7 }, tg);
+      sv('ellipse', { cx: 0, cy: 0, rx: 130, ry: 74, fill: 'none', stroke: C.paper, 'stroke-width': 3 }, tg);
+      circle(tg, -66, 0, 42, C.ink, C.paper, 5);
+      circle(tg, -66, 0, 26, 'none', C.lime, 4).setAttribute('stroke-dasharray', '9 7');
+      circle(tg, -66, 0, 7, C.paper);
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) rect(tg, 8 + c * 25, -28 + r * 19, 23, 17, 2, (r + c) % 2 ? C.red : C.ink, C.paper, 2);
+    } else if (id === 'craps') {
+      rect(tg, -150, -75, 300, 150, 75, C.pocket, C.paper, 12);
+      rect(tg, -122, -47, 244, 94, 47, 'none', C.paper, 3);
+      path(tg, 'M-86 30L86 30', 'none', C.paper, 4);
+      const die = (cx, pips) => { rect(tg, cx - 17, -27, 34, 34, 5, C.white, C.ink, 3); for (const p of pips) circle(tg, cx + p[0] * 8, -10 + p[1] * 8, 3, C.ink); };
+      die(-30, [[-1, -1], [0, 0], [1, 1]]);
+      die(30, [[-1, -1], [1, -1], [-1, 1], [1, 1]]);
+    } else {
+      path(tg, 'M-150 -60L150 -60A150 150 0 0 1 -150 -60Z', C.pocket, C.paper, 8);
+      rect(tg, -44, -52, 88, 20, 3, C.ink, C.paper, 3);
+      for (let k = 0; k < 6; k++) {
+        const a = (20 + k * 28) * Math.PI / 180;
+        circle(tg, f2(Math.cos(a) * 170), f2(-60 + Math.sin(a) * 170), 15, C.paper, C.ink, 3);
+        circle(tg, f2(Math.cos(a) * 100), f2(-60 + Math.sin(a) * 100), 9, 'none', C.paper, 3);
+      }
+      labY = 215;
+    }
+    text(tg, LAB[id], 0, labY, 28, C.paper, { mono: true, anchor: 'middle', spacing: 1 });
+    tg.__ax = ax; tg.__ay = ay + (id === 'blackjack' ? -15 : 0);
+    return tg;
+  }
+
+  function initPlan(root, st, P, beats, cl) {
+    const W = st.W = g(root);
+    st.wall = path(W, 'M80 520L80 800L1840 800L1840 90L80 90L80 400', 'none', C.paper, 8, { pathLength: 1, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' });
+    const deco = st.deco = g(W);
+    for (let i = 0; i < 22; i++) {
+      const x = 120 + i * 76;
+      rect(deco, x, 112, 56, 46, 6, C.pocket, C.paper, 3);
+      rect(deco, x + 12, 122, 32, 14, 2, [C.lime, C.paper, C.red][i % 3]);
+      circle(deco, x + 28, 148, 4, C.paper);
+    }
+    path(deco, 'M14 448L70 448L70 430L126 460L70 490L70 472L14 472Z', C.paper, C.ink, 3);
+    text(deco, 'ENTRÉE', 98, 388, 26, C.paper, { mono: true, anchor: 'start', spacing: 1 });
+    const fl = text(deco, 'FOND DE LA SALLE', 0, 0, 24, C.paper, { mono: true, anchor: 'middle', spacing: 3 });
+    fl.setAttribute('transform', 'translate(1808 445) rotate(-90)');
+    st.tabs = {};
+    for (const id of TABS) { const a = ANCH[id]; st.tabs[id] = buildTable(W, id, a[0], a[1]); }
+    // voiles
+    st.veils = TABS.map((id) => { const a = ANCH[id]; return rect(W, a[0] - 205, 300, 410, 400, 0, C.ink, null, 0, { opacity: 0, visibility: 'hidden' }); });
+    // cercles
+    const ring = (shape, attrs) => { const n = sv(shape, Object.assign({ fill: 'none', 'stroke-width': 8, pathLength: 1, visibility: 'hidden' }, attrs), W); return n; };
+    st.rFaille = ring('ellipse', { cx: 1570, cy: 440, rx: 205, ry: 168, stroke: C.lime });
+    st.rWheel = ring('circle', { cx: 340, cy: 440, r: 152, stroke: C.paper });
+    st.rCraps = ring('ellipse', { cx: 1150, cy: 440, rx: 198, ry: 126, stroke: C.paper });
+
+    /* ---- repères ---- */
+    const c = {};
+    for (const n of ['room', 'faille', 'others', 'turn', 'shine', 'tags', 'entrance']) { const b = cl(n)[0]; c[n] = b ? b.t : null; }
+    const others = beats.filter((b) => b && b.do === 'cue' && isNum(b.t) && b.name !== 'room').map((b) => b.t);
+    const roomC = cl('room')[0];
+    let tR = roomC ? roomC.t : Math.max(0, Math.min(0.1, (others.length ? Math.min(...others) : 9) - 0.5));
+    if (roomC && others.length && Math.min(...others) < roomC.t) tR = Math.max(0, Math.min(...others) - 0.5);
+    st.tR = tR; st.c = c;
+    const endOf = (t0, names) => { let m = Infinity; for (const b of beats) if (b && b.do === 'cue' && isNum(b.t) && names.indexOf(b.name) >= 0 && b.t > t0 + 0.05 && b.t < m) m = b.t; return m; };
+    c.faille_e = c.faille == null ? Infinity : endOf(c.faille, ['others', 'turn', 'tags', 'entrance', 'shine']);
+    c.others_e = c.others == null ? Infinity : endOf(c.others, ['faille', 'turn', 'tags', 'entrance', 'shine']);
+    c.shine_e = c.shine == null ? Infinity : endOf(c.shine, ['tags', 'entrance', 'turn']);
+    c.turn_e = c.turn == null ? Infinity : endOf(c.turn, ['entrance', 'shine', 'tags', 'others', 'faille']);
+
+    /* ---- caméra ---- */
+    const camOf = (z, cx, cy, vt) => ({ z, cx, cy, v: TABS.map((id) => (vt && id !== vt ? 0.62 : 0)) });
+    const foc = (tab) => (ANCH[tab] ? camOf(1.9, ANCH[tab][0], 510, tab) : camOf(1, 960, 450, null));
+    st.base = ANCH[P.focus] ? foc(P.focus) : foc(null);
+    const keys = [];
+    for (const b of cl('focus')) keys.push({ t: b.t, dur: 0.9, cam: foc(b.table) });
+    if (c.turn != null) keys.push({ t: c.turn, dur: 1.6, cam: camOf(1.25, 430, 470, null) });
+    keys.sort((a, b) => a.t - b.t);
+    st.keys = keys;
+
+    /* ---- stickers (repère écran) ---- */
+    const ov = st.ov = [];
+    const OV = g(root);
+    const add = (o, plate) => { o.g = plate.g; o.w = plate.w; o.h = plate.h; ov.push(o); return o; };
+    const tags = Object.assign({}, DEF_TAGS, P.tags && typeof P.tags === 'object' ? P.tags : {});
+    if (c.faille != null) add({ t0: c.faille, t1: c.faille_e, tab: 'blackjack', dx: -30, dy: -235, rot: -3 }, mkPlate(OV, [{ s: 'LA SEULE FAILLE', size: 42 }, { s: 'DE LA SALLE', size: 42 }], { fill: C.lime }));
+    if (c.others != null) {
+      add({ t0: c.others + 0.15, t1: c.others_e, tab: 'wheel', dx: 0, dy: 275, rot: -3 }, mkPlate(OV, [{ s: 'TROP SIMPLE', size: 42 }], { fill: C.paper }));
+      add({ t0: c.others + 0.45, t1: c.others_e, tab: 'craps', dx: 0, dy: 275, rot: 3 }, mkPlate(OV, [{ s: 'TROP BRUYANTE', size: 42 }], { fill: C.paper }));
+    }
+    if (c.shine != null) {
+      add({ t0: c.shine + 0.2, t1: c.shine_e, tab: 'wheel', dx: -125, dy: -150, rot: -4 }, mkPlate(OV, [{ s: 'BRILLANTE', size: 24, mono: true }], { fill: C.lime, padX: 18, padY: 10, sw: 5, sh: 6 }));
+      add({ t0: c.shine + 0.55, t1: c.shine_e, tab: 'wheel', dx: 115, dy: -150, rot: 4 }, mkPlate(OV, [{ s: 'BRUYANTE', size: 24, mono: true }], { fill: C.paper, padX: 18, padY: 10, sw: 5, sh: 6 }));
+    }
+    if (c.tags != null) {
+      add({ t0: c.tags, t1: Infinity, fx: 960, fy: 745, rot: 0, kind: 'pop' }, mkPlate(OV, [{ s: 'SUR 1 000 € MISÉS', size: 34, mono: true, fill: C.lime }], { fill: C.ink, stroke: C.lime, sw: 5, shadow: C.pocket, padX: 26, padY: 12 }));
+      TABS.forEach((id, i) => add({ t0: c.tags + 0.25 + i * 0.2, t1: Infinity, tab: id, dx: 0, dy: 100, rot: [-3, 3, -2, 3][i], kind: 'drop' }, mkPlate(OV, [{ s: String(tags[id] == null ? '' : tags[id]), size: 52 }], { fill: C.paper, padX: 24, padY: 12 })));
+    }
+    if (c.entrance != null) {
+      const o = add({ t0: c.entrance, t1: Infinity, tab: 'wheel', dx: 280, dy: -235, rot: -2 }, mkPlate(OV, [{ s: "À L'ENTRÉE, PAS AU FOND", size: 40, fill: C.paper }], { fill: C.red }));
+      o.arrow = path(OV, 'M0 0', C.paper, C.ink, 3, { visibility: 'hidden' });
+    }
+    if (c.turn != null) {
+      const w = 760, h = 150, G = g(OV);
+      const sh = path(G, 'M0 0', C.ink), pl = path(G, 'M0 0', C.lime, C.ink, 7);
+      const d = (dx) => `M${-w / 2 + dx} 0L${-w / 2 + 120 + dx} ${-h / 2}L${-w / 2 + 120 + dx} ${-h / 2 + 34}L${w / 2 + dx} ${-h / 2 + 34}L${w / 2 + dx} ${h / 2 - 34}L${-w / 2 + 120 + dx} ${h / 2 - 34}L${-w / 2 + 120 + dx} ${h / 2}Z`;
+      sh.setAttribute('d', d(10)); pl.setAttribute('d', d(0));
+      // le texte occupe le corps de la flèche
+      const tn = text(G, 'RETOURNE-TOI', 55, 22, 62, C.ink, { anchor: 'middle' });
+      const L = meas(tn, 62 * 12 * 0.58);
+      if (L > 560) { tn.setAttribute('textLength', 560); tn.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+      ov.push({ g: G, w: w + 20, h: h + 10, t0: c.turn + 0.9, t1: c.turn_e, fx: 1260, fy: 150, rot: 0, kind: 'pop' });
+    }
+    return st;
+  }
+
+  function camAt(st, t) {
+    let cur = st.base;
+    const mix = (a, b, p) => ({ z: a.z + (b.z - a.z) * p, cx: a.cx + (b.cx - a.cx) * p, cy: a.cy + (b.cy - a.cy) * p, v: a.v.map((x, i) => x + (b.v[i] - x) * p) });
+    const ks = st.keys;
+    for (let i = 0; i < ks.length; i++) {
+      const k = ks[i];
+      if (t <= k.t) break;
+      const nxt = ks[i + 1];
+      if (nxt && t > nxt.t) { cur = mix(cur, k.cam, E.io3(ZV.prog(nxt.t, k.t, k.t + k.dur))); continue; }
+      return mix(cur, k.cam, E.io3(prog(t, k.t, k.t + k.dur)));
+    }
+    return cur;
+  }
+
+  function updPlan(st, t) {
+    const cam = camAt(st, t), c = st.c;
+    setA(st.W, 'transform', `translate(960 450) scale(${f2(cam.z)}) translate(${f2(-cam.cx)} ${f2(-cam.cy)})`);
+    // salle
+    const pr = prog(t, st.tR, st.tR + 0.4);
+    vis(st.wall, pr > 0);
+    setA(st.wall, 'stroke-dasharray', `${f2(pr)} 2`);
+    const dp = prog(t, st.tR + 0.15, st.tR + 0.45);
+    setA(st.deco, 'opacity', f2(dp)); vis(st.deco, dp > 0);
+    TABS.forEach((id, i) => {
+      const tg = st.tabs[id];
+      const p = E.back(prog(t, st.tR + 0.3 + i * 0.16, st.tR + 0.65 + i * 0.16));
+      put(tg, tg.__ax, tg.__ay, 0, p, p, p > 0 ? 1 : 0);
+      if (id === 'wheel') setA(tg.__rot, 'transform', `rotate(${f2((t * 14) % 360)})`);
+    });
+    cam.v.forEach((v, i) => { setA(st.veils[i], 'opacity', f2(v)); vis(st.veils[i], v > 0.01); });
+    // cercles
+    const ringUpd = (n, t0, t1) => {
+      const on = t0 != null && t >= t0 && t < t1 + 0.25;
+      vis(n, on); if (!on) return;
+      setA(n, 'stroke-dasharray', `${f2(E.out3(prog(t, t0, t0 + 0.5)))} 2`);
+      setA(n, 'opacity', f2(t > t1 ? 1 - prog(t, t1, t1 + 0.25) : 1));
+    };
+    ringUpd(st.rFaille, c.faille, c.faille_e);
+    ringUpd(st.rWheel, c.others != null ? c.others + 0.1 : null, c.others_e);
+    ringUpd(st.rCraps, c.others != null ? c.others + 0.4 : null, c.others_e);
+    // ampoules (bascule toutes les 0,25 s : 2 Hz, petits éléments)
+    const bulbs = st.tabs.wheel.__bulbs;
+    const son = c.shine != null && t >= c.shine && t < c.shine_e;
+    const ph = son ? Math.floor((t - c.shine) / 0.25) : 0;
+    for (let j = 0; j < bulbs.length; j++) { vis(bulbs[j], son); if (son) setA(bulbs[j], 'fill', (j + ph) % 2 ? C.lime : C.paper); }
+    // stickers
+    for (const o of st.ov) {
+      let on = o.t0 != null && t >= o.t0 && (o.t1 === Infinity || t < o.t1 + 0.25);
+      let sx = o.fx, sy = o.fy;
+      if (on && o.tab) {
+        const A = ANCH[o.tab];
+        sx = 960 + (A[0] - cam.cx) * cam.z + o.dx * cam.z; sy = 450 + (A[1] - cam.cy) * cam.z + o.dy * cam.z;
+        if (sx < 200 || sx > 1720 || sy < -250 || sy > 1150) on = false;
+      }
+      if (!on) { vis(o.g, false); if (o.arrow) vis(o.arrow, false); continue; }
+      const a = o.t1 !== Infinity && t > o.t1 ? 1 - prog(t, o.t1, o.t1 + 0.25) : 1;
+      let s = 1, dy = 0;
+      if (o.kind === 'drop') { const p = prog(t, o.t0, o.t0 + 0.55); dy = -(1 - E.bounce(p)) * 320; s = 1; } else s = E.back(prog(t, o.t0, o.t0 + 0.3));
+      sx = clamp(sx, 24 + o.w / 2, 1896 - o.w / 2); sy = clamp(sy, 36 + o.h / 2, 826 - o.h / 2);
+      put(o.g, sx, sy + dy, o.rot, Math.max(s, 0.001), Math.max(s, 0.001), a * Math.min(1, (t - o.t0) / 0.08));
+      if (o.arrow) {
+        const wA = ANCH.wheel, bx = 960 + (wA[0] - cam.cx) * cam.z, by = 450 + (wA[1] - 128 - cam.cy) * cam.z;
+        const ax = sx - o.w / 2 + 70, ay = sy + o.h / 2 + 2;
+        const q = E.out3(prog(t, o.t0 + 0.2, o.t0 + 0.6));
+        vis(o.arrow, q > 0.02 && by > ay + 30);
+        setA(o.arrow, 'd', arrowPoly(ax, ay, ax + (bx - ax) * q, ay + (by - ay) * q, 14, 34, 40));
+        setA(o.arrow, 'opacity', f2(a));
+      }
+    }
+  }
+
+  /* ================================ BARS ================================ */
+  function initBars(root, st, P, beats, cl) {
+    const uid = 'pf' + (++UID);
+    const defs = sv('defs', null, root);
+    const pt = sv('pattern', { id: uid, width: 26, height: 26, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+    sv('rect', { x: 0, y: 0, width: 26, height: 26, fill: C.red }, pt);
+    sv('rect', { x: 13, y: 0, width: 13, height: 26, fill: C.ink }, pt);
+    const k = text(root, 'SUR 1 000 € MISÉS, LA MAISON GARDE EN MOYENNE', 100, 142, 32, C.paper, { mono: true, anchor: 'start' });
+    rect(root, 100, 156, 120, 8, 0, C.lime);
+    const rowsIn = (Array.isArray(P.rows) ? P.rows : DEF_ROWS).filter((r) => r && r.id != null);
+    const n = rowsIn.length;
+    const pitch = n > 5 ? Math.max(62, (760 - 70 - 200) / (n - 1)) : 110;
+    const allCues = beats.filter((b) => b && b.do === 'cue' && isNum(b.t));
+    st.auto = allCues.length === 0;
+    st.rows = rowsIn.map((r, i) => {
+      const v = r.value, lo = Array.isArray(v) ? +v[0] : +v, hi = Array.isArray(v) ? +v[1] : +v;
+      const o = { id: String(r.id), lo: isFinite(lo) ? lo : 0, hi: isFinite(hi) ? Math.max(hi, lo) : 0, y: 200 + i * pitch, text: String(r.text == null ? '' : r.text) };
+      const cc = cl('row-' + o.id)[0];
+      o.t0 = cc ? cc.t : st.auto ? 0.5 + i * 0.9 : null;
+      const G = o.g = g(root);
+      o.strip = rect(G, 80, o.y - 8, 1760, 86, 6, C.pocket);
+      const lab = String(r.label == null ? '' : r.label);
+      const ln = text(G, lab, 100, o.y + 52, 44, C.paper, { anchor: 'start' });
+      const L = meas(ln, lab.length * 44 * 0.58);
+      if (L > 590) { const s = Math.max(34, 44 * 590 / L); ln.setAttribute('font-size', f2(s)); const L2 = L * s / 44; if (L2 > 590) { ln.setAttribute('textLength', 590); ln.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } }
+      o.solid = rect(G, 720, o.y + 8, 1, 54, 3, C.red, C.paper, 4);
+      o.hatch = rect(G, 720, o.y + 8, 1, 54, 3, `url(#${uid})`, C.paper, 4);
+      o.boxW = o.text.length * 24 + 32;
+      o.boxX = Math.min(720 + o.hi * SC + 14, 1800 - o.boxW);
+      o.box = rect(G, 0, o.y + 7, o.boxW, 56, 6, C.ink, C.paper, 4);
+      o.amt = text(G, '', 0, o.y + 47, 40, C.paper, { mono: true, anchor: 'start' });
+      o.ext = o.boxX + o.boxW;                                               // extrémité droite du contenu
+      return o;
+    });
+    const byId = {}; st.rows.forEach((r) => { byId[r.id] = r; });
+    st.byId = byId;
+    // zones de contenu (pour éviter les collisions des stickers)
+    const content = st.rows.map((r) => ({ x1: 96, x2: r.ext + 6, y1: r.y - 4, y2: r.y + 74 }));
+    const reserved = [{ x1: 90, x2: 1000, y1: 100, y2: 170 }];
+    const OV = g(root);
+    // meilleure ligne (worst) : `wheel` ou la plus longue
+    const wr = byId.wheel || st.rows.slice().sort((a, b) => b.hi - a.hi)[0];
+    const bc = (nm) => { const b = cl(nm)[0]; return b ? b.t : null; };
+    st.worst = null;
+    if (wr && bc('worst') != null) {
+      const hl = rect(OV, 80, wr.y - 11, 1760, 88, 8, 'none', C.lime, 6);
+      const pl = mkPlate(OV, [{ s: "LE PIRE TAUX… À L'ENTRÉE", size: 34, fill: C.paper }], { fill: C.red, padX: 26, padY: 12 });
+      let cx = 1790 - pl.w / 2;
+      const cy = wr.y - 6 - pl.h / 2 - 4;
+      for (; cx > 600; cx -= 30) {
+        const r = { x1: cx - pl.w / 2 - 12, x2: cx + pl.w / 2 + 12, y1: cy - pl.h / 2 - 8, y2: cy + pl.h / 2 + 12 };
+        if (!content.some((q, i) => st.rows[i] !== wr && rectHit(r, q))) break;
+      }
+      reserved.push({ x1: cx - pl.w / 2 - 12, x2: cx + pl.w / 2 + 12, y1: cy - pl.h / 2 - 8, y2: cy + pl.h / 2 + 12 });
+      st.worst = { t0: bc('worst'), hl, pl, cx, cy };
+    }
+    st.avg = null;
+    if (bc('avg') != null && n) {
+      const last = st.rows[n - 1];
+      const pl = mkPlate(OV, [{ s: 'UNE MOYENNE, PAS UN TAUX DE MAINS PERDUES', size: 20, mono: true, fill: C.ink }], { fill: C.paper, padX: 14, padY: 4, sw: 4, sh: 5, r: 6 });
+      const cx = 100 + pl.w / 2, cy = last.y - 13;
+      reserved.push({ x1: 96, x2: cx + pl.w / 2 + 8, y1: cy - pl.h / 2 - 4, y2: cy + pl.h / 2 + 8 });
+      st.avg = { t0: bc('avg'), pl, cx, cy };
+    }
+    // ratios (remplacent le précédent)
+    const rb = cl('ratio');
+    st.ratios = rb.map((b, i) => {
+      let a = byId[b.from] || st.rows[0], z = byId[b.to] || st.rows[n - 1];
+      if (!a || !z) return null;
+      const ia = st.rows.indexOf(a), iz = st.rows.indexOf(z), lo = Math.min(ia, iz), hi = Math.max(ia, iz);
+      let ext = 0; for (let j = lo; j <= hi; j++) ext = Math.max(ext, st.rows[j].ext);
+      const xb = Math.min(1850, ext + 30);
+      const ya = a.y + 35, yz = z.y + 35;
+      const tx = String(b.text == null ? '' : b.text);
+      const m = tx.match(/^(.*?×)\s*([A-Za-zÀ-ÿ].*)$/);
+      const lines = m ? [{ s: m[1], size: 76 }, { s: m[2], size: 34 }] : [{ s: tx, size: 76 }];
+      const pl = mkPlate(OV, lines, { fill: C.lime, padX: 28, padY: 12 });
+      const mid = (ya + yz) / 2;
+      const right = xb - 36;
+      let by = null, bd = 1e9;
+      for (let cy = 170; cy <= 760; cy += 10) {
+        const r = { x1: right - pl.w - 8, x2: right + 8, y1: cy - pl.h / 2 - 6, y2: cy + pl.h / 2 + 12 };
+        if (content.some((q) => rectHit(r, q)) || reserved.some((q) => rectHit(r, q))) continue;
+        if (Math.abs(cy - mid) < bd) { bd = Math.abs(cy - mid); by = cy; }
+      }
+      if (by == null) by = Math.max(110, z.y - 52);
+      const br = path(OV, `M${xb - 22} ${f2(ya)}L${xb} ${f2(ya)}L${xb} ${f2(yz)}L${xb - 22} ${f2(yz)}`, 'none', C.paper, 8, { pathLength: 1, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' });
+      return { t0: b.t, t1: Infinity, br, pl, cx: right - pl.w / 2, cy: by, rot: i % 2 ? 2 : -2 };
+    }).filter(Boolean);
+    st.ratios.forEach((r, i) => { r.t1 = i + 1 < st.ratios.length ? st.ratios[i + 1].t0 : Infinity; });
+    return st;
+  }
+
+  const fmtCount = (s, k) => s.replace(/\d+/g, (m) => String(Math.round(+m * k)));
+  function updBars(st, t) {
+    for (const r of st.rows) {
+      const c = r.t0;
+      const on = c != null && t >= c;
+      vis(r.g, on); if (!on) continue;
+      const a = E.out3(prog(t, c, c + 0.3));
+      setA(r.g, 'opacity', f2(a));
+      setA(r.g, 'transform', `translate(${f2(-40 * (1 - a))} 0)`);
+      const k = E.out3(prog(t, c + 0.1, c + 0.9));
+      const cur = r.hi * k;
+      const solid = Math.min(r.lo, cur) * SC, hatch = Math.max(0, cur - r.lo) * SC;
+      setA(r.solid, 'width', f2(Math.max(solid, 1))); vis(r.solid, solid > 0.5);
+      setA(r.hatch, 'x', f2(720 + r.lo * SC)); setA(r.hatch, 'width', f2(Math.max(hatch, 1))); vis(r.hatch, hatch > 0.5);
+      const bx = Math.min(720 + cur * SC + 14, 1800 - r.boxW);
+      setA(r.box, 'x', f2(bx));
+      setA(r.amt, 'x', f2(bx + 16));
+      const s = fmtCount(r.text, k);
+      if (r.amt.__s !== s) { r.amt.__s = s; r.amt.textContent = s; }
+      vis(r.box, k > 0.02); vis(r.amt, k > 0.02);
+    }
+    const w = st.worst;
+    if (w) {
+      const on = t >= w.t0;
+      vis(w.hl, on); vis(w.pl.g, on);
+      if (on) { const s = E.back(prog(t, w.t0, w.t0 + 0.3)); setA(w.hl, 'opacity', f2(Math.min(1, s))); put(w.pl.g, w.cx, w.cy, -2, Math.max(s, 0.001), Math.max(s, 0.001), 1); }
+    }
+    const av = st.avg;
+    if (av) { const on = t >= av.t0; vis(av.pl.g, on); if (on) { const s = E.back(prog(t, av.t0, av.t0 + 0.3)); put(av.pl.g, av.cx, av.cy, 0, Math.max(s, 0.001), Math.max(s, 0.001), 1); } }
+    for (const r of st.ratios) {
+      const on = t >= r.t0 && (r.t1 === Infinity || t < r.t1 + 0.01);
+      vis(r.br, on); vis(r.pl.g, on);
+      if (!on) continue;
+      const out = r.t1 !== Infinity ? 1 - prog(t, r.t1 - 0.25, r.t1) : 1;
+      setA(r.br, 'stroke-dasharray', `${f2(E.out3(prog(t, r.t0, r.t0 + 0.4)))} 2`);
+      setA(r.br, 'opacity', f2(out));
+      const s = E.back(prog(t, r.t0 + 0.25, r.t0 + 0.55));
+      put(r.pl.g, r.cx, r.cy, r.rot, Math.max(s, 0.001), Math.max(s, 0.001), out);
+    }
+  }
+
+  ZV.define('price-floor', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t);
+      const st = { mode: P.mode === 'bars' ? 'bars' : 'plan', dur: isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10 };
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      try { if (st.mode === 'bars') initBars(root, st, P, beats, cl); else initPlan(root, st, P, beats, cl); } catch (e) { st.broken = true; }
+      return st;
+    },
+    update(st, t) {
+      try {
+        if (st.broken) return;
+        t = clamp(t, 0, st.dur + 1);
+        if (st.mode === 'bars') updBars(st, t); else updPlan(st, t);
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/rtp-bars.js ==== */
 // Composant « rtp-bars » (épisode 2) : « la case verte invisible », le taux de redistribution. Voir EP2-COMPONENTS.md.
 // Deux barres de 100 unités (1500 px) : part rendue en paper, part gardée en lime. Fonction pure du temps du plan ; aplats seulement.
@@ -9685,6 +11684,243 @@
         setA(st.bigG, 'visibility', showBig ? 'visible' : 'hidden'); setA(st.bigG, 'opacity', f2(pb));
         if (st.bigT.textContent !== crT) st.bigT.textContent = crT;
       } else { setA(st.veil, 'opacity', 0); setA(st.bigG, 'visibility', 'hidden'); }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/strategy-chart.js ==== */
+// Composant `strategy-chart` (épisode 5) : le tableau gratuit de la stratégie de base. Voir EP5-COMPONENTS.md.
+// Grille 10 × 10 (mains dures, six paquets) : T tirer (paper), R rester (lime), D doubler (pocket bordé lime). Fonction pure du temps ; aplats seulement.
+// Cues : grid, axes, free, ignored, belief, vs7, insurance. Un cue absent = l'étape ne se déclenche pas ; sans cue `grid` / `axes` le tableau est posé d'emblée.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const SH = '#2A2A2A';
+  const bwEst = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.28 : /[0-9]/.test(ch) ? 0.5 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≈]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  let PROBE = null; const BWC = {};
+  const bw = (s, size) => {
+    s = String(s); const k = size + '|' + s;
+    if (BWC[k] !== undefined) return BWC[k];
+    if (PROBE) { try { PROBE.textContent = s; PROBE.setAttribute('font-size', size); const w = PROBE.getComputedTextLength(); if (w > 0) { BWC[k] = w; return w; } } catch (e) { /* hors DOM */ } }
+    return bwEst(s, size);
+  };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const putc = (n, x, y, r, sx, sy, o) => {
+    if (r === undefined) r = 0; if (sx === undefined) sx = 1; if (sy === undefined) sy = sx; if (o === undefined) o = 1;
+    const hid = o <= 0.001 || !sx || !sy;
+    setA(n, 'display', hid ? 'none' : 'inline');
+    if (hid) return;
+    setA(n, 'transform', `translate(${f2(x)} ${f2(y)}) rotate(${f2(r)}) scale(${f2(sx)} ${f2(sy)})`);
+    setA(n, 'opacity', f2(o));
+  };
+  const popS = (t, t0, d) => (t0 == null || t < t0 ? 0 : E.back(prog(t, t0, t0 + (d || 0.3))));
+  const mlab = (parent, s, x, y, size, fill, anchor, sp) => { const n = text(parent, s, x, y, size, fill, { mono: true, anchor: anchor || 'start', len: f2(mw(s, size) + (sp ? sp * (String(s).length - 1) : 0)) }); if (sp) n.setAttribute('letter-spacing', sp); return n; };
+  function mkTag(parent, lines, size, fill, tfill, o) {
+    o = o || {};
+    const ls = Array.isArray(lines) ? lines : [lines];
+    const lh = size * 1.12, px = o.padX || 26, py = o.padY || 14;
+    let tw = 0; ls.forEach((s) => { tw = Math.max(tw, bw(s, size)); });
+    const w = tw + px * 2, h = ls.length * lh + py * 2 - (lh - size) * 0.2;
+    const grp = g(parent);
+    const sh = o.sh || 9, r = o.r === undefined ? 14 : o.r;
+    rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, r, o.shc || (fill === C.paper ? C.lime : C.paper));
+    rect(grp, -w / 2, -h / 2, w, h, r, fill, C.ink, o.sw || 6);
+    ls.forEach((s, i) => text(grp, s, 0, -h / 2 + py + size * 0.82 + i * lh, size, tfill, { anchor: 'middle', len: f2(bw(s, size)) }));
+    return { g: grp, w, h };
+  }
+  const parsePct = (s, d) => { const m = /([0-9]+(?:[.,][0-9]+)?)/.exec(String(s)); return m ? parseFloat(m[1].replace(',', '.')) || d : d; };
+
+  const ROWS = ['8 ET −', '9', '10', '11', '12', '13', '14', '15', '16', '17 ET +'];
+  const COLS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'A'];
+  const DATA = [
+    'TTTTTTTTTT', 'TDDDDTTTTT', 'DDDDDDDDTT', 'DDDDDDDDDT', 'TTRRRTTTTT',
+    'RRRRRTTTTT', 'RRRRRTTTTT', 'RRRRRTTTTT', 'RRRRRTTTTT', 'RRRRRRRRRR'
+  ];
+  const CX0 = 310, CY0 = 180, PW = 93, PH = 61, CW = 91, CH = 59;
+  const cx = (c) => CX0 + c * PW + CW / 2, cy = (r) => CY0 + r * PH + CH / 2;
+  const PIV = [680, 450];
+
+  ZV.define('strategy-chart', {
+    init(root, shot) {
+      const P = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const dur = isNum(shot && shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const c1 = (n) => { const a = beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t)[0]; return a ? a.t : null; };
+      const title = str(P.title, 'LA STRATÉGIE DE BASE');
+      const edge = str(P.edge, '≈ 0,5 %');
+      const belief = str(P.belief, 'JE NE TIRE JAMAIS SUR 16');
+      const insurance = str(P.insurance, '≈ 7,4 %');
+      const ratio = str(P.ratio, 'PRÈS DE 15 ×');
+      const st = { dur };
+      PROBE = text(root, '', 0, -500, 100, 'none'); PROBE.setAttribute('visibility', 'hidden');
+      st.T = { grid: c1('grid'), axes: c1('axes'), free: c1('free'), ignored: c1('ignored'), belief: c1('belief'), vs7: c1('vs7'), insurance: c1('insurance') };
+      const T = st.T;
+      st.pa = parsePct(edge, 0.5); st.pb = parsePct(insurance, 7.4);
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 60, -600, 120, 2300, 0, C.pocket);
+      text(root, title, 120, 62, 40, C.paper, { len: f2(bw(title, 40)) });
+
+      /* ---- groupe du tableau (s'incline à `ignored`) ---- */
+      st.G = g(root);
+      const G = st.G;
+      st.cells = [];
+      for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+        const L = DATA[r][c];
+        const n = g(G);
+        if (L === 'T') { rect(n, -CW / 2, -CH / 2, CW, CH, 4, C.paper); text(n, 'T', 0, 13, 36, C.ink, { anchor: 'middle', len: f2(bw('T', 36)) }); }
+        else if (L === 'R') { rect(n, -CW / 2, -CH / 2, CW, CH, 4, C.lime); text(n, 'R', 0, 13, 36, C.ink, { anchor: 'middle', len: f2(bw('R', 36)) }); }
+        else { rect(n, -CW / 2 + 1.5, -CH / 2 + 1.5, CW - 3, CH - 3, 4, C.pocket, C.lime, 3); text(n, 'D', 0, 13, 36, C.lime, { anchor: 'middle', len: f2(bw('D', 36)) }); }
+        st.cells.push({ n, r, c, x: cx(c), y: cy(r) });
+      }
+      st.rh = ROWS.map((s, r) => { const n = text(G, s, 290, cy(r) + 12, 34, C.paper, { mono: true, anchor: 'end', len: f2(mw(s, 34)) }); return n; });
+      st.ch = COLS.map((s, c) => { const n = g(G); text(n, s, 0, 0, 34, C.paper, { mono: true, anchor: 'middle', len: f2(mw(s, 34)) }); return n; });
+      st.axH = mlab(G, 'CARTE DU CROUPIER', 775, 98, 26, C.paper, 'middle', 4);
+      st.axV = g(G); { const t = mlab(st.axV, 'TA MAIN', 0, 0, 26, C.paper, 'middle', 4); }
+      st.ring = rect(G, 106, CY0 + 8 * PH - 5, 1138, CH + 10, 28, 'none', C.paper, 6);
+      st.col7 = rect(G, CX0 + 5 * PW - 4, 104, CW + 8, 692, 8, 'none', C.lime, 6);
+      st.veil = rect(G, 40, 90, 1220, 716, 0, C.ink);
+      st.ignTag = mkTag(root, 'PRESQUE PERSONNE NE LE SUIT', 46, C.paper, C.ink, { sh: 9 });
+
+      /* ---- panneau de droite ---- */
+      st.legend = g(root);
+      [['T', C.paper, 'TIRER', null], ['R', C.lime, 'RESTER', null], ['D', C.pocket, 'DOUBLER', C.lime]].forEach((o, i) => {
+        const y = 262 + i * 50;
+        rect(st.legend, 1400, y, 44, 40, 4, o[1], o[3] || C.ink, o[3] ? 3 : 4);
+        text(st.legend, o[2], 1462, y + 33, 40, C.paper, { len: f2(bw(o[2], 40)) });
+      });
+      mlab(st.legend, '+ SÉPARER : TABLEAU DES PAIRES', 1400, 424, 22, C.paper);
+      st.grat = mkTag(root, 'GRATUIT', 48, C.lime, C.ink, { sh: 9 });
+      st.card = g(root);
+      rect(st.card, 1350, 566, 490, 230, 14, C.lime);
+      rect(st.card, 1340, 556, 490, 230, 14, C.paper, C.ink, 7);
+      mlab(st.card, 'AVANTAGE MAISON', 1372, 608, 28, C.ink);
+      st.edgeT = text(st.card, edge, 1372, 748, 120, C.red, { len: f2(Math.min(bw(edge, 120), 430)) });
+
+      st.bubble = g(root);
+      {
+        const ls = bw(belief, 44) > 430 ? (() => { const w = belief.split(' '); let best = null; for (let k = 1; k < w.length; k++) { const a = w.slice(0, k).join(' '), b = w.slice(k).join(' '); const m = Math.max(bw(a, 44), bw(b, 44)); if (!best || m < best.m) best = { a, b, m }; } return best ? [best.a, best.b] : [belief]; })() : [belief];
+        const w = 500, h = ls.length * 52 + 36;
+        const x0 = 1830 - w, y0 = 100;
+        path(st.bubble, `M${x0 + 16} ${y0 + h - 4} L${x0 + 56} ${y0 + h - 4} L1250 690 Z`, C.paper, C.ink, 8);
+        rect(st.bubble, x0 + 10, y0 + 10, w, h, 18, SH);
+        rect(st.bubble, x0, y0, w, h, 18, C.paper, C.ink, 8);
+        // le recouvrement du trait de la queue sur la bulle
+        rect(st.bubble, x0 + 12, y0 + h - 8, 48, 14, 0, C.paper);
+        ls.forEach((s, i) => text(st.bubble, s, x0 + w / 2, y0 + 52 + i * 52, 44, C.ink, { anchor: 'middle', len: f2(bw(s, 44)) }));
+        st.bubStrike = line(st.bubble, x0 + 16, y0 + h / 2 + 4, x0 + w - 16, y0 + h / 2 - 12, C.red, 12);
+        st.bubStrike.setAttribute('stroke-linecap', 'butt');
+        st.bubW = w; st.bubH = h;
+      }
+
+      /* ---- zoom 16 × 7 ---- */
+      st.zoom = g(root);
+      rect(st.zoom, -125 + 10, -78 + 10, 250, 156, 10, SH);
+      rect(st.zoom, -125, -78, 250, 156, 10, C.paper, C.ink, 8);
+      text(st.zoom, 'T', 0, 18, 100, C.ink, { anchor: 'middle', len: f2(bw('T', 100)) });
+      mlab(st.zoom, 'TIRER', 0, 62, 34, C.ink, 'middle');
+
+      /* ---- panneau assurance ---- */
+      st.ins = g(root);
+      rect(st.ins, 1310, 130, 540, 600, 12, SH);
+      rect(st.ins, 1300, 120, 540, 600, 12, C.paper, C.ink, 8);
+      text(st.ins, 'ASSURANCE', 1340, 196, 64, C.ink, { len: f2(bw('ASSURANCE', 64)) });
+      const SC = 420 / Math.max(st.pa, st.pb);
+      const rows = [[edge, 'LA STRATÉGIE DE BASE', st.pa, 215], [insurance, 'L\'ASSURANCE', st.pb, 490]];
+      st.insBars = rows.map((r) => {
+        const y0 = r[3];
+        text(st.ins, r[0], 1340, y0 + 60, 64, C.red, { len: f2(Math.min(bw(r[0], 64), 440)) });
+        mlab(st.ins, r[1], 1340, y0 + 92, 22, C.ink);
+        const w = Math.max(14, r[2] * SC);
+        rect(st.ins, 1340, y0 + 112, 440, 46, 4, 'none', C.ink, 3);
+        const b = rect(st.ins, 1340, y0 + 112, w, 46, 4, C.red, C.ink, 5);
+        return { b, w };
+      });
+      st.insTag = mkTag(st.ins, ratio, 44, C.lime, C.ink, { sh: 8 });
+      st.insTag.g.setAttribute('transform', 'translate(1570 438) rotate(-3)');
+      PROBE.parentNode.removeChild(PROBE); PROBE = null;
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const T = st.T;
+        const noGrid = T.grid == null, noAx = T.axes == null;
+
+        /* grille : vague diagonale depuis le coin haut gauche (1,2 s, back-ease) */
+        for (const c of st.cells) {
+          let s = 1;
+          if (!noGrid) { const t0 = T.grid + ((c.r + c.c) / 18) * 0.85; s = t < t0 ? 0 : E.back(prog(t, t0, t0 + 0.35)); }
+          putc(c.n, c.x, c.y, 0, s, s, s > 0 ? 1 : 0);
+        }
+        st.rh.forEach((n, r) => { const p = noGrid ? 1 : E.out3(prog(t, T.grid + r * 0.07, T.grid + r * 0.07 + 0.3)); setA(n, 'opacity', f2(p)); vis(n, p > 0.001); });
+        st.ch.forEach((n, c) => { const p = noGrid ? 1 : E.out3(prog(t, T.grid + c * 0.07, T.grid + c * 0.07 + 0.3)); putc(n, cx(c), 160 + (1 - p) * 20, 0, 1, 1, p); });
+        // axes + légende
+        const pa = noAx ? 1 : E.out3(prog(t, T.axes, T.axes + 0.4));
+        setA(st.axH, 'opacity', f2(pa)); vis(st.axH, pa > 0.001);
+        putc(st.axV, 78, 485, -90, 1, 1, pa);
+        const lg = noAx ? 1 : E.out3(prog(t, T.axes + 0.2, T.axes + 0.6));
+        const insOn = T.insurance != null && t >= T.insurance + 0.1;
+        putc(st.legend, 0, 0, 0, 1, 1, insOn ? 0 : lg);
+        setA(st.legend, 'transform', `translate(${f2((1 - lg) * 60)} 0)`);
+
+        /* free */
+        const fg = T.free;
+        putc(st.grat.g, 1500, 494, -4, popS(t, fg), popS(t, fg), fg != null && t >= fg && !insOn ? 1 : 0);
+        const fc = fg == null ? 0 : E.back(prog(t, fg + 0.45, fg + 0.85));
+        putc(st.card, 0, 0, 0, 1, 1, fg != null && t >= fg + 0.45 && !insOn ? 1 : 0);
+        setA(st.card, 'transform', `translate(0 ${f2((1 - Math.min(1, fc)) * 60)})`);
+
+        /* ignored : voile + inclinaison, relevés au cue suivant */
+        let tEnd = null;
+        if (T.ignored != null) for (const k of ['belief', 'vs7', 'insurance']) if (T[k] != null && T[k] > T.ignored && (tEnd == null || T[k] < tEnd)) tEnd = T[k];
+        let ign = 0;
+        if (T.ignored != null && t >= T.ignored) ign = tEnd != null && t >= tEnd ? 1 - E.io2(prog(t, tEnd, tEnd + 0.35)) : E.out3(prog(t, T.ignored, T.ignored + 0.4));
+        setA(st.G, 'transform', `rotate(${f2(-4 * ign)} ${PIV[0]} ${PIV[1]})`);
+        setA(st.veil, 'opacity', f2(0.62 * ign)); vis(st.veil, ign > 0.001);
+        const igT = T.ignored != null && t >= T.ignored + 0.15 ? clamp(ign * 1.2) : 0;
+        putc(st.ignTag.g, PIV[0], PIV[1], -2, popS(t, T.ignored == null ? null : T.ignored + 0.15) * (tEnd != null && t >= tEnd ? 1 - prog(t, tEnd, tEnd + 0.2) : 1), undefined, igT > 0 ? 1 : 0);
+
+        /* belief : la ligne 16 cerclée, bulle en haut à droite */
+        const tb = T.belief;
+        const bOn = tb != null && t >= tb && !insOn;
+        const rp = tb == null ? 0 : E.out3(prog(t, tb, tb + 0.4));
+        vis(st.ring, rp > 0.001);
+        if (rp > 0.001) { setA(st.ring, 'stroke-dasharray', `${f2(2400 * rp)} 3000`); }
+        const bp = popS(t, tb == null ? null : tb + 0.25);
+        putc(st.bubble, 0, 0, 0, 1, 1, bOn && bp > 0 ? 1 : 0);
+        if (bOn) setA(st.bubble, 'transform', `translate(${f2((1 - Math.min(1, bp)) * 40)} 0)`);
+        const bs = T.vs7 == null ? 0 : prog(t, T.vs7 + 0.7, T.vs7 + 1.0);
+        vis(st.bubStrike, bs > 0.001);
+        if (bs > 0.001) setA(st.bubStrike, 'stroke-dasharray', `${f2(bs * 520)} 600`);
+
+        /* vs7 : colonne 7 surlignée, cellule 16 × 7 agrandie */
+        const t7 = T.vs7;
+        const cp = t7 == null ? 0 : E.out3(prog(t, t7, t7 + 0.4));
+        vis(st.col7, cp > 0.001);
+        if (cp > 0.001) { setA(st.col7, 'stroke-dasharray', `${f2(1500 * cp)} 3000`); }
+        const zp = t7 == null ? 0 : E.back(prog(t, t7 + 0.4, t7 + 0.85));
+        const zs = lerp(0.4167, 1, Math.min(1, zp));
+        // la cellule zoomée vit dans le repère du tableau (le tableau est à plat à ce moment-là)
+        putc(st.zoom, cx(5), cy(8), 0, zs, zs, t7 != null && t >= t7 + 0.4 ? 1 : 0);
+
+        /* assurance */
+        const ti = T.insurance;
+        const ip = ti == null ? 0 : E.out3(prog(t, ti, ti + 0.45));
+        vis(st.ins, ip > 0.001);
+        if (ip > 0.001) {
+          setA(st.ins, 'transform', `translate(${f2((1 - ip) * 620)} 0)`);
+          st.insBars.forEach((b, i) => { const q = E.out3(prog(t, ti + 0.5 + i * 0.5, ti + 1.0 + i * 0.5)); setA(b.b, 'width', f2(Math.max(0.01, b.w * q))); vis(b.b, q > 0.001); });
+          const sp = popS(t, ti + 1.0);
+          putc(st.insTag.g, 1570, 438, -3, sp, sp, sp > 0 ? 1 : 0);
+        }
+      } catch (e) { /* jamais d'exception */ }
     }
   });
 })();

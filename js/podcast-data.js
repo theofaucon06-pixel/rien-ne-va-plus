@@ -499,7 +499,7 @@ export const EPISODES = [
 
   {
     slug: 'le-seul-jeu-quon-peut-battre',
-    status: 'soon',
+    status: 'published',
     number: 5,
     title: 'Le seul jeu qu’on peut battre',
     hook: 'Au blackjack, on peut battre la maison. Ken Uston l’a fait. Alors la maison a changé les règles.',
@@ -508,7 +508,9 @@ export const EPISODES = [
     themes: ['maths', 'histoires'],
     mechanics: ['competence', 'simplicite', 'bruit'],
     witnesses: ['uston'],
-    audio: null,
+    audio: { file: 'assets/podcast/05-le-seul-jeu-quon-peut-battre.mp3', bytes: 8699545, seconds: 544 },
+    experience: 'motion',
+    poster: 363.3,
     sections: [
       {
         h: 'Une table à part',

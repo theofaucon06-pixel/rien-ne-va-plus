@@ -246,7 +246,7 @@
   /* =========================================================== */
   /*  MODE head                                                   */
   /* =========================================================== */
-  const HEAD_D = 'M 130 800 C 130 722 200 690 296 666 L 318 640 C 214 606 160 492 168 366 C 178 188 322 70 500 70 C 690 70 826 186 836 336 C 842 420 826 466 806 500 C 794 524 786 548 780 574 L 756 612 L 744 644 C 766 664 846 682 866 706 L 866 800 Z';
+  const HEAD_D = 'M 120 800 C 120 725 190 695 300 672 C 330 665 345 650 346 625 C 230 590 170 480 170 366 C 176 190 322 70 500 70 C 690 70 828 188 836 338 C 840 410 826 456 808 492 C 798 514 792 536 790 566 C 788 600 774 628 748 646 C 770 664 846 684 868 710 L 868 800 Z';
   const SCR = { x: 500, y: 340 };
   const CW = 43.2;                                // largeur d'un caractère Mono 72 px
   const ROW_Y = (i) => 180 + 135 * i;
@@ -294,7 +294,7 @@
     /* ---- silhouette (aucun trait de visage : contour seul) ---- */
     path(root, HEAD_D, C.pocket, C.paper, 6);
     st.pad = g(root);
-    rect(st.pad, 150, 752, 700, 30, 8, C.red, C.paper, 5);
+    rect(st.pad, 100, 790, 800, 30, 8, C.grey, C.paper, 5);
     /* ---- écran ---- */
     st.scr = g(root);
     st.scrR = rect(st.scr, -260, -150, 520, 300, 20, C.ink, C.paper, 8);
@@ -351,10 +351,10 @@
         o.stk.appendChild(tx);
         o.stkX = LEG_X + w / 2; o.stkY = y;
       } else if (k.key === 'glass') {
-        const a = mkGlass(o.g); a.setAttribute('transform', `translate(${OBJ_X - 34} ${y}) scale(0.9)`);
-        o.g2 = mkGlass(o.g); o.gx = OBJ_X + 38; o.gy = y;
-        o.leg1 = text(o.g, L.g1, LEG_X + 40, y + 9, 26, C.paper, { mono: true }); fitW(o.leg1, 590);
-        o.leg2 = text(o.g, L.g2, LEG_X + 40, y + 9, 26, C.paper, { mono: true }); fitW(o.leg2, 590);
+        const a = mkGlass(o.g); a.setAttribute('transform', `translate(${OBJ_X - 40} ${y}) scale(1.05)`);
+        o.g2 = mkGlass(o.g); o.gx = OBJ_X + 42; o.gy = y;
+        o.leg1 = text(o.g, L.g1, LEG_X + 50, y + 9, 26, C.paper, { mono: true }); fitW(o.leg1, 590);
+        o.leg2 = text(o.g, L.g2, LEG_X + 50, y + 9, 26, C.paper, { mono: true }); fitW(o.leg2, 590);
       } else if (k.key === 'seat') {
         const pk = mkPic(o.g, 'chair', 0.5); pk.setAttribute('transform', `translate(${OBJ_X} ${y}) ` + (pk.getAttribute('transform') || ''));
         o.leg1 = text(o.g, L.seat, LEG_X, y + 9, 26, C.paper, { mono: true }); fitW(o.leg1, 620);
@@ -385,7 +385,7 @@
     const tOn = st.tOn, tCh = st.tCh, tG1 = st.tG1, tG2 = st.tG2, tNC = st.tNC, tMem = st.tMem, tBall = st.tBall, tSeat = st.tSeat;
     const on = tOn != null && t >= tOn;
     setA(st.scrR, 'fill', on ? C.paper : C.ink); setA(st.scrR, 'stroke', on ? C.ink : C.paper);
-    vis(st.sc, on);
+    setA(st.sc, 'display', on ? 'inline' : 'none');
     // inclinaison et coins (verre)
     const tg = tG1 != null ? tG1 : tG2;
     const gp = tg == null ? 0 : E.io2(prog(t, tg, tg + 0.5));
@@ -458,7 +458,7 @@
       const e = t - o.t0;
       const pe = E.out3(prog(e, 0, 0.4)), op = prog(e, 0, 0.2) * (1 - exitQ);
       const show = e >= 0 && exitQ < 1;
-      vis(o.g, show);
+      setA(o.g, 'display', show ? 'inline' : 'none');
       setA(o.g, 'transform', `translate(${f2((1 - pe) * 260 + exitQ * 300)} 0)`);
       setA(o.g, 'opacity', f2(op));
       const lp = prog(e, 0.2, 0.5);
@@ -472,7 +472,7 @@
       } else if (o.key === 'glass') {
         const second = tG2 != null && t >= tG2;
         const b = second ? E.back(prog(t, tG2, tG2 + 0.3)) : 0;
-        put(o.g2, o.gx, o.gy, 0, 0.9 * b, 0.9 * b, b > 0.001 ? 1 : 0);
+        put(o.g2, o.gx, o.gy, 0, 1.05 * b, 1.05 * b, b > 0.001 ? 1 : 0);
         const lq = E.out2(prog(second ? t - tG2 : e, 0.05, 0.3));
         vis(o.leg1, !second); vis(o.leg2, second);
         const ln = second ? o.leg2 : o.leg1;

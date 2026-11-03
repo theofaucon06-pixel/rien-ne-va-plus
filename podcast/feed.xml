@@ -76,5 +76,20 @@
       <itunes:explicit>false</itunes:explicit>
       <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/se-refaire" type="text/html" language="fr"/>
     </item>
+    <item>
+      <title>Le seul jeu qu’on peut battre</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/le-seul-jeu-quon-peut-battre</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/le-seul-jeu-quon-peut-battre</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>Le blackjack, la stratégie de base d’Edward Thorp et le comptage de cartes de Ken Uston, jusqu’au procès de 1982. Puis les deux jeux où c’est l’inverse : la roue de la fortune, simple et chère, et le craps, bruyant et cher.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/05-le-seul-jeu-quon-peut-battre.mp3" length="8699545" type="audio/mpeg"/>
+      <itunes:title>Le seul jeu qu’on peut battre</itunes:title>
+      <itunes:episode>5</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>544</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-seul-jeu-quon-peut-battre" type="text/html" language="fr"/>
+    </item>
   </channel>
 </rss>
