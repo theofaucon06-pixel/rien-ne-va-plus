@@ -54,7 +54,7 @@
   "rewrites": [
     {
       "source": "/jeu",
-      "destination": "/index.html"
+      "destination": "/"
     }
   ]
 }
