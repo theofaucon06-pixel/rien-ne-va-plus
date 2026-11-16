@@ -665,6 +665,7 @@ export function renderFeed() {
     <generator>Rien ne va plus — tools/build-podcast.mjs</generator>
     <copyright>© ${SHOW.published.slice(0, 4)} ${x(SHOW.host)}</copyright>
     <itunes:author>${x(SHOW.host)}</itunes:author>
+    <itunes:owner><itunes:name>${x(SHOW.host)}</itunes:name><itunes:email>${x(SHOW.email)}</itunes:email></itunes:owner>
     <itunes:summary>${x(SHOW.description)}</itunes:summary>
     <itunes:type>episodic</itunes:type>
     <itunes:explicit>${SHOW.explicit ? 'true' : 'false'}</itunes:explicit>
