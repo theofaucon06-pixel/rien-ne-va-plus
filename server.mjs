@@ -484,8 +484,11 @@ export function createApp({
       if (pathname === "/podcast" || pathname === "/podcast/")
         pathname = "/podcast/index.html";
       else if (/^\/podcast\/[\w-]+$/.test(pathname)) pathname += ".html";
+      // The brand guide and its thumbnails live in /brand (Vercel serves them as static files; clean URL without .html).
+      if (pathname === "/brand" || pathname === "/brand/") pathname = "/brand/charte-graphique.html";
+      else if (pathname === "/brand/charte-graphique") pathname += ".html";
       if (
-        !/^\/(index\.html|classic\.html|manifest\.webmanifest|sw\.js|podcast\/[\w-]+\.(?:html|xml)|(?:js|css|assets|vendor)\/[\w./-]+)$/.test(
+        !/^\/(index\.html|classic\.html|manifest\.webmanifest|sw\.js|podcast\/[\w-]+\.(?:html|xml)|brand\/(?:charte-graphique\.html|miniatures\/[\w-]+\.png)|(?:js|css|assets|vendor)\/[\w./-]+)$/.test(
           pathname,
         ) ||
         pathname.split("/").some((p) => p.startsWith(".")) ||

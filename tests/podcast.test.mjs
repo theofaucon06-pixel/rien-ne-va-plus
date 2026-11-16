@@ -210,7 +210,7 @@ test("every page has one h1, valid JSON-LD, and only working internal links", ()
       }
       assert.ok(link.startsWith("/"), `${rel}: relative link ${link}`);
       const [p, hash] = link.split("#");
-      const file = p === "/" ? "index.html" : p === "/podcast" ? "podcast/index.html" : /^\/podcast\/[\w-]+$/.test(p) ? p.slice(1) + ".html" : p.slice(1);
+      const file = p === "/" ? "index.html" : p === "/podcast" ? "podcast/index.html" : p === "/brand/charte-graphique" ? "brand/charte-graphique.html" : /^\/podcast\/[\w-]+$/.test(p) ? p.slice(1) + ".html" : p.slice(1);
       if (file.startsWith("podcast/") && file.endsWith(".html")) assert.ok(pages.has(file), `${rel}: link to a page that is not published: ${link}`);
       if (!file.startsWith("assets/podcast/") && !file.startsWith("css/podcast-") && !file.startsWith("js/podcast-motion"))
         assert.ok(existsSync(path.join(root, file)), `${rel}: dead link ${link}`); // brand, fonts and motion files are checked in their own test
