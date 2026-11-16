@@ -332,6 +332,383 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/backstage-engine.js ==== */
+// Composant `backstage-engine` (épisode 0) : « l'autre côté du décor ». Une façade de casino générique pivote, révèle son dos, puis la vraie machine : la case du zéro devenue volant moteur,
+// courroie, compteur de tours, goulotte à jetons, caisse de la maison qui se remplit.
+// Props : sign, house, rpm, start (facade|engine), caption, labels[3].
+// Cues : facade, turn, engine, belt, label-1..3, house, front.
+// Cue absent : chaîne facade/turn/engine = l'étape suivante d'une étape présente n'a pas lieu (un plan « facade » seul reste sur la façade) ; sans aucun cue de la chaîne, l'état final (dos rangé + machine) est là dès t = 0 ;
+// belt / labels / house absents = affichés dès que le volant existe ; front absent = n'a pas lieu.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter ; rien d'important sous y = 840.
+(() => {
+  'use strict';
+  const { C, F, E, clamp, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const I = 1 / 30;
+  const INF = Infinity;
+  // progression 0→1 qui tolère ±Infinity
+  const pg = (t, a, d) => (a === -INF ? 1 : a === INF ? 0 : clamp((t - a) / d));
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.trim().length ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const tr = (n, x, y, r, sx, sy) => { let s = `translate(${f2(x)} ${f2(y)})`; if (r) s += ` rotate(${f2(r)})`; if (sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) s += ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})`; setA(n, 'transform', s); };
+  const setT = (n, s) => { if (n.__t !== s) { n.__t = s; n.textContent = s; } };
+  function metric(root) {
+    const probe = sv('text', { x: 0, y: -3000, 'font-size': 100, 'font-weight': 800, visibility: 'hidden' }, root);
+    const cache = {};
+    const est = (s, mono) => { let a = 0; for (const ch of s) a += mono ? 60 : (ch === ' ' ? 26 : /[0-9]/.test(ch) ? 60 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 68 : /[.,:;'’!|·]/.test(ch) ? 32 : 58); return a; };
+    return (s, size, mono) => {
+      s = String(s); const k = (mono ? 'm' : 'd') + s; let w = cache[k];
+      if (w === undefined) {
+        probe.setAttribute('font-family', mono ? F.mono : F.display); probe.textContent = s;
+        w = 0; try { w = probe.getComputedTextLength(); } catch (e) { w = 0; }
+        if (!(w > 0)) w = est(s, mono);
+        cache[k] = w;
+      }
+      return w * size / 100;
+    };
+  }
+  const mkT = (M) => function T(parent, s, x, y, size, fill, o) {
+    o = o || {}; s = String(s);
+    let w = M(s, size, o.mono);
+    if (o.maxW && w > o.maxW) { size = Math.max(o.min || 10, size * o.maxW / w); w = M(s, size, o.mono); }
+    const n = text(parent, s, x, y, f2(size), fill, { mono: o.mono, anchor: o.anchor, spacing: o.spacing });
+    if (!o.free) { const lim = o.maxW ? Math.min(w, o.maxW) : w; n.setAttribute('textLength', f2(lim)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); w = lim; }
+    n.__w = w; n.__s = size; return n;
+  };
+  // barre épaisse bordée : ligne `border` large dessous, ligne `fill` dessus
+  function beam(parent, x1, y1, x2, y2, w, fill, border, bw) {
+    line(parent, x1, y1, x2, y2, border, w + 2 * bw, { 'stroke-linecap': 'butt' });
+    line(parent, x1, y1, x2, y2, fill, w, { 'stroke-linecap': 'butt' });
+  }
+  // sticker centré sur (0,0)
+  function stk(parent, label, size, fill, tfill, maxW, minS, M, T) {
+    const grp = g(parent);
+    let s = size, w = M(label, s);
+    if (w > maxW) { s = Math.max(minS, size * maxW / w); w = Math.min(M(label, s), maxW); }
+    const bw = Math.round(w + 60), bh = Math.round(s * 1.18 + 26);
+    rect(grp, -bw / 2 + 10, -bh / 2 + 10, bw, bh, 14, C.ink);
+    rect(grp, -bw / 2, -bh / 2, bw, bh, 14, fill, C.ink, 6);
+    T(grp, label, 0, s * 0.35, s, tfill, { anchor: 'middle', maxW: w + 0.5 });
+    grp.__w = bw; grp.__h = bh; return grp;
+  }
+  // tangentes extérieures de deux cercles : [haute, basse] = [[p1,p2],[p1,p2]] (p1 sur c1, p2 sur c2)
+  function tang(x1, y1, r1, x2, y2, r2) {
+    const dx = x2 - x1, dy = y2 - y1, d = Math.hypot(dx, dy) || 1, ph = Math.atan2(dy, dx);
+    const a = Math.acos(clamp((r1 - r2) / d, -1, 1));
+    const mk = (th) => { const nx = Math.cos(th), ny = Math.sin(th); return [[x1 + r1 * nx, y1 + r1 * ny], [x2 + r2 * nx, y2 + r2 * ny]]; };
+    return [mk(ph - a), mk(ph + a)];
+  }
+  let UID = 0;
+
+  ZV.define('backstage-engine', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const M = metric(root), T = mkT(M);
+      const sh = { beats: shot.beats || [] };
+      const cu = (n) => { const v = ZV.cue(sh, n); return v == null ? null : v; };
+      const startEng = str(P.start, 'facade') === 'engine';
+      const sign = str(P.sign, 'CASINO').toUpperCase(), house = str(P.house, 'LA MAISON').toUpperCase();
+      const caption = typeof P.caption === 'string' ? P.caption.trim() : 'L’AUTRE CÔTÉ DU DÉCOR';
+      const dl = ['À CHAQUE TOUR', 'SANS PAUSE', 'SANS MAUVAISE SOIRÉE'];
+      const labelsP = Array.isArray(P.labels) ? P.labels : dl;
+      const labels = [0, 1, 2].map((i) => str(labelsP[i], dl[i]).toUpperCase());
+      const rpm = clamp(num(P.rpm, 30), 1, 90);
+      const st = { rpm, startEng };
+
+      // ---- calendrier effectif
+      const cF = cu('facade'), cT = cu('turn'), cE = cu('engine'), cB = cu('belt'), cH = cu('house'), cFr = cu('front');
+      const cL = [cu('label-1'), cu('label-2'), cu('label-3')];
+      const k = st.k = {};
+      if (startEng) {
+        k.fac = INF; k.turn = -INF; k.eng = cE != null ? cE : -INF;
+      } else {
+        const hasF = cF != null, hasT = cT != null;
+        k.fac = hasF ? cF : -INF;
+        k.turn = hasT ? cT : (hasF ? INF : -INF);
+        k.eng = cE != null ? cE : ((hasF || hasT) ? INF : -INF);
+      }
+      k.belt = Math.max(cB != null ? cB : -INF, k.eng);
+      k.lab = cL.map((c) => Math.max(c != null ? c : -INF, k.eng));
+      k.house = cH != null ? cH : -INF;
+      k.front = cFr != null ? cFr : INF;
+      k.tRot = cE != null ? cE : -1.2;
+      k.cap = k.turn === INF ? INF : (k.turn === -INF ? -INF : k.turn + 18 * I);
+      k.gate = k.belt + 0.6;
+
+      // ---- décor fixe
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      rect(root, 80, 766, 1760, 8, 0, C.paper);
+
+      // vignette (front) : cadre
+      const vig = st.vig = g(root);
+      rect(vig, -120 + 8, -110 + 8, 240, 220, 0, C.pocket);
+      rect(vig, -120, -110, 240, 220, 0, C.ink, C.lime, 6);
+
+      // ---- machine : courroie
+      const beltG = st.beltG = g(root);
+      st.ringW = circle(beltG, 0, 0, 208, 'none', C.paper, 10); st.ringW.setAttribute('stroke-dasharray', '18 18');
+      st.ringP = circle(beltG, 0, 0, 56, 'none', C.paper, 10); st.ringP.setAttribute('stroke-dasharray', '18 18');
+      st.bTop = line(beltG, 0, 0, 0, 0, C.paper, 10, { 'stroke-dasharray': '18 18', 'stroke-linecap': 'butt' });
+      st.bBot = line(beltG, 0, 0, 0, 0, C.paper, 10, { 'stroke-dasharray': '18 18', 'stroke-linecap': 'butt' });
+
+      // goulotte
+      const chS = [975, 580], chE = [1650, 486];
+      st.chS = chS; st.chE = chE;
+      const chL = Math.hypot(chE[0] - chS[0], chE[1] - chS[1]), chA = Math.atan2(chE[1] - chS[1], chE[0] - chS[0]) * 180 / Math.PI;
+      st.chA = chA;
+      const chute = st.chute = g(root);
+      rect(chute, 6, -20 + 8, chL, 40, 0, C.pocket);
+      rect(chute, 0, -20, chL, 40, 0, C.paper, C.ink, 6);
+      line(chute, 6, 8, chL - 6, 8, C.ink, 4, { 'stroke-linecap': 'butt' });
+
+      // caisse
+      const crate = st.crate = g(root);
+      rect(crate, 1512, 482, 300, 270, 0, C.pocket);
+      rect(crate, 1500, 470, 300, 270, 0, C.paper, C.ink, 8);
+      rect(crate, 1570, 477, 160, 14, 0, C.ink);
+      st.houseLab = g(crate);
+      const hl = st.houseLab;
+      const hw = Math.min(268, Math.max(150, M(house, 54) + 44));
+      rect(hl, -hw / 2, -25, hw, 50, 6, C.ink);
+      T(hl, house, 0, 19, 54, C.paper, { anchor: 'middle', maxW: hw - 36, min: 28 });
+      rect(crate, 1530, 560, 240, 160, 0, C.pocket, C.ink, 6);
+      st.gauge = rect(crate, 1533, 717, 234, 0.01, 0, C.lime);
+      let tk = ''; for (let y = 717 - 8; y > 563; y -= 8) tk += `M1533 ${y}H1767`;
+      path(crate, tk, 'none', C.ink, 2, { opacity: 0.55 });
+      st.hOut = rect(crate, 1523, 553, 254, 174, 0, 'none', C.lime, 8);
+
+      // compteur
+      const cnt = st.cnt = g(root);
+      rect(cnt, 1510, 230, 300, 160, 0, C.pocket);
+      rect(cnt, 1500, 220, 300, 160, 0, C.ink, C.paper, 6);
+      T(cnt, 'TOURS', 1650, 205, 26, C.paper, { anchor: 'middle', mono: true, maxW: 200, free: true });
+      const cid = 'zvbe' + (++UID);
+      const defs = sv('defs', null, cnt);
+      const cp = sv('clipPath', { id: cid }, defs);
+      sv('rect', { x: 1530, y: 244, width: 240, height: 112 }, cp);
+      const dg = g(cnt, { 'clip-path': `url(#${cid})` });
+      st.dig = [];
+      for (let i = 0; i < 4; i++) {
+        const x = 1650 + (i - 1.5) * 58;
+        const a = text(dg, '0', x, 332, 90, C.lime, { anchor: 'middle', mono: true, weight: 800 });
+        const b = text(dg, '0', x, 432, 90, C.lime, { anchor: 'middle', mono: true, weight: 800 });
+        st.dig.push({ a, b });
+      }
+
+      // poulie
+      const pul = st.pul = g(root);
+      circle(pul, 0, 0, 50, C.paper, C.ink, 6);
+      const pr = st.pulRot = g(pul);
+      for (let i = 0; i < 3; i++) { const a = i * 60 * ZV.D2R; line(pr, -34 * Math.cos(a), -34 * Math.sin(a), 34 * Math.cos(a), 34 * Math.sin(a), C.ink, 8, { 'stroke-linecap': 'butt' }); }
+      circle(pul, 0, 0, 10, C.ink);
+
+      // volant
+      const wheel = st.wheel = g(root);
+      circle(wheel, 0, 0, 200, C.lime, C.ink, 8);
+      const rot = st.rot = g(wheel);
+      for (let i = 0; i < 6; i++) { const a = i * 60 * ZV.D2R; line(rot, 62 * Math.cos(a), 62 * Math.sin(a), 160 * Math.cos(a), 160 * Math.sin(a), C.ink, 14, { 'stroke-linecap': 'butt' }); }
+      for (let i = 0; i < 12; i++) { const n = rect(rot, -10, -196, 20, 28, 0, C.ink); n.setAttribute('transform', `rotate(${i * 30})`); }
+      circle(rot, 128, 0, 15, C.red, C.ink, 4);
+      const z = text(wheel, '0', 0, 82, 230, C.ink, { anchor: 'middle' });
+      z.setAttribute('stroke', C.lime); z.setAttribute('stroke-width', 16); z.setAttribute('stroke-linejoin', 'round'); z.setAttribute('paint-order', 'stroke');
+
+      // jetons
+      st.tok = [];
+      for (let i = 0; i < 3; i++) {
+        const tg = g(root);
+        circle(tg, 0, 0, 18, C.white, C.ink, 4);
+        circle(tg, 0, 0, 11, 'none', C.lime, 3);
+        st.tok.push(tg);
+      }
+
+      // ---- panneau (façade / dos), repère local centré sur (0,0) = (960,450)
+      const panel = st.panel = g(root);
+      const face = st.face = g(panel), back = st.back = g(panel);
+      beam(face, -560, 0, -650, 320, 14, C.ink, C.paper, 4); beam(face, 560, 0, 650, 320, 14, C.ink, C.paper, 4);
+      rect(face, -620 + 14, -300 + 14, 1240, 600, 0, C.pocket);
+      rect(face, -560, 300, 70, 20, 0, C.ink, C.paper, 4); rect(face, 490, 300, 70, 20, 0, C.ink, C.paper, 4);
+      rect(face, -620, -300, 1240, 600, 0, C.paper, C.ink, 8);
+      rect(face, -617, -297, 1234, 97, 0, C.ink, C.paper, 6);
+      const sg = T(face, sign, 0, -215, 110, C.paper, { anchor: 'middle', maxW: 900, min: 60 });
+      sg.setAttribute('y', f2(-250 + 0.365 * sg.__s));
+      st.bulbs = [];
+      for (let i = 0; i < 14; i++) st.bulbs.push(circle(face, -560 + i * (1120 / 13), -166, 12, C.pocket, C.ink, 3));
+      [-540, -400, -260, 260, 400, 540].forEach((cx) => {
+        rect(face, cx - 35, -130, 70, 370, 0, C.paper, C.ink, 6);
+        rect(face, cx - 45, -140, 90, 18, 0, C.ink);
+        rect(face, cx - 45, 224, 90, 16, 0, C.ink);
+        line(face, cx - 12, -112, cx - 12, 222, C.ink, 4, { 'stroke-linecap': 'butt' }); line(face, cx + 12, -112, cx + 12, 222, C.ink, 4, { 'stroke-linecap': 'butt' });
+      });
+      rect(face, -616, 240, 1232, 20, 0, C.ink);
+      rect(face, -200, -100, 400, 34, 0, C.ink);
+      for (let i = 0; i < 5; i++) circle(face, -160 + i * 80, -83, 7, C.lime);
+      path(face, 'M-150 240 L150 240 L230 320 L-230 320 Z', C.red, C.ink, 6);
+      rect(face, -170, -52, 164, 292, 0, C.pocket, C.ink, 6); rect(face, 6, -52, 164, 292, 0, C.pocket, C.ink, 6);
+      circle(face, -24, 100, 11, C.lime, C.ink, 3); circle(face, 24, 100, 11, C.lime, C.ink, 3);
+      // dos : cadre ouvert
+      ['M-620 60 L-620 320 L-790 320 Z', 'M620 60 L620 320 L790 320 Z'].forEach((d) => { path(back, d, 'none', C.paper, 30); path(back, d, 'none', C.ink, 20); });
+      beam(back, -594, -274, 0, 274, 26, C.paper, C.ink, 5); beam(back, 594, -274, 0, 274, 26, C.paper, C.ink, 5);
+      rect(back, -560, 300, 70, 20, 0, C.paper, C.ink, 5); rect(back, 490, 300, 70, 20, 0, C.paper, C.ink, 5);
+      rect(back, -620, -300, 26, 600, 0, C.paper, C.ink, 5); rect(back, 594, -300, 26, 600, 0, C.paper, C.ink, 5);
+      rect(back, -620, -300, 1240, 26, 0, C.paper, C.ink, 5); rect(back, -620, 274, 1240, 26, 0, C.paper, C.ink, 5);
+      rect(back, -594, -22, 1188, 44, 0, C.paper, C.ink, 5);
+      text(back, 'DÉCOR · FACE A', 0, 10, 28, C.ink, { anchor: 'middle', mono: true, spacing: 3 });
+      [[-630, -150, 34, 52], [596, 130, 34, 52]].forEach((c) => { rect(back, c[0], c[1], c[2] + 8, c[3], 3, C.red, C.ink, 4); line(back, c[0] + c[2] / 2 + 4, c[1] - 12, c[0] + c[2] / 2 + 4, c[1], C.paper, 6, { 'stroke-linecap': 'butt' }); });
+      rect(back, 230, -304, 52, 34, 3, C.red, C.ink, 4);
+
+      // ---- stickers
+      st.lab = [];
+      const labSpec = [[C.lime, C.ink, -4, 520], [C.paper, C.ink, 3, 480], [C.red, C.paper, -2, 620]];
+      for (let i = 0; i < 3; i++) {
+        const o = g(root), s = stk(o, labels[i], 44, labSpec[i][0], labSpec[i][1], labSpec[i][3], 30, M, T);
+        let x, y;
+        if (i === 0) { x = Math.max(1120, 1012 + s.__w / 2); y = 624; }
+        else if (i === 1) { x = 1180; y = 172; }
+        else { x = 80 + s.__w / 2; y = 196; }
+        st.lab.push({ g: o, x, y, r: labSpec[i][2] });
+      }
+      st.capG = null;
+      if (caption) { const o = g(root); stk(o, caption.toUpperCase(), 56, C.paper, C.ink, 1200, 36, M, T); st.capG = o; }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const k = st.k;
+      const r = st.rpm / 60; // tours/s
+      const A = (tt) => { const tau = tt - k.tRot; if (!(tau > 0)) return 0; return tau < 0.8 ? r * tau * tau / 1.6 : r * (tau - 0.4); };
+      const Tk = (n) => k.tRot + (n <= 0.4 * r ? Math.sqrt(1.6 * n / r) : n / r + 0.4);
+      const engOn = t >= k.eng;
+      const frontOn = t >= k.front;
+      const fp = pg(t, k.front, 14 * I);
+
+      // ---------- panneau
+      let pu, theta;
+      const piv = Math.PI * (1 - E.io2(pg(t, k.front + 0.2, 18 * I)));
+      if (st.startEng) {
+        pu = 1 - E.out3(fp); theta = piv;
+      } else {
+        const se = E.out3(pg(t, k.eng, 14 * I));
+        pu = se * (1 - E.out3(fp));
+        theta = frontOn && se > 0 ? piv : Math.PI * E.io2(pg(t, k.turn, 18 * I));
+      }
+      const pshow = st.startEng ? frontOn : t >= k.fac;
+      const xs = st.startEng ? -300 : 246;
+      const px = 960 + (xs - 960) * pu, py = 450 + (670 - 450) * pu, ps = 1 - 0.7 * pu;
+      let fy = 0, fx = 0;
+      if (!st.startEng && k.fac > -INF && k.fac < INF && t >= k.fac) {
+        const q = t - k.fac;
+        if (q < 0.32) fy = -760 * (1 - (q / 0.32) * (q / 0.32));
+        else if (q < 0.42) fy = -10 * Math.sin(Math.PI * (q - 0.32) / 0.1);
+        const s = ZV.shakeAt(t, k.fac + 0.32, 6, 0.3); fx = s[0]; fy += s[1];
+      }
+      const sx = Math.abs(Math.cos(theta));
+      vis(st.panel, pshow && sx > 0.004);
+      tr(st.panel, px + fx, py + fy, 0, ps * Math.max(sx, 0.0001), ps);
+      const onFace = theta < Math.PI / 2;
+      vis(st.face, onFace); vis(st.back, !onFace);
+
+      // ampoules
+      let base = null;
+      if (frontOn) { const pe = k.front + 0.2 + 18 * I; if (t >= pe) base = pe; }
+      else if (t < k.turn) base = k.fac > -INF ? k.fac + 0.4 : -1;
+      if (base !== null && onFace) {
+        const stp = Math.floor(Math.max(0, t - base - 0.95) * 2);
+        for (let i = 0; i < 14; i++) setA(st.bulbs[i], 'fill', t >= base + i * 2 * I ? [C.lime, C.paper, C.red][(i + stp) % 3] : C.pocket);
+      } else for (let i = 0; i < 14; i++) setA(st.bulbs[i], 'fill', C.pocket);
+
+      // ---------- volant
+      const wp = engOn ? Math.max(0, E.back(pg(t, k.eng, 10 * I))) : 0;
+      const fw = E.out3(fp);
+      const wx = 820 + 900 * fw, wy = 430 + 240 * fw, wsc = (1 - 0.5 * fw) * wp;
+      vis(st.wheel, engOn && wsc > 0.002);
+      tr(st.wheel, wx, wy, 0, Math.max(wsc, 0.0001));
+      setA(st.rot, 'transform', `rotate(${f2((360 * A(t)) % 360)})`);
+      const vp = frontOn ? pg(t, k.front, 8 * I) : 0;
+      vis(st.vig, vp > 0); tr(st.vig, 1720, 670, 0, Math.max(E.back(vp), 0.0001));
+
+      // ---------- courroie, compteur, caisse
+      const ex = frontOn ? E.in2(pg(t, k.front, 10 * I)) : 0;
+      const gone = frontOn && ex >= 1;
+      const e0 = E.out3(pg(t, k.belt, 12 * I));
+      const e1 = E.out3(pg(t, k.belt + 3 * I, 12 * I));
+      const e2 = E.out3(pg(t, k.belt + 6 * I, 12 * I));
+      const on0 = t >= k.belt && !gone;
+      const dB = 700 * (1 - e0) + 700 * ex, dC = 450 * (1 - e1) + 500 * ex, dK = 450 * (1 - e2) + 500 * ex;
+      vis(st.beltG, on0); vis(st.pul, on0);
+      if (on0) {
+        const pcx = 1420 + dB, pcy = 300;
+        tr(st.pul, pcx, pcy, 0, 1);
+        const rw = Math.max(1, 208 * wsc);
+        const s = 480 * A(t);
+        const off = f2(-(s % 36));
+        const tg = tang(wx, wy, rw, pcx, pcy, 56);
+        const L1 = st.bTop, L2 = st.bBot;
+        setA(L1, 'x1', f2(tg[0][0][0])); setA(L1, 'y1', f2(tg[0][0][1])); setA(L1, 'x2', f2(tg[0][1][0])); setA(L1, 'y2', f2(tg[0][1][1]));
+        setA(L2, 'x1', f2(tg[1][1][0])); setA(L2, 'y1', f2(tg[1][1][1])); setA(L2, 'x2', f2(tg[1][0][0])); setA(L2, 'y2', f2(tg[1][0][1]));
+        setA(L1, 'stroke-dashoffset', off); setA(L2, 'stroke-dashoffset', off);
+        setA(st.ringW, 'cx', f2(wx)); setA(st.ringW, 'cy', f2(wy)); setA(st.ringW, 'r', f2(rw)); setA(st.ringW, 'stroke-dashoffset', off);
+        setA(st.ringP, 'cx', f2(pcx)); setA(st.ringP, 'cy', pcy); setA(st.ringP, 'stroke-dashoffset', off);
+        setA(st.pulRot, 'transform', `rotate(${f2(((s / 50) * 180 / Math.PI) % 360)})`);
+      }
+      vis(st.cnt, on0); vis(st.crate, on0); vis(st.chute, on0);
+      if (on0) {
+        tr(st.cnt, dC, 0, 0, 1); tr(st.crate, dK, 0, 0, 1);
+        const n = Math.min(9999, Math.floor(A(t)));
+        const q = n >= 1 ? E.out3(clamp((t - Tk(n)) / (6 * I))) : 1;
+        const len = String(n).length, lenP = String(Math.max(n - 1, 0)).length;
+        for (let i = 0; i < 4; i++) {
+          const pw = Math.pow(10, 3 - i), pos = 3 - i;
+          const nd = Math.floor(n / pw) % 10, od = Math.floor(Math.max(n - 1, 0) / pw) % 10;
+          const d = st.dig[i], roll = q < 1 && nd !== od;
+          setT(d.a, String(roll ? od : nd)); setA(d.a, 'fill', (roll ? pos >= lenP : pos >= len) ? C.grey : C.lime);
+          setA(d.a, 'y', f2(roll ? 332 - 100 * q : 332));
+          setT(d.b, String(nd)); setA(d.b, 'fill', pos >= len ? C.grey : C.lime);
+          vis(d.b, roll); setA(d.b, 'y', f2(432 - 100 * q));
+        }
+        const cg = E.out3(pg(t, k.belt + 6 * I, 12 * I)) * (1 - ex);
+        tr(st.chute, st.chS[0], st.chS[1], st.chA, Math.max(cg, 0.0001), 1);
+        const kLo = Math.floor(A(k.gate));
+        const cr = Math.max(0, Math.floor(A(t - 0.6)) - kLo);
+        const gh = Math.min(152, 8 * cr);
+        setA(st.gauge, 'y', f2(717 - gh)); setA(st.gauge, 'height', f2(Math.max(gh, 0.01)));
+        let hs = 1, shk = [0, 0];
+        if (k.house > -INF && t >= k.house) { hs = 1 + 0.3 * (1 - E.out2(clamp((t - k.house) / (5 * I)))); shk = ZV.shakeAt(t, k.house, 8, 0.4); }
+        tr(st.houseLab, 1650 + shk[0], 522 + shk[1], 0, hs);
+        vis(st.hOut, t >= k.house);
+        const nL = Math.floor(A(t));
+        for (let j = 0; j < 3; j++) {
+          const kk = nL - j, tg = st.tok[j];
+          let shown = false;
+          if (kk >= 1 && kk > kLo && !frontOn) {
+            const p = (t - Tk(kk)) / 0.6;
+            if (p >= 0 && p < 1) {
+              shown = true;
+              const q2 = Math.pow(p, 1.5);
+              const x = st.chS[0] + (st.chE[0] - st.chS[0]) * q2, y = st.chS[1] + (st.chE[1] - st.chS[1]) * q2 - 2;
+              const sc = Math.min(1, p / 0.12), sy = p > 0.85 ? Math.max(0.0001, 1 - (p - 0.85) / 0.15) : 1;
+              tr(tg, x, y + (p > 0.85 ? (p - 0.85) * 40 : 0), 0, sc, sc * sy);
+            }
+          }
+          vis(tg, shown);
+        }
+      } else for (let j = 0; j < 3; j++) vis(st.tok[j], false);
+
+      // ---------- stickers
+      const exL = 2100 * ex;
+      for (let i = 0; i < 3; i++) {
+        const L = st.lab[i];
+        const p = t >= k.lab[i] ? pg(t, k.lab[i], 8 * I) : 0;
+        if (p > 0 && !gone) { vis(L.g, true); tr(L.g, L.x + exL, L.y, L.r, Math.max(0.0001, E.back(p))); } else vis(L.g, false);
+      }
+      if (st.capG) {
+        const p = t >= k.cap ? pg(t, k.cap, 8 * I) : 0;
+        if (p > 0) { vis(st.capG, true); tr(st.capG, 960, 80, -3, Math.max(0.0001, E.back(p))); } else vis(st.capG, false);
+      }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/big-number.js ==== */
 // Composant « big-number » : voir tools/video/composition/INTERFACE.md. Fonction pure du temps du plan, aplats seulement.
 (() => {
@@ -15172,6 +15549,365 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/promise-charter.js ==== */
+// Composant `promise-charter` : « La promesse » (S3 de l'épisode 0). Une charte d'une page qui se coche clause par clause, chaque clause avec sa vignette :
+// 1 le réel (fiche + étiquette COMPOSITE agrafée), 2 le chiffre sourcé (renvoi pointillé vers la note de bas de page + loupe), 3 pas de sermon (bulle barrée), 4 pas de système (boîte vide tamponnée).
+// Cues : sheet, c1, c2, c3, c4, tag, footnote, verify, open, none, sealed. Fond ink. Aucun dégradé, flou, lueur ni filter. Aucune personne dessinée.
+// Règle des cues absents : un élément sans cue est affiché dans son état final dès t = 0 (sauf `sealed`, facultatif : visible seulement si le plan n'a AUCUN cue).
+(() => {
+  'use strict';
+  const { C, E, prog, lerp, f2, sv, g, rect, circle, path, line, text, put } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const I = 1 / 30;
+  const len = (n, fb) => { try { const w = n.getComputedTextLength(); return w > 0 ? w : fb; } catch (e) { return fb; } };
+  // réduit la police jusqu'à `min`, puis impose la largeur : jamais de débordement
+  function fit(n, size, maxW, min) {
+    try {
+      let w = n.getComputedTextLength();
+      if (w > maxW && w > 0) {
+        const s = Math.max(min, Math.floor((size * maxW) / w));
+        n.setAttribute('font-size', s);
+        w = n.getComputedTextLength();
+        if (w > maxW) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+      }
+    } catch (e) { /* hors DOM */ }
+  }
+  let UID = 0;
+
+  const FLAP = 'M1560 50V110H1620Z';
+  const ROW_Y = [240, 380, 520, 660];
+  const DEF_CLAUSES = [
+    { text: 'DU RÉEL', sub: 'COMPOSITE OU FICTIF : JE TE LE DIS' },
+    { text: 'CHAQUE CHIFFRE SOURCÉ', sub: 'EN BAS DE LA PAGE, POUR QUE TU VÉRIFIES' },
+    { text: 'PAS DE SERMON', sub: 'TA SOIRÉE T’APPARTIENT' },
+    { text: 'PAS DE SYSTÈME POUR GAGNER', sub: 'C’EST JUSTEMENT LE SUJET' }
+  ];
+  const CUE_NAMES = ['sheet', 'c1', 'c2', 'c3', 'c4', 'tag', 'footnote', 'verify', 'open', 'none', 'sealed'];
+
+  // tampon à double bordure ink : renvoie { grp, w, h } centré sur (0,0)
+  function stampBox(parent, fill, lines, size, pitch, padX, padY, minW, maxW) {
+    const grp = g(parent);
+    const tmp = g(grp);
+    const nodes = lines.map((s) => text(tmp, s, 0, 0, size, C.ink, { anchor: 'middle' }));
+    let tw = 0;
+    nodes.forEach((n) => { tw = Math.max(tw, len(n, n.textContent.length * size * 0.62)); });
+    let fs = size;
+    if (tw + 2 * padX > maxW) { fs = Math.max(26, Math.floor((size * (maxW - 2 * padX)) / tw)); tw = tw * fs / size; nodes.forEach((n) => n.setAttribute('font-size', fs)); }
+    const w = Math.min(maxW, Math.max(minW, tw + 2 * padX));
+    const h = lines.length * pitch * (fs / size) + 2 * padY;
+    grp.removeChild(tmp);
+    rect(grp, -w / 2 + 8, -h / 2 + 8, w, h, 4, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, 4, fill, C.ink, 6);
+    rect(grp, -w / 2 + 11, -h / 2 + 11, w - 22, h - 22, 2, 'none', C.ink, 3);
+    const p = pitch * (fs / size);
+    nodes.forEach((n, i) => {
+      grp.appendChild(n);
+      n.setAttribute('x', 0);
+      n.setAttribute('y', f2(-((lines.length - 1) * p) / 2 + i * p + fs * 0.35));
+      if (len(n, 0) > w - 2 * padX) { n.setAttribute('textLength', f2(w - 2 * padX)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+    });
+    return { grp, w, h };
+  }
+
+  function build(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const cueT = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).sort((a, c) => a.t - c.t)[0]; return b ? b.t : null; };
+      const uid = 'pc' + (++UID);
+      const kicker = str(p.kicker, 'ZÉRO VERT · SAISON 1');
+      const title = str(p.title, 'LA PROMESSE');
+      const clauses = DEF_CLAUSES.map((d, i) => {
+        const c = Array.isArray(p.clauses) ? p.clauses[i] : null;
+        return { text: str(c && c.text, d.text), sub: str(c && c.sub, d.sub) };
+      });
+      const tagTxt = str(p.tag, 'COMPOSITE');
+      const figTxt = str(p.figure, 'CHIFFRE');
+      const footTxt = str(p.footnote, '¹ SOURCE · AUTEUR · ANNÉE');
+      const boxTxt = str(p.box, 'SYSTÈME POUR GAGNER');
+      const noneTxt = str(p.none, 'IL N’EN EXISTE PAS');
+      const totalTxt = str(p.stamp_total, 'PROMIS');
+
+      const st = {};
+      st.tS = cueT('sheet');
+      st.tC = [cueT('c1'), cueT('c2'), cueT('c3'), cueT('c4')];
+      st.tTag = cueT('tag'); st.tFoot = cueT('footnote'); st.tVer = cueT('verify'); st.tOpen = cueT('open'); st.tNone = cueT('none'); st.tSeal = cueT('sealed');
+      st.anyCue = CUE_NAMES.some((n) => cueT(n) != null);
+      st.title = title;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+
+      /* ---------- clips ---------- */
+      const defs = sv('defs', null, root);
+      const clip = (id, x, y, w, h) => { const cp = sv('clipPath', { id }, defs); sv('rect', { x, y, width: w, height: h }, cp); return `url(#${id})`; };
+      const clipRows = clip(uid + 'r', 296, 226, 1332, 580);
+      const clipNone = clip(uid + 'n', 1230, 618, 360, 182);
+      const clipSeal = clip(uid + 's', 1240, 62, 330, 150);
+
+      /* ---------- feuille ---------- */
+      st.sheet = g(root);
+      const sh = st.sheet;
+      const SHEET = 'M300 50H1560L1620 110V800H300Z';
+      path(sh, SHEET, C.lime, null, 0, { transform: 'translate(16 16)' });
+      path(sh, SHEET, C.paper, C.ink, 8);
+      path(sh, FLAP, C.white, C.ink, 8);
+
+      /* en-tête */
+      const kn = text(sh, kicker, 360, 114, 24, C.ink, { mono: true, weight: 700 });
+      fit(kn, 24, 860, 18);
+      st.tn = text(sh, title, 360, 196, 92, C.ink);
+      fit(st.tn, 92, 860, 56);
+      st.tn.textContent = '';
+      line(sh, 360, 215, 1560, 215, C.ink, 6, { 'stroke-linecap': 'butt' });
+      st.titleN = -1;
+      // longueur utile du titre (lettres tapées une à une, alignées à gauche)
+      st.titleLen = title.length;
+
+      /* ---------- rangées ---------- */
+      st.clipG = g(sh, { 'clip-path': clipRows });
+      st.rows = [];
+      for (let i = 0; i < 4; i++) {
+        const y0 = ROW_Y[i], cy = y0 + 60;
+        const R = { y0, cy };
+        R.g = g(st.clipG);
+        if (i < 3) line(R.g, 350, y0 + 125, 1570, y0 + 125, C.ink, 3, { 'stroke-linecap': 'butt' });
+        // case à cocher
+        rect(R.g, 355, cy - 27, 64, 64, 0, C.ink);
+        R.box = rect(R.g, 350, cy - 32, 64, 64, 0, C.paper, C.ink, 6);
+        R.chk = path(R.g, `M362 ${cy + 1}L377 ${cy + 15}L403 ${cy - 16}`, 'none', C.ink, 12, { pathLength: 1, 'stroke-dasharray': '0 2', visibility: 'hidden' });
+        // texte
+        const tx = text(R.g, clauses[i].text, 450, y0 + 62, 50, C.ink);
+        fit(tx, 50, 760, 38);
+        const sb = text(R.g, clauses[i].sub, 450, y0 + 98, 22, C.ink, { mono: true, weight: 600 });
+        fit(sb, 22, 760, 18);
+        R.v = g(R.g);
+        st.rows.push(R);
+      }
+
+      /* ---- 1 : réel ---- */
+      {
+        const R = st.rows[0], v = R.v, cy = R.cy;
+        rect(v, 1296, cy - 42, 150, 96, 4, C.ink);
+        rect(v, 1290, cy - 48, 150, 96, 4, C.paper, C.ink, 5);
+        circle(v, 1322, cy - 14, 19, C.pocket);
+        rect(v, 1352, cy - 26, 72, 10, 0, C.ink);
+        rect(v, 1352, cy - 8, 56, 10, 0, C.ink);
+        rect(v, 1306, cy + 18, 118, 10, 0, C.ink);
+        // étiquette Dymo + agrafe
+        st.tag = g(v);
+        const lt = text(st.tag, tagTxt, 0, 8, 22, C.paper, { anchor: 'middle', mono: true, weight: 800 });
+        fit(lt, 22, 200, 18);
+        const lw = Math.min(236, Math.max(110, len(lt, tagTxt.length * 13.2) + 36));
+        const lh = 40;
+        const bg = g(st.tag);
+        st.tag.insertBefore(bg, lt);
+        rect(bg, -lw / 2 + 5, -lh / 2 + 5, lw, lh, 5, C.ink);
+        rect(bg, -lw / 2, -lh / 2, lw, lh, 5, C.red, C.ink, 4);
+        st.staple = rect(st.tag, -lw / 2 + 4, -11, 7, 22, 1, C.ink);
+        st.tagX = 1440; st.tagY = cy + 22 + 0; st.tagLeft = Math.max(1290 + lw / 2 - 0, 0);
+        // la fiche occupe 1290-1440 ; l'étiquette dépasse un peu vers la droite, bornée par la zone (≤ 1580)
+        st.tagX = Math.min(1580 - lw / 2 - 8, 1300 + lw / 2 + 18);
+      }
+
+      /* ---- 2 : sourcé ---- */
+      {
+        const R = st.rows[1], v = R.v, y0 = R.y0;
+        const fg = text(v, figTxt, 1250, y0 + 48, 48, C.ink);
+        fit(fg, 48, 215, 30);
+        const fw = len(fg, figTxt.length * 30);
+        const px = Math.round(1250 + fw + 26), py = y0 + 24;
+        circle(v, px, py, 18, C.ink);
+        text(v, '¹', px, py + 9, 26, C.lime, { anchor: 'middle', mono: true, weight: 800 });
+        st.dot = line(v, px, py + 20, px, 466, C.ink, 5, { 'stroke-linecap': 'butt', 'stroke-dasharray': '9 8', visibility: 'hidden' });
+        st.dotY0 = py + 20; st.dotY1 = 466; st.dotX = px;
+        // bande de bas de page
+        st.band = g(v, { transform: 'translate(1246 466)' });
+        rect(st.band, 0, 0, 300, 34, 0, C.pocket);
+        const bt = text(st.band, footTxt, 8, 24, 18, C.paper, { mono: true, weight: 600 });
+        fit(bt, 18, 276, 14);
+        // loupe plate (verre creux : le texte dessous reste lisible)
+        st.lens = g(v);
+        line(st.lens, 24, -24, 34, -34, C.ink, 12, { 'stroke-linecap': 'round' });
+        circle(st.lens, 0, 0, 34, 'none', C.ink, 8);
+        st.lensX = 1568; st.lensY = y0 + 92;
+        // coche lime sur pastille ink
+        st.vok = g(v);
+        circle(st.vok, 0, 0, 22, C.ink);
+        path(st.vok, 'M-11 1L-3 10L12 -9', 'none', C.lime, 10);
+        st.vokX = 1536; st.vokY = y0 + 28;
+      }
+
+      /* ---- 3 : sans sermon ---- */
+      {
+        const R = st.rows[2], v = R.v, y0 = R.y0;
+        rect(v, 1306, y0 + 12, 220, 80, 18, C.ink);
+        path(v, `M1342 ${y0 + 88}L1372 ${y0 + 88}L1336 ${y0 + 112}Z`, C.ink, C.ink, 6);
+        path(v, `M1338 ${y0 + 84}L1366 ${y0 + 84}L1332 ${y0 + 106}Z`, C.paper, C.ink, 6);
+        rect(v, 1300, y0 + 6, 220, 80, 18, C.paper, C.ink, 6);
+        rect(v, 1342, y0 + 76, 22, 14, 0, C.paper);
+        // index levé (silhouette plate)
+        const fx = 1410, fy = y0 + 50, fk = g(v, { transform: `translate(${fx} ${fy}) scale(1.2) translate(${-fx} ${-fy})` });
+        rect(fk, fx - 7, fy - 30, 14, 36, 7, C.ink);
+        rect(fk, fx - 23, fy - 6, 46, 32, 9, C.ink);
+        rect(fk, fx - 32, fy + 1, 16, 14, 6, C.ink);
+        st.x1 = line(v, 1314, y0 + 18, 1506, y0 + 74, C.red, 14, { visibility: 'hidden' });
+        st.x2 = line(v, 1506, y0 + 18, 1314, y0 + 74, C.red, 14, { visibility: 'hidden' });
+        st.xy0 = y0;
+      }
+
+      /* ---- 4 : pas de système ---- */
+      {
+        const R = st.rows[3], v = R.v, y0 = R.y0;
+        const H = y0 + 30;                   // charnière (arrière de l'ouverture)
+        // corps de la boîte : ouverture (intérieur vide) puis face avant portant l'étiquette
+        rect(v, 1250, H, 320, 90, 0, C.ink);
+        rect(v, 1258, H + 6, 304, 50, 0, C.pocket);
+        rect(v, 1266, H + 13, 288, 36, 0, 'none', C.paper, 4, { 'stroke-dasharray': '10 8', 'stroke-linejoin': 'miter' });
+        const bl = text(v, boxTxt, 1410, y0 + 111, 22, C.lime, { anchor: 'middle', mono: true, weight: 800 });
+        fit(bl, 22, 292, 18);
+        // couvercle : bascule autour de la charnière (hauteur apparente = L·cos θ)
+        st.lid = g(v);
+        st.lidR = rect(st.lid, 0, 0, 320, 60, 0, C.paper, C.ink, 6, { 'vector-effect': 'non-scaling-stroke' });
+        st.lidH = H;
+        // tampon
+        st.nclip = g(v, { 'clip-path': clipNone });
+        const sb = stampBox(st.nclip, C.red, splitStamp(noneTxt), 36, 36, 20, 8, 150, 300);
+        st.nstamp = sb.grp;
+        st.nx = 1450; st.ny = y0 + 22;
+      }
+
+      /* ---------- tampon « sealed » ---------- */
+      st.sclip = g(sh, { 'clip-path': clipSeal });
+      {
+        const sb = stampBox(st.sclip, C.lime, [totalTxt], 64, 64, 22, 14, 150, 280);
+        st.sstamp = sb.grp;
+      }
+      // bordure de la feuille par-dessus les rangées qui glissent
+      path(sh, SHEET, 'none', C.ink, 8);
+      path(sh, FLAP, C.white, C.ink, 8);
+      return st;
+  }
+
+  ZV.define('promise-charter', {
+    init(root, shot) {
+      const st = build(root, shot);
+      st.lastT = 0;
+      // les mesures de texte dépendent des polices : si elles ne sont pas encore chargées, on reconstruit une fois qu'elles le sont
+      try {
+        const ok = document.fonts.check('800 50px "Bricolage Grotesque"', 'ÉA') && document.fonts.check('800 22px "JetBrains Mono"', 'A¹');
+        if (!ok) {
+          Promise.all([document.fonts.load('800 50px "Bricolage Grotesque"', 'ÉA'), document.fonts.load('800 22px "JetBrains Mono"', 'A¹'), document.fonts.load('600 22px "JetBrains Mono"', 'A¹')]).then(() => {
+            while (root.firstChild) root.removeChild(root.firstChild);
+            const t = st.lastT;
+            for (const k in st) delete st[k];
+            Object.assign(st, build(root, shot));
+            st.lastT = t;
+            try { draw(st, t); } catch (e) { /* rien */ }
+          }).catch(() => {});
+        }
+      } catch (e) { /* hors navigateur */ }
+      return st;
+    },
+
+    update(st, t, shot) {
+      st.lastT = t;
+      try { draw(st, t); } catch (e) { /* jamais d'exception */ }
+    }
+  });
+
+  // « IL N’EN EXISTE PAS » : 2 lignes équilibrées sur les espaces
+  function splitStamp(s) {
+    const w = s.split(/\s+/);
+    if (w.length < 2) return [s];
+    let best = 1, bd = 1e9;
+    for (let j = 1; j < w.length; j++) { const d = Math.abs(w.slice(0, j).join(' ').length - w.slice(j).join(' ').length); if (d < bd) { bd = d; best = j; } }
+    return [w.slice(0, best).join(' '), w.slice(best).join(' ')];
+  }
+
+  const ph = (t, t0, d) => (t0 == null ? 1 : prog(t, t0, t0 + d));
+  const on = (t, t0) => t0 == null || t >= t0;
+
+  function draw(st, t) {
+    /* feuille */
+    const ps = ph(t, st.tS, 14 * I);
+    const es = E.out3(ps);
+    setA(st.sheet, 'display', on(t, st.tS) ? 'inline' : 'none');
+    setA(st.sheet, 'transform', `translate(0 ${f2((1 - es) * 900)}) rotate(${f2(lerp(-4, -1, es))} 960 425)`);
+    // titre lettre à lettre (2 i par lettre) après l'arrivée de la feuille
+    let n = st.titleLen;
+    if (st.tS != null) { const dt = t - (st.tS + 14 * I); n = dt < 0 ? 0 : Math.min(st.titleLen, Math.floor(dt / (2 * I)) + 1); }
+    if (n !== st.titleN) { st.titleN = n; st.tn.textContent = st.title.slice(0, n); }
+
+    /* rangées */
+    for (let i = 0; i < 4; i++) {
+      const R = st.rows[i], t0 = st.tC[i];
+      const p1 = ph(t, t0, 10 * I);
+      setA(R.g, 'display', on(t, t0) ? 'inline' : 'none');
+      setA(R.g, 'transform', `translate(${f2(-(1 - E.out3(p1)) * 340)} 0)`);
+      const pc = ph(t, t0 == null ? null : t0 + 10 * I, 6 * I);
+      setA(R.box, 'fill', pc > 0 ? C.lime : C.paper);
+      setA(R.chk, 'visibility', pc > 0 ? 'visible' : 'hidden');
+      setA(R.chk, 'stroke-dasharray', `${f2(pc)} 2`);
+    }
+
+    /* 1 : étiquette collée */
+    {
+      const p = ph(t, st.tTag, 6 * I), e = E.out3(p);
+      put(st.tag, st.tagX + (1 - e) * 44, st.rows[0].cy + 24 - (1 - e) * 70, -8 - (1 - e) * 14, 1 + (1 - e) * 0.5, 1 + (1 - e) * 0.5, on(t, st.tTag) ? 1 : 0);
+      setA(st.staple, 'visibility', p >= 1 ? 'visible' : 'hidden');
+    }
+
+    /* 2 : renvoi de source, loupe */
+    {
+      const pd = ph(t, st.tFoot, 12 * I);
+      setA(st.dot, 'visibility', pd > 0 ? 'visible' : 'hidden');
+      setA(st.dot, 'y2', f2(lerp(st.dotY0, st.dotY1, pd)));
+      const pb = ph(t, st.tFoot == null ? null : st.tFoot + 8 * I, 4 * I);
+      setA(st.band, 'visibility', pb > 0 ? 'visible' : 'hidden');
+      setA(st.band, 'transform', `translate(1246 466) scale(${f2(Math.max(pb, 0.0001))} 1)`);
+      const pv = ph(t, st.tVer, 10 * I);
+      setA(st.lens, 'visibility', on(t, st.tVer) ? 'visible' : 'hidden');
+      setA(st.lens, 'transform', `translate(${f2(st.lensX + (1 - E.out3(pv)) * 340)} ${st.lensY})`);
+      const pk = ph(t, st.tVer == null ? null : st.tVer + 10 * I, 5 * I);
+      put(st.vok, st.vokX, st.vokY, 0, E.back(pk), E.back(pk), pk > 0 ? 1 : 0);
+    }
+
+    /* 3 : croix rouge (2 traits de 3 i, 8 i après la coche) */
+    {
+      const t3 = st.tC[2];
+      const base = t3 == null ? null : t3 + 18 * I;
+      const a = ph(t, base, 3 * I), b = ph(t, base == null ? null : base + 3 * I, 3 * I);
+      const y0 = st.xy0;
+      setA(st.x1, 'visibility', a > 0 ? 'visible' : 'hidden');
+      setA(st.x1, 'x2', f2(lerp(1314, 1506, a))); setA(st.x1, 'y2', f2(lerp(y0 + 18, y0 + 74, a)));
+      setA(st.x2, 'visibility', b > 0 ? 'visible' : 'hidden');
+      setA(st.x2, 'x2', f2(lerp(1506, 1314, b))); setA(st.x2, 'y2', f2(lerp(y0 + 18, y0 + 74, b)));
+    }
+
+    /* 4 : couvercle (0 → −110°) puis tampon */
+    {
+      const po = ph(t, st.tOpen, 10 * I);
+      const th = E.io2(po) * 110 * ZV.D2R;
+      const c = Math.cos(th);
+      setA(st.lid, 'transform', `translate(1250 ${st.lidH}) scale(1 ${f2(Math.abs(c) < 0.0001 ? 0.0001 : c)})`);
+      setA(st.lidR, 'fill', c >= 0 ? C.paper : C.white);
+      const on_ = on(t, st.tNone);
+      const pn = ph(t, st.tNone, 5 * I), s = lerp(2.4, 1, E.in2(pn));
+      const sk = st.tNone == null ? [0, 0] : ZV.shakeAt(t, st.tNone + 5 * I, 10, 0.35);
+      put(st.nstamp, st.nx + sk[0], st.ny + sk[1], -8, s, s, on_ ? 1 : 0);
+    }
+
+    /* tampon « sealed » : seulement s'il est cué, ou si le plan n'a aucun cue (état final) */
+    {
+      const shown = st.tSeal != null ? t >= st.tSeal : !st.anyCue;
+      const pn = st.tSeal == null ? 1 : prog(t, st.tSeal, st.tSeal + 5 * I), s = lerp(2.4, 1, E.in2(pn));
+      const sk = st.tSeal == null ? [0, 0] : ZV.shakeAt(t, st.tSeal + 5 * I, 6, 0.3);
+      put(st.sstamp, 1405 + sk[0], 140 + sk[1], 6, s, s, shown ? 1 : 0);
+    }
+  }
+})();
+;
 /* ==== tools/video/composition/components/rebate-loop.js ==== */
 // Composant `rebate-loop` (épisode 7) : la remise sur les pertes. Voir EP7-COMPONENTS.md.
 // À gauche une étiquette de prix (la perte) qui se balance au bout de sa ficelle, un sticker de remise, des liasses qui filent,
@@ -17459,6 +18195,379 @@
         op(st.phoneCap, tp == null ? 0 : prog(t, tp + 0.9, tp + 1.15));
         popT(st.stkPhone, st.phoneStkX, 756, 0, tp == null ? 0 : prog(t, tp + 1.5, tp + 1.85));
       } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/season-board.js ==== */
+// Composant `season-board` (épisode 0) : le sommaire de la saison, 9 cartes (3 × 3) retournées une par une, puis trois cartes dont le verso montre un témoin (un objet, jamais une personne) ; sert aussi au « premier épisode ».
+// Props : title, episodes[9] {n,title,sub,picto}, witnesses[3] {cue,card,object,role,line}, start (closed|open), first_label.
+// Cues : title, e1…e9, all, people, w-escroc / w-ecrivain / w-joueuse (noms modifiables par witnesses[].cue), first.
+// Cue absent = l'étape n'a pas lieu ; sans aucun cue : start = open, 9 cartes face visibles, titre en place, immobile.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter ; rien d'important sous y = 840.
+(() => {
+  'use strict';
+  const { C, F, E, clamp, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const I = 1 / 30;
+  const INF = Infinity;
+  const pg = (t, a, d) => (a === -INF ? 1 : a === INF ? 0 : clamp((t - a) / d));
+  const str = (v, d) => (typeof v === 'string' && v.trim().length ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const tr = (n, x, y, r, sx, sy) => { let s = `translate(${f2(x)} ${f2(y)})`; if (r) s += ` rotate(${f2(r)})`; if (sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) s += ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})`; setA(n, 'transform', s); };
+  function metric(root) {
+    const probe = sv('text', { x: 0, y: -3000, 'font-size': 100, 'font-weight': 800, visibility: 'hidden' }, root);
+    const cache = {};
+    const est = (s, mono) => { let a = 0; for (const ch of s) a += mono ? 60 : (ch === ' ' ? 26 : /[0-9]/.test(ch) ? 60 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 68 : /[.,:;'’!|·]/.test(ch) ? 32 : 58); return a; };
+    return (s, size, mono) => {
+      s = String(s); const k = (mono ? 'm' : 'd') + s; let w = cache[k];
+      if (w === undefined) {
+        probe.setAttribute('font-family', mono ? F.mono : F.display); probe.setAttribute('font-weight', mono ? 600 : 800); probe.textContent = s;
+        w = 0; try { w = probe.getComputedTextLength(); } catch (e) { w = 0; }
+        if (!(w > 0)) w = est(s, mono);
+        cache[k] = w;
+      }
+      return w * size / 100;
+    };
+  }
+  // coupe en n lignes équilibrées sur les espaces : {w, lines}
+  function split(M, s, n, sz, mono) {
+    const words = String(s).split(/\s+/).filter(Boolean); if (!words.length) words.push(' ');
+    n = Math.max(1, Math.min(n, words.length));
+    const wl = (a, b) => M(words.slice(a, b).join(' '), sz, mono);
+    let best = null;
+    const rec = (start, left, cuts, mx) => {
+      if (left === 1) { const m = Math.max(mx, wl(start, words.length)); if (!best || m < best.w - 0.5) best = { w: m, cuts: cuts.slice() }; return; }
+      for (let e = start + 1; e <= words.length - (left - 1); e++) { cuts.push(e); rec(e, left - 1, cuts, Math.max(mx, wl(start, e))); cuts.pop(); }
+    };
+    rec(0, n, [], 0);
+    const lines = []; let s0 = 0;
+    for (const c of best.cuts.concat([words.length])) { lines.push(words.slice(s0, c).join(' ')); s0 = c; }
+    return { w: best.w, lines };
+  }
+  // meilleur découpage ≤ maxL lignes tenant dans maxW à la taille sz (le moins de lignes possible) ou null
+  function fitLines(M, s, sz, maxW, maxL, mono) {
+    const words = String(s).split(/\s+/).filter(Boolean).length || 1;
+    for (let n = 1; n <= Math.min(maxL, words); n++) { const p = split(M, s, n, sz, mono); if (p.w <= maxW + 0.5) return p; }
+    return null;
+  }
+  // texte placé avec largeur imposée
+  function put(parent, s, x, y, size, fill, M, o) {
+    o = o || {};
+    const n = text(parent, s, x, y, f2(size), fill, { mono: o.mono, anchor: o.anchor, weight: o.weight });
+    const w = M(s, size, o.mono);
+    n.setAttribute('textLength', f2(o.maxW ? Math.min(w, o.maxW) : w)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    return n;
+  }
+
+  // ---------- pictos : zone 130 × 130 centrée sur (0,0) ----------
+  const PAL = {
+    face: { ln: C.ink, dk: C.ink, a: C.paper, b: C.white, lm: C.lime, rd: C.red, pk: C.pocket, lt: C.paper, ed: C.paper },
+    inv: { ln: C.paper, dk: C.ink, a: C.ink, b: C.paper, lm: C.lime, rd: C.lime, pk: C.ink, lt: C.paper, ed: C.ink }
+  };
+  const ell = (p, cx, cy, rx, ry, fill, stroke, sw) => sv('ellipse', { cx, cy, rx, ry, fill, stroke, 'stroke-width': sw }, p);
+  function pic(parent, kind, mode) {
+    const p = PAL[mode], G = g(parent), W = 5;
+    const R = (x, y, w, h, rx, fill, stroke, sw) => rect(G, x, y, w, h, rx, fill, stroke, sw);
+    switch (kind) {
+      case 'ball':
+        circle(G, -16, 22, 30, p.b, p.ln, W);
+        circle(G, 8, -4, 5, p.a, p.ln, 4); circle(G, 19, -18, 8, p.a, p.ln, 4);
+        ell(G, 30, -42, 34, 22, p.a, p.ln, W);
+        break;
+      case 'slot':
+        R(-46, -46, 92, 104, 8, p.pk, p.ln, W);
+        R(-52, -60, 104, 26, 6, p.rd, p.ln, W);
+        [-39, -13, 13].forEach((x) => { R(x, -20, 26, 40, 3, p.a, p.ln, 3); circle(G, x + 13, 0, 6, p.ln); });
+        line(G, 46, -22, 62, -38, p.ln, 6); circle(G, 62, -40, 7, p.rd, p.ln, 4);
+        R(-46, 36, 92, 22, 4, p.lm, p.ln, W);
+        break;
+      case 'ladder':
+        [14, 28, 56, 84].forEach((h, i) => R(-60 + i * 30, 58 - h, 28, h, 2, i < 3 ? p.a : p.rd, p.ln, W));
+        break;
+      case 'chase':
+        line(G, -62, 12, 62, 12, p.ln, 3, { 'stroke-dasharray': '6 7', 'stroke-linecap': 'butt' });
+        path(G, 'M-56 12 L-12 -46 L26 38', 'none', p.ln, 10, { 'stroke-linejoin': 'round' });
+        path(G, 'M43 35 L13 49 L38 64 Z', p.rd, p.ln, 5);
+        break;
+      case 'cards':
+        [[-14, 0, -14], [16, 4, 12]].forEach((c) => {
+          const cg = g(G, { transform: `translate(${c[0]} ${c[1]}) rotate(${c[2]})` });
+          rect(cg, -28, -40, 56, 80, 7, 'none', p.dk, 12);
+          rect(cg, -28, -40, 56, 80, 7, p.pk, p.lt, 5);
+          rect(cg, -17, -29, 34, 58, 3, 'none', p.lt, 2.5);
+        });
+        break;
+      case 'clock-off':
+        circle(G, 0, 0, 44, p.a, p.ln, W);
+        [[0, -36, 0, -28], [36, 0, 28, 0], [0, 36, 0, 28], [-36, 0, -28, 0]].forEach((l) => line(G, l[0], l[1], l[2], l[3], p.ln, 4));
+        line(G, 0, 0, 0, -24, p.ln, 5); line(G, 0, 0, 17, 9, p.ln, 5);
+        line(G, -54, -54, 54, 54, p.dk, 20); line(G, -54, -54, 54, 54, p.rd, 10);
+        break;
+      case 'carpet':
+        path(G, 'M-58 60 L58 60 L17 -50 L-17 -50 Z', p.rd, p.ln, W);
+        line(G, -46, 54, -12, -42, p.ed, 5); line(G, 46, 54, 12, -42, p.ed, 5);
+        [[18, 33], [-12, 20]].forEach((a) => line(G, -a[1], a[0], a[1], a[0], p.ed, 3, { 'stroke-linecap': 'butt' }));
+        line(G, -30, -50, 30, -50, p.ln, 5);
+        break;
+      case 'phone':
+        R(-34, -58, 68, 116, 10, p.pk, p.ln, W);
+        R(-26, -42, 52, 84, 3, p.b);
+        circle(G, 0, -2, 22, p.lm, p.dk, 3);
+        for (let i = 0; i < 3; i++) { const a = i * 60 * ZV.D2R; line(G, -22 * Math.cos(a), -2 - 22 * Math.sin(a), 22 * Math.cos(a), -2 + 22 * Math.sin(a), p.dk, 3, { 'stroke-linecap': 'butt' }); }
+        R(-10, 48, 20, 4, 2, p.lt);
+        break;
+      case 'exit':
+        R(-42, -56, 64, 112, 0, p.pk, p.ln, W);
+        path(G, 'M-42 -56 L-14 -46 L-14 46 L-42 56 Z', p.a, p.ln, W);
+        circle(G, -20, 0, 3.5, p.ln);
+        path(G, 'M2 -8 H34 V-22 L62 0 L34 22 V8 H2 Z', p.lm, p.ln, W);
+        break;
+      // objets des témoins (palette fixe sur carte ink) : jamais de personne
+      case 'tophat':
+        line(G, -50, 58, 46, -40, C.paper, 16); line(G, -50, 58, 46, -40, C.lime, 8);
+        path(G, 'M46 -40 q12 -14 22 -4', 'none', C.paper, 14); path(G, 'M46 -40 q12 -14 22 -4', 'none', C.lime, 7);
+        ell(G, 0, 36, 54, 12, C.ink, C.paper, W);
+        R(-32, -40, 64, 76, 0, C.ink, C.paper, W);
+        R(-29, 12, 58, 16, 0, C.lime);
+        ell(G, 0, -40, 32, 9, C.ink, C.paper, W);
+        break;
+      case 'quill':
+        path(G, 'M-18 22 C-8 -28 22 -50 56 -60 C50 -30 32 2 -12 20 Z', C.paper, C.paper, 3);
+        line(G, -18, 22, 46, -52, C.ink, 3);
+        R(-48, 16, 44, 40, 6, C.ink, C.paper, W); R(-38, 6, 24, 12, 2, C.ink, C.paper, 4);
+        R(16, -6, 9, 38, 0, C.paper); R(16, 28, 40, 9, 0, C.paper); line(G, 20, 36, 20, 58, C.paper, 7); line(G, 52, 36, 52, 58, C.paper, 7);
+        break;
+      case 'stool':
+        R(-8, -12, 16, 62, 0, C.ink, C.paper, W);
+        ell(G, 0, 52, 36, 8, C.ink, C.paper, W);
+        R(-42, -34, 84, 22, 11, C.red, C.paper, W);
+        circle(G, 52, 24, 14, C.lime, C.paper, W);
+        break;
+      default:
+        circle(G, 0, 0, 40, p.a, p.ln, W);
+    }
+    return G;
+  }
+
+  const DEF_EP = [
+    { n: '01', title: 'La bille n’a pas de mémoire', sub: '', picto: 'ball' },
+    { n: '02', title: 'La zone', sub: '', picto: 'slot' },
+    { n: '03', title: 'Le système infaillible', sub: 'qui ne l’est jamais', picto: 'ladder' },
+    { n: '04', title: 'Se refaire', sub: 'perdre plus vite en voulant rattraper', picto: 'chase' },
+    { n: '05', title: 'Le seul jeu qu’on peut battre', sub: '', picto: 'cards' },
+    { n: '06', title: 'Une maison sans horloges', sub: '', picto: 'clock-off' },
+    { n: '07', title: 'Le tapis rouge', sub: 'et qui le paie', picto: 'carpet' },
+    { n: '08', title: 'Le casino dans la poche', sub: '', picto: 'phone' },
+    { n: '09', title: 'La sortie', sub: '', picto: 'exit' }
+  ];
+  const DEF_W = [
+    { cue: 'w-escroc', card: 1, object: 'tophat', role: 'Un escroc', line: 'qui a fait sauter la banque de Monte-Carlo' },
+    { cue: 'w-ecrivain', card: 3, object: 'quill', role: 'Un écrivain russe', line: 'et la femme qui l’attendait' },
+    { cue: 'w-joueuse', card: 2, object: 'stool', role: 'Une joueuse de Las Vegas', line: 'qui ne joue pas pour gagner' }
+  ];
+  const XS = [140, 700, 1260], YS = [130, 370, 610];
+
+  ZV.define('season-board', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const M = metric(root);
+      const sh = { beats: shot.beats || [] };
+      const cu = (n) => { const v = ZV.cue(sh, n); return v == null ? null : v; };
+      const st = { cards: [] };
+      const titleTxt = str(P.title, 'SAISON 1 · 9 ÉPISODES').toUpperCase();
+      const peopleTxt = 'AVEC DES GENS QUI L’ONT VÉCU';
+      const firstTxt = str(P.first_label, 'PREMIER ÉPISODE').toUpperCase();
+      const epP = Array.isArray(P.episodes) ? P.episodes : [];
+      const eps = DEF_EP.map((d, i) => { const e = epP[i] && typeof epP[i] === 'object' ? epP[i] : {}; return { n: str(e.n, d.n), title: typeof e.title === 'string' ? e.title : d.title, sub: typeof e.sub === 'string' ? e.sub : d.sub, picto: str(e.picto, d.picto) }; });
+      const wP = Array.isArray(P.witnesses) ? P.witnesses : [];
+      const wit = wP.length ? wP : DEF_W;
+
+      // ---- calendrier
+      const tTitle = cu('title'), tAll = cu('all'), tPeople = cu('people'), tFirst = cu('first');
+      const tE = eps.map((e, i) => cu('e' + (i + 1)));
+      const anyE = tE.some((x) => x != null) || tAll != null;
+      const closed = P.start === 'closed' ? true : P.start === 'open' ? false : anyE;
+      st.k = { title: tTitle, people: tPeople, first: tFirst, all: tAll };
+      const witByCard = {};
+      const wEv = [];
+      wit.forEach((w) => { const c = (w && +w.card) | 0; const tw = w ? cu(str(w.cue, '')) : null; if (c >= 1 && c <= 9) { witByCard[c - 1] = w; if (tw != null) wEv.push({ i: c - 1, t: tw }); } });
+
+      // ---- décor
+      rect(root, 0, 0, 1920, 1080, 0, C.lime);
+      let gd = ''; for (let x = 0; x <= 1920; x += 120) gd += `M${x} 0V1080`; for (let y = 0; y <= 1080; y += 120) gd += `M0 ${y}H1920`;
+      path(root, gd, 'none', C.ink, 2, { opacity: 0.12, 'stroke-linecap': 'butt' });
+      const cardsG = g(root);
+
+      // ---- événements de côté (face / dos / témoin) par carte
+      const evs = eps.map((e, i) => {
+        const a = [];
+        if (closed && tE[i] != null) a.push({ t: tE[i], to: 'face' });
+        const w = wEv.filter((x) => x.i === i); w.forEach((x) => a.push({ t: x.t, to: 'wit' }));
+        if (tFirst != null) a.push({ t: tFirst, to: 'face' });
+        return a;
+      });
+      if (closed && tAll != null) {
+        let rank = 0;
+        for (let i = 0; i < 9; i++) {
+          if (evs[i].some((x) => x.t <= tAll)) continue;
+          evs[i].push({ t: tAll + rank * 3 * I, to: 'face' }); rank++;
+        }
+      }
+      const cardEv = evs.map((a) => {
+        a.sort((x, y) => x.t - y.t);
+        let cur = closed ? 'back' : 'face'; const out = [];
+        a.forEach((x) => { if (x.to !== cur) { out.push({ t: x.t, from: cur, to: x.to }); cur = x.to; } });
+        return out;
+      });
+      // événements « carte active »
+      const act = [];
+      tE.forEach((x, i) => { if (x != null) act.push({ t: x, c: i }); });
+      [tAll, tPeople, tFirst].forEach((x) => { if (x != null) act.push({ t: x, c: -1 }); });
+      act.sort((x, y) => x.t - y.t);
+      st.act = act;
+      const wSet = new Set(Object.keys(witByCard).map(Number));
+      st.wSet = wSet;
+
+      // ---- cartes (ordre DOM : 2…9 puis 1, pour que la 01 reste au-dessus quand elle grandit)
+      const order = [1, 2, 3, 4, 5, 6, 7, 8, 0];
+      const cards = [];
+      order.forEach((i) => {
+        const cx = XS[i % 3] + 260, cy = YS[Math.floor(i / 3)] + 100;
+        const pos = g(cardsG), flip = g(pos);
+        const c = { i, cx, cy, pos, flip, ev: cardEv[i], init: closed ? 'back' : 'face', drop: tTitle != null ? tTitle + i * 2 * I : -INF };
+        c.shadow = rect(flip, -260 + 10, -100 + 10, 520, 200, 14, C.ink);
+        const ep = eps[i];
+        // dos
+        c.back = g(flip);
+        rect(c.back, -260, -100, 520, 200, 14, C.ink, C.paper, 4);
+        put(c.back, ep.n, 0, 22, 64, C.lime, M, { anchor: 'middle', mono: true });
+        // face / active
+        const title = ep.title.toUpperCase(), sub = (ep.sub || '').toUpperCase();
+        let sz = 42, tl = null, sl = null, blockH = 0;
+        for (; sz >= 30; sz--) {
+          tl = fitLines(M, title, sz, 336, 2, false); if (!tl) continue;
+          sl = sub ? (fitLines(M, sub, 18, 336, 2, true) || fitLines(M, sub, 15, 336, 2, true)) : { lines: [], w: 0 };
+          if (!sl) sl = { lines: [], w: 0 };
+          blockH = tl.lines.length * sz * 1.05 + (sl.lines.length ? 8 + sl.lines.length * 21.6 : 0);
+          if (blockH <= 140) break;
+        }
+        if (!tl) { sz = 30; tl = split(M, title, 2, 30, false); sl = sub ? split(M, sub, 2, 15, true) : { lines: [], w: 0 }; blockH = tl.lines.length * sz * 1.05 + (sl.lines.length ? 8 + sl.lines.length * 21.6 : 0); }
+        const subSz = sub && fitLines(M, sub, 18, 336, 2, true) ? 18 : 15;
+        const y0 = 14 - blockH / 2;
+        [['face', C.paper, C.ink, C.ink, C.ink, C.lime, C.ink], ['act', C.ink, C.paper, C.lime, C.paper, C.lime, C.ink]].forEach((m, mi) => {
+          const G = g(flip);
+          if (mi === 0) rect(G, -260, -100, 520, 200, 14, C.paper, C.ink, 6); else rect(G, -260, -100, 520, 200, 14, C.ink, C.ink, 6);
+          // onglet
+          if (mi === 0) { rect(G, -236, -114, 76, 50, 0, C.ink); put(G, ep.n, -198, -114 + 25 + 10.5, 30, C.lime, M, { anchor: 'middle', mono: true }); }
+          else { rect(G, -236, -114, 76, 50, 0, C.lime); put(G, ep.n, -198, -114 + 25 + 10.5, 30, C.ink, M, { anchor: 'middle', mono: true }); }
+          tl.lines.forEach((l, j) => put(G, l, -236, y0 + j * sz * 1.05 + sz * 0.88, sz, mi === 0 ? C.ink : C.paper, M, { maxW: 336 }));
+          const ys = y0 + tl.lines.length * sz * 1.05 + 8;
+          sl.lines.forEach((l, j) => put(G, l, -236, ys + j * 21.6 + 17, subSz, mi === 0 ? C.ink : C.lime, M, { mono: true, weight: 600, maxW: 336 }));
+          const pg2 = g(G, { transform: 'translate(175 0)' });
+          pic(pg2, ep.picto, mi === 0 ? 'face' : 'inv');
+          c[mi === 0 ? 'face' : 'actG'] = G;
+        });
+        // témoin
+        const w = witByCard[i];
+        c.hasW = !!w;
+        if (w) {
+          const G = c.witG = g(flip);
+          rect(G, -260, -100, 520, 200, 14, C.ink, C.lime, 6);
+          rect(G, -236, -114, 76, 50, 0, C.lime); put(G, ep.n, -198, -114 + 25 + 10.5, 30, C.ink, M, { anchor: 'middle', mono: true });
+          pic(g(G, { transform: 'translate(-171 8)' }), str(w.object, 'tophat'), 'face');
+          const role = str(w.role, '').toUpperCase(), ln = str(w.line, '');
+          let rs = 34, rl = null, ll = null, bh = 0;
+          for (; rs >= 26; rs--) {
+            rl = fitLines(M, role, rs, 330, 2, false); if (!rl) continue;
+            ll = ln ? (fitLines(M, ln, 18, 330, 3, true) || fitLines(M, ln, 15, 330, 3, true)) : { lines: [], w: 0 };
+            if (!ll) ll = { lines: [], w: 0 };
+            bh = rl.lines.length * rs * 1.05 + (ll.lines.length ? 8 + ll.lines.length * 21.6 : 0);
+            if (bh <= 150) break;
+          }
+          if (!rl) { rs = 26; rl = split(M, role, 2, 26, false); ll = ln ? split(M, ln, 3, 15, true) : { lines: [], w: 0 }; bh = rl.lines.length * rs * 1.05 + (ll.lines.length ? 8 + ll.lines.length * 21.6 : 0); }
+          const lsz = ln && fitLines(M, ln, 18, 330, 3, true) ? 18 : 15;
+          const yw = 14 - bh / 2;
+          rl.lines.forEach((l, j) => put(G, l, -90, yw + j * rs * 1.05 + rs * 0.88, rs, C.paper, M, { maxW: 330 }));
+          const yl = yw + rl.lines.length * rs * 1.05 + 8;
+          ll.lines.forEach((l, j) => put(G, l, -90, yl + j * 21.6 + 17, lsz, C.lime, M, { mono: true, weight: 600, maxW: 330 }));
+        }
+        c.veil = rect(flip, -260, -100, 520, 200, 14, C.ink); c.veil.setAttribute('opacity', 0);
+        cards.push(c);
+      });
+      st.cards = cards.slice().sort((a, b) => a.i - b.i);
+
+      // ---- titre (deux stickers : titre / « gens qui l'ont vécu »)
+      const mkStk = (label, maxW) => {
+        const o = g(root);
+        let s = 52, w = M(label, s); if (w > maxW) { s = 52 * maxW / w; w = maxW; }
+        const bw = Math.round(w + 80), bh = 70;
+        rect(o, -bw / 2, -bh / 2, bw, bh, 12, C.ink, C.ink, 6);
+        put(o, label, 0, s * 0.35, s, C.lime, M, { anchor: 'middle', maxW: w });
+        return o;
+      };
+      st.tA = mkStk(titleTxt, 1500); st.tB = mkStk(peopleTxt, 1500);
+      // sticker « premier épisode »
+      const fo = st.fo = g(root);
+      { const fs = 44, fw = Math.min(900, M(firstTxt, fs)), bw = Math.round(fw + 56), bh = Math.round(fs * 1.18 + 26);
+        rect(fo, -bw / 2 + 10, -bh / 2 + 10, bw, bh, 14, C.ink); rect(fo, -bw / 2, -bh / 2, bw, bh, 14, C.red, C.ink, 6);
+        put(fo, firstTxt, 0, fs * 0.35, fs, C.paper, M, { anchor: 'middle', maxW: fw });
+        const a = 4 * Math.PI / 180; st.foY = 218 - ((bh / 2 + 10) * Math.cos(a) + (bw / 2) * Math.sin(a)); }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const k = st.k;
+      // titre
+      const tp = k.title != null ? pg(t, k.title, 8 * I) : 1;
+      const pe = k.people != null ? pg(t, k.people, 4 * I) : 0;
+      const pf = k.first != null ? pg(t, k.first, 4 * I) : 0;
+      const bOn = k.people != null ? pe * (1 - pf) : 0;
+      const aOn = (1 - bOn) * (1 - pf);
+      const sc = tp > 0 ? Math.max(0.0001, E.back(tp)) : 0;
+      [[st.tA, aOn], [st.tB, bOn]].forEach((x) => { const o = x[0]; if (sc > 0 && x[1] > 0.001) { vis(o, true); tr(o, 960, 65, -2, sc); setA(o, 'opacity', f2(x[1])); } else vis(o, false); });
+      // sticker premier épisode
+      const fp = k.first != null ? pg(t, k.first + 0.3, 8 * I) : 0;
+      if (fp > 0) { vis(st.fo, true); tr(st.fo, 960, st.foY, -4, Math.max(0.0001, E.back(fp))); } else vis(st.fo, false);
+
+      const u1 = k.first != null ? E.out3(pg(t, k.first, 14 * I)) : 0;
+      // carte active
+      const act = st.act; let li = -1; for (let j = 0; j < act.length; j++) if (act[j].t <= t) li = j;
+      for (let n = 0; n < 9; n++) {
+        const c = st.cards[n], i = c.i;
+        // chute
+        if (t < c.drop) { vis(c.pos, false); continue; }
+        const dp = pg(t, c.drop, 8 * I);
+        const dy = c.drop === -INF ? 0 : -(c.cy + 130) * (1 - E.out3(dp));
+        // côté
+        let side = c.init, q = 1, prev = c.init, wA = 0;
+        let ev = null; for (let j = 0; j < c.ev.length; j++) if (c.ev[j].t <= t) ev = c.ev[j];
+        if (ev) {
+          q = clamp((t - ev.t) / (10 * I)); prev = ev.from; side = ev.to;
+          if (ev.to === 'wit') wA = q; else if (ev.from === 'wit') wA = 1 - q;
+        }
+        const e = E.io2(q);
+        const shown = q < 1 && e < 0.5 ? prev : side;
+        const sy = q < 1 ? Math.abs(Math.cos(Math.PI * e)) : 1;
+        // active
+        let a = 0;
+        if (li >= 0) { const cur = act[li].c === i, pv = li > 0 && act[li - 1].c === i; const qa = clamp((t - act[li].t) / (6 * I)); a = cur ? qa : pv ? 1 - qa : 0; }
+        // échelle / position
+        let s = (1 + 0.06 * a) * (1 + 0.04 * wA), x = c.cx, y = c.cy + dy;
+        if (i === 0) { s *= 1 + 0.9 * u1; x += (960 - c.cx) * u1; y += (430 - c.cy) * u1; }
+        vis(c.pos, true); tr(c.pos, x, y, 0, s);
+        setA(c.flip, 'transform', `scale(1 ${f2(Math.max(sy, 0.0001))})`);
+        vis(c.flip, sy > 0.004);
+        const sh = 10 + 4 * wA; setA(c.shadow, 'x', -260 + sh); setA(c.shadow, 'y', -100 + sh);
+        vis(c.back, shown === 'back');
+        vis(c.face, shown === 'face' && a < 0.5); vis(c.actG, shown === 'face' && a >= 0.5);
+        if (c.witG) vis(c.witG, shown === 'wit');
+        // voile
+        let v = 0;
+        if (k.people != null && !st.wSet.has(i)) v = pg(t, k.people, 4 * I);
+        if (k.first != null && i !== 0) v = Math.max(v, pg(t, k.first, 10 * I));
+        setA(c.veil, 'opacity', f2(0.62 * v)); vis(c.veil, v > 0.001);
+      }
     }
   });
 })();

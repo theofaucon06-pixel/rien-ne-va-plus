@@ -46,7 +46,7 @@ export const THEMES = {
 export const EPISODES = [
   {
     slug: 'bande-annonce',
-    status: 'soon',
+    status: 'published',
     number: 0,
     kind: 'trailer',
     title: 'Bande-annonce',
@@ -56,7 +56,9 @@ export const EPISODES = [
     themes: ['maths', 'histoires', 'aide'],
     mechanics: ['avantage'],
     witnesses: [],
-    audio: null,
+    audio: { file: 'assets/podcast/00-bande-annonce.mp3', bytes: 1880105, seconds: 117 },
+    experience: 'motion',
+    poster: 29.5,
     sections: [
       {
         h: 'Rien ne va plus',

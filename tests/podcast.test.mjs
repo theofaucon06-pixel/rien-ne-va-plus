@@ -180,7 +180,8 @@ test("the home page teases the soon episodes without linking them, and counts ho
     assert.ok(!html.includes(`/podcast/${ep.slug}`), `${ep.slug} must not be linked`);
   }
   for (const ep of live) assert.ok(html.includes(`href="/podcast/${ep.slug}"`), ep.slug + " is linked");
-  assert.ok(html.includes(`${soon.length} épisode${soon.length > 1 ? "s" : ""} en préparation`));
+  if (soon.length) assert.ok(html.includes(`${soon.length} épisode${soon.length > 1 ? "s" : ""} en préparation`));
+  else assert.ok(!html.includes("en préparation") && !html.includes('id="bientot"'), "no teaser section once every episode is published");
   const liveMin = live.reduce((n, e) => n + minutes(e), 0);
   assert.ok(html.includes(`${live.length} épisode${live.length > 1 ? "s" : ""} · ≈ ${liveMin} min`));
   assert.match(html, /class="marquee"/);
@@ -278,14 +279,14 @@ test("the motion bundle and the timeline are committed and up to date", () => {
     const tl = JSON.parse(readFileSync(tlFile, "utf8"));
     assert.ok(Math.abs(tl.total - ep.audio.seconds) < 2, "timeline and audio have the same duration");
     assert.equal(tl.sections.length, ep.sections.length);
-    assert.ok(tl.shots.length > 50 && tl.sentences.length > 50);
+    assert.ok(tl.shots.length > 20 && tl.sentences.length > 30);
     let end = 0;
     for (const sh of tl.shots) { assert.ok(Math.abs(sh.start - end) < 0.01, "shots are contiguous: " + sh.id); end = sh.end; assert.ok(!("notes" in sh)); }
     assert.ok(Math.abs(end - tl.total) < 0.01);
     assert.ok(readFileSync(path.join(root, pageOf(ep) ? `podcast/${ep.slug}.html` : ""), "utf8").includes(`data-timeline="/assets/podcast/${ep.slug}.timeline.json?v=`));
     // when the video pipeline's own output is here (it is git-ignored), the committed copy must be its compact twin
-    // (episode 1: output/video/data/, episode N: output/video/epN/data/, the ZV_EP convention of tools/video)
-    const src = path.join(root, "output/video", ep.number > 1 ? `ep${ep.number}` : "", "data/timeline.json");
+    // (episode 1: output/video/data/, any other N (trailer 0 included): output/video/epN/data/, the ZV_EP convention of tools/video)
+    const src = path.join(root, "output/video", ep.number === 1 ? "" : `ep${ep.number}`, "data/timeline.json");
     if (existsSync(src)) {
       const full = JSON.parse(readFileSync(src, "utf8"));
       full.shots = full.shots.map(({ notes, ...s }) => s);
@@ -407,14 +408,17 @@ test("publishing a recording switches the page to a real player and adds the epi
 });
 
 test("an episode that is still `soon` never reaches the feed, even with audio", () => {
-  const ep = soon[0];
-  const before = ep.audio;
+  // once the whole season is out there is no `soon` episode left: take a published one and demote it for the test
+  const ep = soon[0] || live.at(-1);
+  const beforeAudio = ep.audio, beforeStatus = ep.status;
   try {
+    ep.status = "soon";
     ep.audio = { file: "assets/podcast/essai.mp3", bytes: 1, seconds: 1 };
-    assert.equal((renderFeed().match(/<item>/g) || []).length, live.filter(hasAudio).length);
+    assert.equal((renderFeed().match(/<item>/g) || []).length, live.filter((e) => e !== ep && hasAudio(e)).length);
     assert.ok(!buildAll().has(`podcast/${ep.slug}.html`));
-    assert.ok(!renderIndex().includes(`/podcast/${ep.slug}`));
+    assert.ok(!renderIndex().includes(`href="/podcast/${ep.slug}"`));
   } finally {
-    ep.audio = before;
+    ep.audio = beforeAudio;
+    ep.status = beforeStatus;
   }
 });
