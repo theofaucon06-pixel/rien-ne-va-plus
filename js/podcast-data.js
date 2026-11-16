@@ -15,7 +15,7 @@ export const SHOW = {
     'compagnon du jeu Rien ne va plus.',
   host: 'Théo Faucon',
   language: 'fr-FR',
-  baseUrl: 'https://rien-ne-va-plus.vercel.app',
+  baseUrl: 'https://zerovert.fr',
   category: 'Society & Culture',
   subcategory: 'Documentary',
   explicit: false,

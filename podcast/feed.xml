@@ -2,8 +2,8 @@
 <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:podcast="https://podcastindex.org/namespace/1.0">
   <channel>
     <title>Zéro Vert</title>
-    <link>https://rien-ne-va-plus.vercel.app/podcast</link>
-    <atom:link href="https://rien-ne-va-plus.vercel.app/podcast/feed.xml" rel="self" type="application/rss+xml"/>
+    <link>https://zerovert.fr/podcast</link>
+    <atom:link href="https://zerovert.fr/podcast/feed.xml" rel="self" type="application/rss+xml"/>
     <description>Chaque épisode prend un mécanisme réel d’un casino, une personne réelle qui l’a vécu, et montre comment la maison gagne. Sans conseil pour gagner, sans sermon : des chiffres, des histoires et des sources. Un podcast de prévention par le récit, compagnon du jeu Rien ne va plus.</description>
     <language>fr-fr</language>
     <lastBuildDate>Mon, 02 Nov 2026 08:00:00 GMT</lastBuildDate>
@@ -14,157 +14,157 @@
     <itunes:type>episodic</itunes:type>
     <itunes:explicit>false</itunes:explicit>
     <itunes:category text="Society &amp; Culture"><itunes:category text="Documentary"/></itunes:category>
-    <itunes:image href="https://rien-ne-va-plus.vercel.app/assets/podcast/cover.png"/>
-    <image><url>https://rien-ne-va-plus.vercel.app/assets/podcast/cover.png</url><title>Zéro Vert</title><link>https://rien-ne-va-plus.vercel.app/podcast</link></image>
+    <itunes:image href="https://zerovert.fr/assets/podcast/cover.png"/>
+    <image><url>https://zerovert.fr/assets/podcast/cover.png</url><title>Zéro Vert</title><link>https://zerovert.fr/podcast</link></image>
     <item>
       <title>Bande-annonce</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/bande-annonce</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/bande-annonce</guid>
+      <link>https://zerovert.fr/podcast/bande-annonce</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/bande-annonce</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>La bande-annonce de la saison un de Zéro Vert : neuf épisodes, chacun avec un mécanisme réel du casino et une histoire vraie. Des sources, pas de sermon, et aucun système pour gagner.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/00-bande-annonce.mp3" length="1880105" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/00-bande-annonce.mp3" length="1880105" type="audio/mpeg"/>
       <itunes:title>Bande-annonce</itunes:title>
       <itunes:episode>0</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>trailer</itunes:episodeType>
       <itunes:duration>117</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/bande-annonce" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/bande-annonce" type="text/html" language="fr"/>
     </item>
     <item>
       <title>La bille n’a pas de mémoire</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire</guid>
+      <link>https://zerovert.fr/podcast/la-bille-n-a-pas-de-memoire</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/la-bille-n-a-pas-de-memoire</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>Charles Wells à Monte-Carlo, de la banque qui saute à la fosse commune. La division qui donne 97,3 centimes, l’espérance mathématique dite simplement, la nuit des vingt-six noirs et la loi des petits nombres. Pourquoi l’avantage de la maison est une moyenne et pas un quota, et pourquoi la bille ne se souvient de rien.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/01-la-bille-n-a-pas-de-memoire.mp3" length="8107279" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/01-la-bille-n-a-pas-de-memoire.mp3" length="8107279" type="audio/mpeg"/>
       <itunes:title>La bille n’a pas de mémoire</itunes:title>
       <itunes:episode>1</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:duration>494</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/la-bille-n-a-pas-de-memoire" type="text/html" language="fr"/>
     </item>
     <item>
       <title>La zone</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/la-zone</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/la-zone</guid>
+      <link>https://zerovert.fr/podcast/la-zone</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/la-zone</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>Les machines à sous vues de l’intérieur : le temps sur machine, les presque-gagnés, les pertes déguisées en gains. Avec Mollie, suivie par une anthropologue à Las Vegas, et Katrina Bookman, face à un jackpot qui n’existait pas.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/02-la-zone.mp3" length="7819299" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/02-la-zone.mp3" length="7819299" type="audio/mpeg"/>
       <itunes:title>La zone</itunes:title>
       <itunes:episode>2</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:duration>489</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/la-zone" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/la-zone" type="text/html" language="fr"/>
     </item>
     <item>
       <title>Le système infaillible</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/le-systeme-infaillible</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/le-systeme-infaillible</guid>
+      <link>https://zerovert.fr/podcast/le-systeme-infaillible</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/le-systeme-infaillible</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>Dostoïevski, de Wiesbaden à Baden-Baden : le roman dicté en vingt-six jours, l’alliance mise en gage, l’attente d’Anna. Puis la martingale, ses deux murs, et l’illusion de contrôle d’Ellen Langer.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/03-le-systeme-infaillible.mp3" length="8061731" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/03-le-systeme-infaillible.mp3" length="8061731" type="audio/mpeg"/>
       <itunes:title>Le système infaillible</itunes:title>
       <itunes:episode>3</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:duration>504</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-systeme-infaillible" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/le-systeme-infaillible" type="text/html" language="fr"/>
     </item>
     <item>
       <title>Se refaire</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/se-refaire</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/se-refaire</guid>
+      <link>https://zerovert.fr/podcast/se-refaire</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/se-refaire</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>Archie Karas, de cinquante dollars à environ quarante millions, puis à zéro. La chasse selon Henry Lesieur, le critère des psychiatres, et le calcul qui montre pourquoi miser plus pour rattraper fait perdre plus vite.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/04-se-refaire.mp3" length="7690571" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/04-se-refaire.mp3" length="7690571" type="audio/mpeg"/>
       <itunes:title>Se refaire</itunes:title>
       <itunes:episode>4</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:duration>481</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/se-refaire" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/se-refaire" type="text/html" language="fr"/>
     </item>
     <item>
       <title>Le seul jeu qu’on peut battre</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/le-seul-jeu-quon-peut-battre</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/le-seul-jeu-quon-peut-battre</guid>
+      <link>https://zerovert.fr/podcast/le-seul-jeu-quon-peut-battre</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/le-seul-jeu-quon-peut-battre</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>Le blackjack, la stratégie de base d’Edward Thorp et le comptage de cartes de Ken Uston, jusqu’au procès de 1982. Puis les deux jeux où c’est l’inverse : la roue de la fortune, simple et chère, et le craps, bruyant et cher.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/05-le-seul-jeu-quon-peut-battre.mp3" length="8699545" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/05-le-seul-jeu-quon-peut-battre.mp3" length="8699545" type="audio/mpeg"/>
       <itunes:title>Le seul jeu qu’on peut battre</itunes:title>
       <itunes:episode>5</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:duration>544</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-seul-jeu-quon-peut-battre" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/le-seul-jeu-quon-peut-battre" type="text/html" language="fr"/>
     </item>
     <item>
       <title>Une maison sans horloges</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges</guid>
+      <link>https://zerovert.fr/podcast/une-maison-sans-horloges</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/une-maison-sans-horloges</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>Le manuel de Bill Friedman, l’école d’en face de Roger Thomas, les jetons, le verre offert et le siège. Un architecte et un croupier en pause, deux personnages composites, et ce que la loi française demande aux casinos.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/06-une-maison-sans-horloges.mp3" length="7795910" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/06-une-maison-sans-horloges.mp3" length="7795910" type="audio/mpeg"/>
       <itunes:title>Une maison sans horloges</itunes:title>
       <itunes:episode>6</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:duration>487</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/une-maison-sans-horloges" type="text/html" language="fr"/>
     </item>
     <item>
       <title>Le tapis rouge</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/le-tapis-rouge</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/le-tapis-rouge</guid>
+      <link>https://zerovert.fr/podcast/le-tapis-rouge</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/le-tapis-rouge</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>La perte théorique, le « théo », dite simplement. Terrance Watanabe, un an dans une suite de Las Vegas. Harry Kakavas, ramené en jet privé à Melbourne. Pourquoi un casino veut moins ta soirée que ton retour.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/07-le-tapis-rouge.mp3" length="8736726" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/07-le-tapis-rouge.mp3" length="8736726" type="audio/mpeg"/>
       <itunes:title>Le tapis rouge</itunes:title>
       <itunes:episode>7</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:duration>546</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-tapis-rouge" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/le-tapis-rouge" type="text/html" language="fr"/>
     </item>
     <item>
       <title>Le casino dans la poche</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/le-casino-dans-la-poche</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/le-casino-dans-la-poche</guid>
+      <link>https://zerovert.fr/podcast/le-casino-dans-la-poche</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/le-casino-dans-la-poche</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>Casinos en ligne illégaux, bonus à miser quarante fois, paris en direct et cash-out. Deux personnages composites, un jeune homme et un parieur, et trois cotes qui additionnées font 105,6 %. Le zéro vert s’est caché dans la cote.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/08-le-casino-dans-la-poche.mp3" length="8080122" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/08-le-casino-dans-la-poche.mp3" length="8080122" type="audio/mpeg"/>
       <itunes:title>Le casino dans la poche</itunes:title>
       <itunes:episode>8</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:duration>505</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-casino-dans-la-poche" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/le-casino-dans-la-poche" type="text/html" language="fr"/>
     </item>
     <item>
       <title>La sortie</title>
-      <link>https://rien-ne-va-plus.vercel.app/podcast/la-sortie</link>
-      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/la-sortie</guid>
+      <link>https://zerovert.fr/podcast/la-sortie</link>
+      <guid isPermaLink="true">https://zerovert.fr/podcast/la-sortie</guid>
       <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
       <description>Table ronde de fin de saison : les signes qui doivent alerter, l’appel à Joueurs Info Service, l’interdiction volontaire, les centres de soins gratuits, quoi dire à un proche. Avec Nour, écoutante : personnage fictif, service réel.</description>
-      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/09-la-sortie.mp3" length="8041655" type="audio/mpeg"/>
+      <enclosure url="https://zerovert.fr/assets/podcast/09-la-sortie.mp3" length="8041655" type="audio/mpeg"/>
       <itunes:title>La sortie</itunes:title>
       <itunes:episode>9</itunes:episode>
       <itunes:season>1</itunes:season>
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:duration>503</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
-      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/la-sortie" type="text/html" language="fr"/>
+      <podcast:transcript url="https://zerovert.fr/podcast/la-sortie" type="text/html" language="fr"/>
     </item>
   </channel>
 </rss>

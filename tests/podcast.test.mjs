@@ -397,9 +397,9 @@ test("publishing a recording switches the page to a real player and adds the epi
     assert.match(html, /"timeRequired":"PT3M35S"/);
     const xml = renderFeed();
     assert.equal((xml.match(/<item>/g) || []).length, live.filter((e) => e !== ep && hasAudio(e)).length + 1);
-    assert.match(xml, /<enclosure url="https:\/\/rien-ne-va-plus\.vercel\.app\/assets\/podcast\/essai\.mp3" length="3456789" type="audio\/mpeg"\/>/);
+    assert.match(xml, /<enclosure url="https:\/\/zerovert\.fr\/assets\/podcast\/essai\.mp3" length="3456789" type="audio\/mpeg"\/>/);
     assert.match(xml, /<itunes:duration>215<\/itunes:duration>/);
-    assert.ok(xml.includes(`<podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/${ep.slug}"`));
+    assert.ok(xml.includes(`<podcast:transcript url="https://zerovert.fr/podcast/${ep.slug}"`));
   } finally {
     ep.audio = before;
     ep.experience = beforeExp;

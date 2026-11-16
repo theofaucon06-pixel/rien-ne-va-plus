@@ -39,8 +39,9 @@ doit autoriser les connexions au port choisi.
 
 ### Sur Internet — Vercel et Supabase
 
-Le site public est https://rien-ne-va-plus.vercel.app. `js/cloud.js` relie ce
-nom de domaine à la fonction Supabase `casino` du projet `rien-ne-va-plus`.
+Le site public est https://zerovert.fr (l’ancienne adresse
+https://rien-ne-va-plus.vercel.app fonctionne toujours). `js/cloud.js` relie ces
+noms de domaine à la fonction Supabase `casino` du projet `rien-ne-va-plus`.
 Aucun compte joueur ni clé secrète n’est requis dans le navigateur.
 
 - L’Edge Function valide chaque action et chaque session ; Postgres conserve
@@ -173,7 +174,7 @@ Relance `npm run podcast` : la page affiche un vrai lecteur audio (vitesse, ±, 
 n'entre pas dans le flux : les plateformes n'acceptent que des fichiers.
 
 **S'inscrire dans les annuaires.** Une fois le premier mp3 publié, soumets
-`https://rien-ne-va-plus.vercel.app/podcast/feed.xml` à Apple Podcasts Connect, Spotify for Creators, etc.
+`https://zerovert.fr/podcast/feed.xml` à Apple Podcasts Connect, Spotify for Creators, etc.
 Certains demandent l'e-mail du propriétaire : il n'est volontairement pas écrit dans le flux.
 Ajoute ensuite leurs liens dans la section « S'abonner » (`tools/podcast-render.mjs`).
 
