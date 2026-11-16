@@ -17,6 +17,21 @@
     <itunes:image href="https://rien-ne-va-plus.vercel.app/assets/podcast/cover.png"/>
     <image><url>https://rien-ne-va-plus.vercel.app/assets/podcast/cover.png</url><title>Zéro Vert</title><link>https://rien-ne-va-plus.vercel.app/podcast</link></image>
     <item>
+      <title>Bande-annonce</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/bande-annonce</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/bande-annonce</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>La bande-annonce de la saison un de Zéro Vert : neuf épisodes, chacun avec un mécanisme réel du casino et une histoire vraie. Des sources, pas de sermon, et aucun système pour gagner.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/00-bande-annonce.mp3" length="1880105" type="audio/mpeg"/>
+      <itunes:title>Bande-annonce</itunes:title>
+      <itunes:episode>0</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>trailer</itunes:episodeType>
+      <itunes:duration>117</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/bande-annonce" type="text/html" language="fr"/>
+    </item>
+    <item>
       <title>La bille n’a pas de mémoire</title>
       <link>https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire</link>
       <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/la-bille-n-a-pas-de-memoire</guid>
@@ -90,6 +105,66 @@
       <itunes:duration>544</itunes:duration>
       <itunes:explicit>false</itunes:explicit>
       <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-seul-jeu-quon-peut-battre" type="text/html" language="fr"/>
+    </item>
+    <item>
+      <title>Une maison sans horloges</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>Le manuel de Bill Friedman, l’école d’en face de Roger Thomas, les jetons, le verre offert et le siège. Un architecte et un croupier en pause, deux personnages composites, et ce que la loi française demande aux casinos.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/06-une-maison-sans-horloges.mp3" length="7795910" type="audio/mpeg"/>
+      <itunes:title>Une maison sans horloges</itunes:title>
+      <itunes:episode>6</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>487</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/une-maison-sans-horloges" type="text/html" language="fr"/>
+    </item>
+    <item>
+      <title>Le tapis rouge</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/le-tapis-rouge</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/le-tapis-rouge</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>La perte théorique, le « théo », dite simplement. Terrance Watanabe, un an dans une suite de Las Vegas. Harry Kakavas, ramené en jet privé à Melbourne. Pourquoi un casino veut moins ta soirée que ton retour.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/07-le-tapis-rouge.mp3" length="8736726" type="audio/mpeg"/>
+      <itunes:title>Le tapis rouge</itunes:title>
+      <itunes:episode>7</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>546</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-tapis-rouge" type="text/html" language="fr"/>
+    </item>
+    <item>
+      <title>Le casino dans la poche</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/le-casino-dans-la-poche</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/le-casino-dans-la-poche</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>Casinos en ligne illégaux, bonus à miser quarante fois, paris en direct et cash-out. Deux personnages composites, un jeune homme et un parieur, et trois cotes qui additionnées font 105,6 %. Le zéro vert s’est caché dans la cote.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/08-le-casino-dans-la-poche.mp3" length="8080122" type="audio/mpeg"/>
+      <itunes:title>Le casino dans la poche</itunes:title>
+      <itunes:episode>8</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>505</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/le-casino-dans-la-poche" type="text/html" language="fr"/>
+    </item>
+    <item>
+      <title>La sortie</title>
+      <link>https://rien-ne-va-plus.vercel.app/podcast/la-sortie</link>
+      <guid isPermaLink="true">https://rien-ne-va-plus.vercel.app/podcast/la-sortie</guid>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 GMT</pubDate>
+      <description>Table ronde de fin de saison : les signes qui doivent alerter, l’appel à Joueurs Info Service, l’interdiction volontaire, les centres de soins gratuits, quoi dire à un proche. Avec Nour, écoutante : personnage fictif, service réel.</description>
+      <enclosure url="https://rien-ne-va-plus.vercel.app/assets/podcast/09-la-sortie.mp3" length="8041655" type="audio/mpeg"/>
+      <itunes:title>La sortie</itunes:title>
+      <itunes:episode>9</itunes:episode>
+      <itunes:season>1</itunes:season>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:duration>503</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/la-sortie" type="text/html" language="fr"/>
     </item>
   </channel>
 </rss>

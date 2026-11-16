@@ -46,7 +46,7 @@ export const THEMES = {
 export const EPISODES = [
   {
     slug: 'bande-annonce',
-    status: 'soon',
+    status: 'published',
     number: 0,
     kind: 'trailer',
     title: 'Bande-annonce',
@@ -56,7 +56,9 @@ export const EPISODES = [
     themes: ['maths', 'histoires', 'aide'],
     mechanics: ['avantage'],
     witnesses: [],
-    audio: null,
+    audio: { file: 'assets/podcast/00-bande-annonce.mp3', bytes: 1880105, seconds: 117 },
+    experience: 'motion',
+    poster: 29.5,
     sections: [
       {
         h: 'Rien ne va plus',
@@ -648,7 +650,7 @@ export const EPISODES = [
 
   {
     slug: 'une-maison-sans-horloges',
-    status: 'soon',
+    status: 'published',
     number: 6,
     title: 'Une maison sans horloges',
     hook: 'Depuis que tu es entré, as-tu vu une fenêtre ? Une horloge ? Un panneau Sortie ? Ce n’est pas un oubli.',
@@ -657,7 +659,9 @@ export const EPISODES = [
     themes: ['lieux', 'psycho'],
     mechanics: ['maison'],
     witnesses: ['architecte', 'main'],
-    audio: null,
+    audio: { file: 'assets/podcast/06-une-maison-sans-horloges.mp3', bytes: 7795910, seconds: 487 },
+    experience: 'motion',
+    poster: 8.0,
     sections: [
       {
         h: 'Il est quelle heure ?',
@@ -743,7 +747,7 @@ export const EPISODES = [
 
   {
     slug: 'le-tapis-rouge',
-    status: 'soon',
+    status: 'published',
     number: 7,
     title: 'Le tapis rouge',
     hook: 'Un texto t’offre une suite, avec ton prénom. Le casino connaît ton chiffre. Tout a été calculé dessus.',
@@ -752,7 +756,9 @@ export const EPISODES = [
     themes: ['lieux', 'histoires', 'maths'],
     mechanics: ['tapis', 'retour'],
     witnesses: ['watanabe', 'kakavas'],
-    audio: null,
+    audio: { file: 'assets/podcast/07-le-tapis-rouge.mp3', bytes: 8736726, seconds: 546 },
+    experience: 'motion',
+    poster: 267.8,
     sections: [
       {
         h: 'Votre suite vous attend',
@@ -899,7 +905,7 @@ export const EPISODES = [
 
   {
     slug: 'le-casino-dans-la-poche',
-    status: 'soon',
+    status: 'published',
     number: 8,
     title: 'Le casino dans la poche',
     hook: 'Il n’a jamais mis les pieds dans un casino. Il n’en a pas eu besoin : le casino tenait dans sa poche.',
@@ -908,7 +914,9 @@ export const EPISODES = [
     themes: ['ligne', 'maths', 'histoires'],
     mechanics: ['poche', 'pari'],
     witnesses: ['sami', 'parieur'],
-    audio: null,
+    audio: { file: 'assets/podcast/08-le-casino-dans-la-poche.mp3', bytes: 8080122, seconds: 505 },
+    experience: 'motion',
+    poster: 3.1,
     sections: [
       {
         h: 'Trois heures du matin',
@@ -995,7 +1003,7 @@ export const EPISODES = [
 
   {
     slug: 'la-sortie',
-    status: 'soon',
+    status: 'published',
     number: 9,
     title: 'La sortie',
     hook: 'Dans un casino, il n’y a jamais de panneau vers la sortie. Ce dernier épisode en dessine un.',
@@ -1004,7 +1012,9 @@ export const EPISODES = [
     themes: ['aide', 'psycho'],
     mechanics: ['sortie'],
     witnesses: ['nour'],
-    audio: null,
+    audio: { file: 'assets/podcast/09-la-sortie.mp3', bytes: 8041655, seconds: 503 },
+    experience: 'motion',
+    poster: 27.8,
     sections: [
       {
         h: 'Il est tôt. Ou tard.',

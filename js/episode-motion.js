@@ -332,6 +332,383 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/backstage-engine.js ==== */
+// Composant `backstage-engine` (épisode 0) : « l'autre côté du décor ». Une façade de casino générique pivote, révèle son dos, puis la vraie machine : la case du zéro devenue volant moteur,
+// courroie, compteur de tours, goulotte à jetons, caisse de la maison qui se remplit.
+// Props : sign, house, rpm, start (facade|engine), caption, labels[3].
+// Cues : facade, turn, engine, belt, label-1..3, house, front.
+// Cue absent : chaîne facade/turn/engine = l'étape suivante d'une étape présente n'a pas lieu (un plan « facade » seul reste sur la façade) ; sans aucun cue de la chaîne, l'état final (dos rangé + machine) est là dès t = 0 ;
+// belt / labels / house absents = affichés dès que le volant existe ; front absent = n'a pas lieu.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter ; rien d'important sous y = 840.
+(() => {
+  'use strict';
+  const { C, F, E, clamp, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const I = 1 / 30;
+  const INF = Infinity;
+  // progression 0→1 qui tolère ±Infinity
+  const pg = (t, a, d) => (a === -INF ? 1 : a === INF ? 0 : clamp((t - a) / d));
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.trim().length ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const tr = (n, x, y, r, sx, sy) => { let s = `translate(${f2(x)} ${f2(y)})`; if (r) s += ` rotate(${f2(r)})`; if (sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) s += ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})`; setA(n, 'transform', s); };
+  const setT = (n, s) => { if (n.__t !== s) { n.__t = s; n.textContent = s; } };
+  function metric(root) {
+    const probe = sv('text', { x: 0, y: -3000, 'font-size': 100, 'font-weight': 800, visibility: 'hidden' }, root);
+    const cache = {};
+    const est = (s, mono) => { let a = 0; for (const ch of s) a += mono ? 60 : (ch === ' ' ? 26 : /[0-9]/.test(ch) ? 60 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 68 : /[.,:;'’!|·]/.test(ch) ? 32 : 58); return a; };
+    return (s, size, mono) => {
+      s = String(s); const k = (mono ? 'm' : 'd') + s; let w = cache[k];
+      if (w === undefined) {
+        probe.setAttribute('font-family', mono ? F.mono : F.display); probe.textContent = s;
+        w = 0; try { w = probe.getComputedTextLength(); } catch (e) { w = 0; }
+        if (!(w > 0)) w = est(s, mono);
+        cache[k] = w;
+      }
+      return w * size / 100;
+    };
+  }
+  const mkT = (M) => function T(parent, s, x, y, size, fill, o) {
+    o = o || {}; s = String(s);
+    let w = M(s, size, o.mono);
+    if (o.maxW && w > o.maxW) { size = Math.max(o.min || 10, size * o.maxW / w); w = M(s, size, o.mono); }
+    const n = text(parent, s, x, y, f2(size), fill, { mono: o.mono, anchor: o.anchor, spacing: o.spacing });
+    if (!o.free) { const lim = o.maxW ? Math.min(w, o.maxW) : w; n.setAttribute('textLength', f2(lim)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); w = lim; }
+    n.__w = w; n.__s = size; return n;
+  };
+  // barre épaisse bordée : ligne `border` large dessous, ligne `fill` dessus
+  function beam(parent, x1, y1, x2, y2, w, fill, border, bw) {
+    line(parent, x1, y1, x2, y2, border, w + 2 * bw, { 'stroke-linecap': 'butt' });
+    line(parent, x1, y1, x2, y2, fill, w, { 'stroke-linecap': 'butt' });
+  }
+  // sticker centré sur (0,0)
+  function stk(parent, label, size, fill, tfill, maxW, minS, M, T) {
+    const grp = g(parent);
+    let s = size, w = M(label, s);
+    if (w > maxW) { s = Math.max(minS, size * maxW / w); w = Math.min(M(label, s), maxW); }
+    const bw = Math.round(w + 60), bh = Math.round(s * 1.18 + 26);
+    rect(grp, -bw / 2 + 10, -bh / 2 + 10, bw, bh, 14, C.ink);
+    rect(grp, -bw / 2, -bh / 2, bw, bh, 14, fill, C.ink, 6);
+    T(grp, label, 0, s * 0.35, s, tfill, { anchor: 'middle', maxW: w + 0.5 });
+    grp.__w = bw; grp.__h = bh; return grp;
+  }
+  // tangentes extérieures de deux cercles : [haute, basse] = [[p1,p2],[p1,p2]] (p1 sur c1, p2 sur c2)
+  function tang(x1, y1, r1, x2, y2, r2) {
+    const dx = x2 - x1, dy = y2 - y1, d = Math.hypot(dx, dy) || 1, ph = Math.atan2(dy, dx);
+    const a = Math.acos(clamp((r1 - r2) / d, -1, 1));
+    const mk = (th) => { const nx = Math.cos(th), ny = Math.sin(th); return [[x1 + r1 * nx, y1 + r1 * ny], [x2 + r2 * nx, y2 + r2 * ny]]; };
+    return [mk(ph - a), mk(ph + a)];
+  }
+  let UID = 0;
+
+  ZV.define('backstage-engine', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const M = metric(root), T = mkT(M);
+      const sh = { beats: shot.beats || [] };
+      const cu = (n) => { const v = ZV.cue(sh, n); return v == null ? null : v; };
+      const startEng = str(P.start, 'facade') === 'engine';
+      const sign = str(P.sign, 'CASINO').toUpperCase(), house = str(P.house, 'LA MAISON').toUpperCase();
+      const caption = typeof P.caption === 'string' ? P.caption.trim() : 'L’AUTRE CÔTÉ DU DÉCOR';
+      const dl = ['À CHAQUE TOUR', 'SANS PAUSE', 'SANS MAUVAISE SOIRÉE'];
+      const labelsP = Array.isArray(P.labels) ? P.labels : dl;
+      const labels = [0, 1, 2].map((i) => str(labelsP[i], dl[i]).toUpperCase());
+      const rpm = clamp(num(P.rpm, 30), 1, 90);
+      const st = { rpm, startEng };
+
+      // ---- calendrier effectif
+      const cF = cu('facade'), cT = cu('turn'), cE = cu('engine'), cB = cu('belt'), cH = cu('house'), cFr = cu('front');
+      const cL = [cu('label-1'), cu('label-2'), cu('label-3')];
+      const k = st.k = {};
+      if (startEng) {
+        k.fac = INF; k.turn = -INF; k.eng = cE != null ? cE : -INF;
+      } else {
+        const hasF = cF != null, hasT = cT != null;
+        k.fac = hasF ? cF : -INF;
+        k.turn = hasT ? cT : (hasF ? INF : -INF);
+        k.eng = cE != null ? cE : ((hasF || hasT) ? INF : -INF);
+      }
+      k.belt = Math.max(cB != null ? cB : -INF, k.eng);
+      k.lab = cL.map((c) => Math.max(c != null ? c : -INF, k.eng));
+      k.house = cH != null ? cH : -INF;
+      k.front = cFr != null ? cFr : INF;
+      k.tRot = cE != null ? cE : -1.2;
+      k.cap = k.turn === INF ? INF : (k.turn === -INF ? -INF : k.turn + 18 * I);
+      k.gate = k.belt + 0.6;
+
+      // ---- décor fixe
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      rect(root, 80, 766, 1760, 8, 0, C.paper);
+
+      // vignette (front) : cadre
+      const vig = st.vig = g(root);
+      rect(vig, -120 + 8, -110 + 8, 240, 220, 0, C.pocket);
+      rect(vig, -120, -110, 240, 220, 0, C.ink, C.lime, 6);
+
+      // ---- machine : courroie
+      const beltG = st.beltG = g(root);
+      st.ringW = circle(beltG, 0, 0, 208, 'none', C.paper, 10); st.ringW.setAttribute('stroke-dasharray', '18 18');
+      st.ringP = circle(beltG, 0, 0, 56, 'none', C.paper, 10); st.ringP.setAttribute('stroke-dasharray', '18 18');
+      st.bTop = line(beltG, 0, 0, 0, 0, C.paper, 10, { 'stroke-dasharray': '18 18', 'stroke-linecap': 'butt' });
+      st.bBot = line(beltG, 0, 0, 0, 0, C.paper, 10, { 'stroke-dasharray': '18 18', 'stroke-linecap': 'butt' });
+
+      // goulotte
+      const chS = [975, 580], chE = [1650, 486];
+      st.chS = chS; st.chE = chE;
+      const chL = Math.hypot(chE[0] - chS[0], chE[1] - chS[1]), chA = Math.atan2(chE[1] - chS[1], chE[0] - chS[0]) * 180 / Math.PI;
+      st.chA = chA;
+      const chute = st.chute = g(root);
+      rect(chute, 6, -20 + 8, chL, 40, 0, C.pocket);
+      rect(chute, 0, -20, chL, 40, 0, C.paper, C.ink, 6);
+      line(chute, 6, 8, chL - 6, 8, C.ink, 4, { 'stroke-linecap': 'butt' });
+
+      // caisse
+      const crate = st.crate = g(root);
+      rect(crate, 1512, 482, 300, 270, 0, C.pocket);
+      rect(crate, 1500, 470, 300, 270, 0, C.paper, C.ink, 8);
+      rect(crate, 1570, 477, 160, 14, 0, C.ink);
+      st.houseLab = g(crate);
+      const hl = st.houseLab;
+      const hw = Math.min(268, Math.max(150, M(house, 54) + 44));
+      rect(hl, -hw / 2, -25, hw, 50, 6, C.ink);
+      T(hl, house, 0, 19, 54, C.paper, { anchor: 'middle', maxW: hw - 36, min: 28 });
+      rect(crate, 1530, 560, 240, 160, 0, C.pocket, C.ink, 6);
+      st.gauge = rect(crate, 1533, 717, 234, 0.01, 0, C.lime);
+      let tk = ''; for (let y = 717 - 8; y > 563; y -= 8) tk += `M1533 ${y}H1767`;
+      path(crate, tk, 'none', C.ink, 2, { opacity: 0.55 });
+      st.hOut = rect(crate, 1523, 553, 254, 174, 0, 'none', C.lime, 8);
+
+      // compteur
+      const cnt = st.cnt = g(root);
+      rect(cnt, 1510, 230, 300, 160, 0, C.pocket);
+      rect(cnt, 1500, 220, 300, 160, 0, C.ink, C.paper, 6);
+      T(cnt, 'TOURS', 1650, 205, 26, C.paper, { anchor: 'middle', mono: true, maxW: 200, free: true });
+      const cid = 'zvbe' + (++UID);
+      const defs = sv('defs', null, cnt);
+      const cp = sv('clipPath', { id: cid }, defs);
+      sv('rect', { x: 1530, y: 244, width: 240, height: 112 }, cp);
+      const dg = g(cnt, { 'clip-path': `url(#${cid})` });
+      st.dig = [];
+      for (let i = 0; i < 4; i++) {
+        const x = 1650 + (i - 1.5) * 58;
+        const a = text(dg, '0', x, 332, 90, C.lime, { anchor: 'middle', mono: true, weight: 800 });
+        const b = text(dg, '0', x, 432, 90, C.lime, { anchor: 'middle', mono: true, weight: 800 });
+        st.dig.push({ a, b });
+      }
+
+      // poulie
+      const pul = st.pul = g(root);
+      circle(pul, 0, 0, 50, C.paper, C.ink, 6);
+      const pr = st.pulRot = g(pul);
+      for (let i = 0; i < 3; i++) { const a = i * 60 * ZV.D2R; line(pr, -34 * Math.cos(a), -34 * Math.sin(a), 34 * Math.cos(a), 34 * Math.sin(a), C.ink, 8, { 'stroke-linecap': 'butt' }); }
+      circle(pul, 0, 0, 10, C.ink);
+
+      // volant
+      const wheel = st.wheel = g(root);
+      circle(wheel, 0, 0, 200, C.lime, C.ink, 8);
+      const rot = st.rot = g(wheel);
+      for (let i = 0; i < 6; i++) { const a = i * 60 * ZV.D2R; line(rot, 62 * Math.cos(a), 62 * Math.sin(a), 160 * Math.cos(a), 160 * Math.sin(a), C.ink, 14, { 'stroke-linecap': 'butt' }); }
+      for (let i = 0; i < 12; i++) { const n = rect(rot, -10, -196, 20, 28, 0, C.ink); n.setAttribute('transform', `rotate(${i * 30})`); }
+      circle(rot, 128, 0, 15, C.red, C.ink, 4);
+      const z = text(wheel, '0', 0, 82, 230, C.ink, { anchor: 'middle' });
+      z.setAttribute('stroke', C.lime); z.setAttribute('stroke-width', 16); z.setAttribute('stroke-linejoin', 'round'); z.setAttribute('paint-order', 'stroke');
+
+      // jetons
+      st.tok = [];
+      for (let i = 0; i < 3; i++) {
+        const tg = g(root);
+        circle(tg, 0, 0, 18, C.white, C.ink, 4);
+        circle(tg, 0, 0, 11, 'none', C.lime, 3);
+        st.tok.push(tg);
+      }
+
+      // ---- panneau (façade / dos), repère local centré sur (0,0) = (960,450)
+      const panel = st.panel = g(root);
+      const face = st.face = g(panel), back = st.back = g(panel);
+      beam(face, -560, 0, -650, 320, 14, C.ink, C.paper, 4); beam(face, 560, 0, 650, 320, 14, C.ink, C.paper, 4);
+      rect(face, -620 + 14, -300 + 14, 1240, 600, 0, C.pocket);
+      rect(face, -560, 300, 70, 20, 0, C.ink, C.paper, 4); rect(face, 490, 300, 70, 20, 0, C.ink, C.paper, 4);
+      rect(face, -620, -300, 1240, 600, 0, C.paper, C.ink, 8);
+      rect(face, -617, -297, 1234, 97, 0, C.ink, C.paper, 6);
+      const sg = T(face, sign, 0, -215, 110, C.paper, { anchor: 'middle', maxW: 900, min: 60 });
+      sg.setAttribute('y', f2(-250 + 0.365 * sg.__s));
+      st.bulbs = [];
+      for (let i = 0; i < 14; i++) st.bulbs.push(circle(face, -560 + i * (1120 / 13), -166, 12, C.pocket, C.ink, 3));
+      [-540, -400, -260, 260, 400, 540].forEach((cx) => {
+        rect(face, cx - 35, -130, 70, 370, 0, C.paper, C.ink, 6);
+        rect(face, cx - 45, -140, 90, 18, 0, C.ink);
+        rect(face, cx - 45, 224, 90, 16, 0, C.ink);
+        line(face, cx - 12, -112, cx - 12, 222, C.ink, 4, { 'stroke-linecap': 'butt' }); line(face, cx + 12, -112, cx + 12, 222, C.ink, 4, { 'stroke-linecap': 'butt' });
+      });
+      rect(face, -616, 240, 1232, 20, 0, C.ink);
+      rect(face, -200, -100, 400, 34, 0, C.ink);
+      for (let i = 0; i < 5; i++) circle(face, -160 + i * 80, -83, 7, C.lime);
+      path(face, 'M-150 240 L150 240 L230 320 L-230 320 Z', C.red, C.ink, 6);
+      rect(face, -170, -52, 164, 292, 0, C.pocket, C.ink, 6); rect(face, 6, -52, 164, 292, 0, C.pocket, C.ink, 6);
+      circle(face, -24, 100, 11, C.lime, C.ink, 3); circle(face, 24, 100, 11, C.lime, C.ink, 3);
+      // dos : cadre ouvert
+      ['M-620 60 L-620 320 L-790 320 Z', 'M620 60 L620 320 L790 320 Z'].forEach((d) => { path(back, d, 'none', C.paper, 30); path(back, d, 'none', C.ink, 20); });
+      beam(back, -594, -274, 0, 274, 26, C.paper, C.ink, 5); beam(back, 594, -274, 0, 274, 26, C.paper, C.ink, 5);
+      rect(back, -560, 300, 70, 20, 0, C.paper, C.ink, 5); rect(back, 490, 300, 70, 20, 0, C.paper, C.ink, 5);
+      rect(back, -620, -300, 26, 600, 0, C.paper, C.ink, 5); rect(back, 594, -300, 26, 600, 0, C.paper, C.ink, 5);
+      rect(back, -620, -300, 1240, 26, 0, C.paper, C.ink, 5); rect(back, -620, 274, 1240, 26, 0, C.paper, C.ink, 5);
+      rect(back, -594, -22, 1188, 44, 0, C.paper, C.ink, 5);
+      text(back, 'DÉCOR · FACE A', 0, 10, 28, C.ink, { anchor: 'middle', mono: true, spacing: 3 });
+      [[-630, -150, 34, 52], [596, 130, 34, 52]].forEach((c) => { rect(back, c[0], c[1], c[2] + 8, c[3], 3, C.red, C.ink, 4); line(back, c[0] + c[2] / 2 + 4, c[1] - 12, c[0] + c[2] / 2 + 4, c[1], C.paper, 6, { 'stroke-linecap': 'butt' }); });
+      rect(back, 230, -304, 52, 34, 3, C.red, C.ink, 4);
+
+      // ---- stickers
+      st.lab = [];
+      const labSpec = [[C.lime, C.ink, -4, 520], [C.paper, C.ink, 3, 480], [C.red, C.paper, -2, 620]];
+      for (let i = 0; i < 3; i++) {
+        const o = g(root), s = stk(o, labels[i], 44, labSpec[i][0], labSpec[i][1], labSpec[i][3], 30, M, T);
+        let x, y;
+        if (i === 0) { x = Math.max(1120, 1012 + s.__w / 2); y = 624; }
+        else if (i === 1) { x = 1180; y = 172; }
+        else { x = 80 + s.__w / 2; y = 196; }
+        st.lab.push({ g: o, x, y, r: labSpec[i][2] });
+      }
+      st.capG = null;
+      if (caption) { const o = g(root); stk(o, caption.toUpperCase(), 56, C.paper, C.ink, 1200, 36, M, T); st.capG = o; }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const k = st.k;
+      const r = st.rpm / 60; // tours/s
+      const A = (tt) => { const tau = tt - k.tRot; if (!(tau > 0)) return 0; return tau < 0.8 ? r * tau * tau / 1.6 : r * (tau - 0.4); };
+      const Tk = (n) => k.tRot + (n <= 0.4 * r ? Math.sqrt(1.6 * n / r) : n / r + 0.4);
+      const engOn = t >= k.eng;
+      const frontOn = t >= k.front;
+      const fp = pg(t, k.front, 14 * I);
+
+      // ---------- panneau
+      let pu, theta;
+      const piv = Math.PI * (1 - E.io2(pg(t, k.front + 0.2, 18 * I)));
+      if (st.startEng) {
+        pu = 1 - E.out3(fp); theta = piv;
+      } else {
+        const se = E.out3(pg(t, k.eng, 14 * I));
+        pu = se * (1 - E.out3(fp));
+        theta = frontOn && se > 0 ? piv : Math.PI * E.io2(pg(t, k.turn, 18 * I));
+      }
+      const pshow = st.startEng ? frontOn : t >= k.fac;
+      const xs = st.startEng ? -300 : 246;
+      const px = 960 + (xs - 960) * pu, py = 450 + (670 - 450) * pu, ps = 1 - 0.7 * pu;
+      let fy = 0, fx = 0;
+      if (!st.startEng && k.fac > -INF && k.fac < INF && t >= k.fac) {
+        const q = t - k.fac;
+        if (q < 0.32) fy = -760 * (1 - (q / 0.32) * (q / 0.32));
+        else if (q < 0.42) fy = -10 * Math.sin(Math.PI * (q - 0.32) / 0.1);
+        const s = ZV.shakeAt(t, k.fac + 0.32, 6, 0.3); fx = s[0]; fy += s[1];
+      }
+      const sx = Math.abs(Math.cos(theta));
+      vis(st.panel, pshow && sx > 0.004);
+      tr(st.panel, px + fx, py + fy, 0, ps * Math.max(sx, 0.0001), ps);
+      const onFace = theta < Math.PI / 2;
+      vis(st.face, onFace); vis(st.back, !onFace);
+
+      // ampoules
+      let base = null;
+      if (frontOn) { const pe = k.front + 0.2 + 18 * I; if (t >= pe) base = pe; }
+      else if (t < k.turn) base = k.fac > -INF ? k.fac + 0.4 : -1;
+      if (base !== null && onFace) {
+        const stp = Math.floor(Math.max(0, t - base - 0.95) * 2);
+        for (let i = 0; i < 14; i++) setA(st.bulbs[i], 'fill', t >= base + i * 2 * I ? [C.lime, C.paper, C.red][(i + stp) % 3] : C.pocket);
+      } else for (let i = 0; i < 14; i++) setA(st.bulbs[i], 'fill', C.pocket);
+
+      // ---------- volant
+      const wp = engOn ? Math.max(0, E.back(pg(t, k.eng, 10 * I))) : 0;
+      const fw = E.out3(fp);
+      const wx = 820 + 900 * fw, wy = 430 + 240 * fw, wsc = (1 - 0.5 * fw) * wp;
+      vis(st.wheel, engOn && wsc > 0.002);
+      tr(st.wheel, wx, wy, 0, Math.max(wsc, 0.0001));
+      setA(st.rot, 'transform', `rotate(${f2((360 * A(t)) % 360)})`);
+      const vp = frontOn ? pg(t, k.front, 8 * I) : 0;
+      vis(st.vig, vp > 0); tr(st.vig, 1720, 670, 0, Math.max(E.back(vp), 0.0001));
+
+      // ---------- courroie, compteur, caisse
+      const ex = frontOn ? E.in2(pg(t, k.front, 10 * I)) : 0;
+      const gone = frontOn && ex >= 1;
+      const e0 = E.out3(pg(t, k.belt, 12 * I));
+      const e1 = E.out3(pg(t, k.belt + 3 * I, 12 * I));
+      const e2 = E.out3(pg(t, k.belt + 6 * I, 12 * I));
+      const on0 = t >= k.belt && !gone;
+      const dB = 700 * (1 - e0) + 700 * ex, dC = 450 * (1 - e1) + 500 * ex, dK = 450 * (1 - e2) + 500 * ex;
+      vis(st.beltG, on0); vis(st.pul, on0);
+      if (on0) {
+        const pcx = 1420 + dB, pcy = 300;
+        tr(st.pul, pcx, pcy, 0, 1);
+        const rw = Math.max(1, 208 * wsc);
+        const s = 480 * A(t);
+        const off = f2(-(s % 36));
+        const tg = tang(wx, wy, rw, pcx, pcy, 56);
+        const L1 = st.bTop, L2 = st.bBot;
+        setA(L1, 'x1', f2(tg[0][0][0])); setA(L1, 'y1', f2(tg[0][0][1])); setA(L1, 'x2', f2(tg[0][1][0])); setA(L1, 'y2', f2(tg[0][1][1]));
+        setA(L2, 'x1', f2(tg[1][1][0])); setA(L2, 'y1', f2(tg[1][1][1])); setA(L2, 'x2', f2(tg[1][0][0])); setA(L2, 'y2', f2(tg[1][0][1]));
+        setA(L1, 'stroke-dashoffset', off); setA(L2, 'stroke-dashoffset', off);
+        setA(st.ringW, 'cx', f2(wx)); setA(st.ringW, 'cy', f2(wy)); setA(st.ringW, 'r', f2(rw)); setA(st.ringW, 'stroke-dashoffset', off);
+        setA(st.ringP, 'cx', f2(pcx)); setA(st.ringP, 'cy', pcy); setA(st.ringP, 'stroke-dashoffset', off);
+        setA(st.pulRot, 'transform', `rotate(${f2(((s / 50) * 180 / Math.PI) % 360)})`);
+      }
+      vis(st.cnt, on0); vis(st.crate, on0); vis(st.chute, on0);
+      if (on0) {
+        tr(st.cnt, dC, 0, 0, 1); tr(st.crate, dK, 0, 0, 1);
+        const n = Math.min(9999, Math.floor(A(t)));
+        const q = n >= 1 ? E.out3(clamp((t - Tk(n)) / (6 * I))) : 1;
+        const len = String(n).length, lenP = String(Math.max(n - 1, 0)).length;
+        for (let i = 0; i < 4; i++) {
+          const pw = Math.pow(10, 3 - i), pos = 3 - i;
+          const nd = Math.floor(n / pw) % 10, od = Math.floor(Math.max(n - 1, 0) / pw) % 10;
+          const d = st.dig[i], roll = q < 1 && nd !== od;
+          setT(d.a, String(roll ? od : nd)); setA(d.a, 'fill', (roll ? pos >= lenP : pos >= len) ? C.grey : C.lime);
+          setA(d.a, 'y', f2(roll ? 332 - 100 * q : 332));
+          setT(d.b, String(nd)); setA(d.b, 'fill', pos >= len ? C.grey : C.lime);
+          vis(d.b, roll); setA(d.b, 'y', f2(432 - 100 * q));
+        }
+        const cg = E.out3(pg(t, k.belt + 6 * I, 12 * I)) * (1 - ex);
+        tr(st.chute, st.chS[0], st.chS[1], st.chA, Math.max(cg, 0.0001), 1);
+        const kLo = Math.floor(A(k.gate));
+        const cr = Math.max(0, Math.floor(A(t - 0.6)) - kLo);
+        const gh = Math.min(152, 8 * cr);
+        setA(st.gauge, 'y', f2(717 - gh)); setA(st.gauge, 'height', f2(Math.max(gh, 0.01)));
+        let hs = 1, shk = [0, 0];
+        if (k.house > -INF && t >= k.house) { hs = 1 + 0.3 * (1 - E.out2(clamp((t - k.house) / (5 * I)))); shk = ZV.shakeAt(t, k.house, 8, 0.4); }
+        tr(st.houseLab, 1650 + shk[0], 522 + shk[1], 0, hs);
+        vis(st.hOut, t >= k.house);
+        const nL = Math.floor(A(t));
+        for (let j = 0; j < 3; j++) {
+          const kk = nL - j, tg = st.tok[j];
+          let shown = false;
+          if (kk >= 1 && kk > kLo && !frontOn) {
+            const p = (t - Tk(kk)) / 0.6;
+            if (p >= 0 && p < 1) {
+              shown = true;
+              const q2 = Math.pow(p, 1.5);
+              const x = st.chS[0] + (st.chE[0] - st.chS[0]) * q2, y = st.chS[1] + (st.chE[1] - st.chS[1]) * q2 - 2;
+              const sc = Math.min(1, p / 0.12), sy = p > 0.85 ? Math.max(0.0001, 1 - (p - 0.85) / 0.15) : 1;
+              tr(tg, x, y + (p > 0.85 ? (p - 0.85) * 40 : 0), 0, sc, sc * sy);
+            }
+          }
+          vis(tg, shown);
+        }
+      } else for (let j = 0; j < 3; j++) vis(st.tok[j], false);
+
+      // ---------- stickers
+      const exL = 2100 * ex;
+      for (let i = 0; i < 3; i++) {
+        const L = st.lab[i];
+        const p = t >= k.lab[i] ? pg(t, k.lab[i], 8 * I) : 0;
+        if (p > 0 && !gone) { vis(L.g, true); tr(L.g, L.x + exL, L.y, L.r, Math.max(0.0001, E.back(p))); } else vis(L.g, false);
+      }
+      if (st.capG) {
+        const p = t >= k.cap ? pg(t, k.cap, 8 * I) : 0;
+        if (p > 0) { vis(st.capG, true); tr(st.capG, 960, 80, -3, Math.max(0.0001, E.back(p))); } else vis(st.capG, false);
+      }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/big-number.js ==== */
 // Composant « big-number » : voir tools/video/composition/INTERFACE.md. Fonction pure du temps du plan, aplats seulement.
 (() => {
@@ -1125,6 +1502,528 @@
           put(st.gapS, 1620 + sg[0], 745 + sg[1], 4, t >= tg ? Math.max(0.01, pg) : 0, t >= tg ? Math.max(0.01, pg) : 0, t >= tg ? 1 : 0);
         }
       } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/bonus-x40.js ==== */
+// Composant `bonus-x40` (épisode 8) : « deux secondes pour entrer » puis « un cadeau qui coûte plus cher qu'il ne rapporte ». Voir EP8-COMPONENTS.md.
+// Fond ink. Temps 1 : deux chronomètres (DÉPÔT 2 s / RETRAIT 3 à 5 jours) + cadenas. Temps 2 : le paquet cadeau, 100 € × 40 = 4 000 € à miser,
+// la barre « MISÉ » et le compteur « LA MAISON GARDE » (2,7 % du misé), puis la comparaison 100 € < ≈ 108 € EN MOYENNE.
+// Cues : deposit, withdraw, lock, gift, open, times, total, wager, compare. Fonction pure du temps ; aplats seulement.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, fr } = ZV;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const setT = (n, s) => { if (n.__s !== s) { n.__s = s; n.textContent = s; } };
+  const mono = (parent, s, x, y, size, fill, o) => text(parent, s, x, y, size, fill, Object.assign({ mono: true }, o || {}));
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+  function measure(n, fallback) { let w = 0; try { w = n.getComputedTextLength(); } catch (e) { w = 0; } return w > 0 ? w : fallback; }
+  function fitSize(n, worst, size, maxW) {
+    const keep = n.textContent; n.textContent = worst;
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) n.setAttribute('font-size', f2(size * maxW / w)); } catch (e) { /* hors DOM */ }
+    n.textContent = keep;
+  }
+  const eur = (n) => fr(Math.max(0, Math.round(n))) + NB + '€';
+  const sc = (n, x, y, s, o, r) => {
+    const S = Math.max(0.0001, s); setA(n, 'transform', `translate(${f2(x)} ${f2(y)})${r ? ` rotate(${f2(r)})` : ''} scale(${f2(S * 1000) / 1000})`);
+    if (o !== undefined) setA(n, 'opacity', f2(o));
+    setA(n, 'display', (o !== undefined && o <= 0.001) || s <= 0.001 ? 'none' : 'inline');
+  };
+  // aplat « sticker » : ombre dure + face, derrière le texte tn
+  function box(grp, tn, w, h, face, shadow, r, sw, sh) {
+    const a = rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, r, shadow, shadow === C.ink ? undefined : C.ink, 4);
+    const b = rect(grp, -w / 2, -h / 2, w, h, r, face, C.ink, sw);
+    if (tn) { grp.insertBefore(a, tn); grp.insertBefore(b, tn); }
+    return b;
+  }
+  const arc = (r, a0, a1) => {                                   // arc de cercle centré en (0,0), angles en degrés (0 = haut), sens horaire
+    const A = Math.min(a1 - a0, 359.9), s = (a0 - 90) * ZV.D2R, e = (a0 + A - 90) * ZV.D2R;
+    return `M${f2(Math.cos(s) * r)} ${f2(Math.sin(s) * r)} A${r} ${r} 0 ${A > 180 ? 1 : 0} 1 ${f2(Math.cos(e) * r)} ${f2(Math.sin(e) * r)}`;
+  };
+
+  const CY = 330, R = 170, X1 = 520, X2 = 1400;                  // chronomètres
+  const BAR = { x: 180, y: 600, w: 1560, h: 80 };
+
+  function stopwatch(parent, cx, cy) {
+    const sg = g(parent, { transform: `translate(${cx} ${cy})` });
+    circle(sg, 10, 10, R, C.pocket);
+    rect(sg, -22 + 6, -R - 40 + 6, 44, 40, 8, C.pocket);
+    rect(sg, -22, -R - 40, 44, 40, 8, C.paper, C.ink, 6);
+    rect(sg, -66, -R - 4, 28, 36, 8, C.paper, C.ink, 5).setAttribute('transform', `rotate(-38 -52 ${-R})`);
+    circle(sg, 0, 0, R, C.paper, C.ink, 8);
+    circle(sg, 0, 0, R - 18, 'none', C.ink, 3);
+    for (let k = 0; k < 12; k++) { const a = (k * 30 - 90) * ZV.D2R, r0 = k % 3 === 0 ? 112 : 124; line(sg, f2(Math.cos(a) * r0), f2(Math.sin(a) * r0), f2(Math.cos(a) * 140), f2(Math.sin(a) * 140), C.ink, k % 3 === 0 ? 8 : 5, { 'stroke-linecap': 'butt' }); }
+    return sg;
+  }
+
+  ZV.define('bonus-x40', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const st = { dur: Math.max(0.1, shot.dur || 1) };
+      st.depS = clamp(isNum(P.deposit_s) ? P.deposit_s : 2, 0.5, 10);
+      st.wLab = str(P.withdraw_label, '3 À 5 JOURS OUVRÉS').toUpperCase();
+      st.lockLab = str(P.lock_label, 'APRÈS 40 × LE BONUS').toUpperCase();
+      st.bonus = clamp(isNum(P.bonus) ? P.bonus : 100, 1, 1e6);
+      st.factor = clamp(isNum(P.factor) ? P.factor : 40, 1, 1000);
+      st.edge = clamp(isNum(P.edge) ? P.edge : 2.7, 0.1, 50);
+      st.startGift = P.start === 'gift';
+      st.target = st.bonus * st.factor;
+      st.keep = Math.round(st.target * st.edge / 100);
+      const cu = (n) => ZV.cue(shot, n);
+      const c = { dep: cu('deposit'), wd: cu('withdraw'), lock: cu('lock'), gift: cu('gift'), open: cu('open'), times: cu('times'), total: cu('total'), wager: cu('wager'), cmp: cu('compare') };
+      st.c = c;
+      st.gp = c.gift !== null ? c.gift : (st.startGift ? -1 : null);       // instant de bascule vers le temps 2
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+
+      /* ================= Temps 1 : les chronos ================= */
+      st.p1 = g(root);
+      const p1 = st.p1;
+      st.sw1 = stopwatch(p1, X1, CY); st.sw2 = stopwatch(p1, X2, CY);
+      // DÉPÔT : arc lime (contour ink) + aiguille + « 2 S »
+      st.arcO = path(st.sw1, arc(124, 0, 1), 'none', C.ink, 30, { 'stroke-linecap': 'butt' });
+      st.arcL = path(st.sw1, arc(124, 0, 1), 'none', C.lime, 18, { 'stroke-linecap': 'butt' });
+      st.hand1 = g(st.sw1); line(st.hand1, 0, 14, 0, -118, C.ink, 10); circle(st.hand1, 0, 0, 15, C.ink);
+      st.two = g(st.sw1);
+      circle(st.two, 0, 0, 140, C.ink, C.ink, 6);
+      { const t = mono(st.two, '2 S', 0, 38, 110, C.lime, { anchor: 'middle', weight: 800 }); fit(t, 220); }
+      // RETRAIT : aiguille lente
+      st.hand2 = g(st.sw2); line(st.hand2, 0, 14, 0, -118, C.ink, 10); circle(st.hand2, 0, 0, 15, C.ink);
+      st.t1 = text(p1, 'DÉPÔT', X1, 592, 72, C.paper, { anchor: 'middle' }); fit(st.t1, 330);
+      st.t2 = text(p1, 'RETRAIT', X2, 592, 72, C.paper, { anchor: 'middle' }); fit(st.t2, 330);
+      // frise de 5 jours
+      st.days = [];
+      ['LUN', 'MAR', 'MER', 'JEU', 'VEN'].forEach((d, i) => {
+        const x = X2 - 320 + i * 132, dg = g(p1);
+        const r0 = rect(dg, x, 628, 120, 56, 8, C.paper, C.ink, 4);
+        const rf = rect(dg, x, 628, 120, 56, 8, C.lime, C.ink, 4); rf.setAttribute('display', 'none');
+        mono(dg, d, x + 60, 666, 28, C.ink, { anchor: 'middle', weight: 800 });
+        st.days.push({ r0, rf });
+      });
+      st.wl = mono(p1, st.wLab, X2, 735, 32, C.paper, { anchor: 'middle', weight: 800 }); fit(st.wl, 700);
+      // cadenas + étiquette
+      st.lock = g(p1);
+      path(st.lock, 'M-44 -30 L-44 -70 A44 44 0 0 1 44 -70 L44 -30', 'none', C.ink, 30);
+      path(st.lock, 'M-44 -30 L-44 -70 A44 44 0 0 1 44 -70 L44 -30', 'none', C.paper, 16);
+      rect(st.lock, -76 + 8, -34 + 8, 152, 120, 14, C.ink);
+      rect(st.lock, -76, -34, 152, 120, 14, C.red, C.ink, 6);
+      circle(st.lock, 0, 12, 15, C.ink); rect(st.lock, -6, 20, 12, 36, 4, C.ink);
+      st.lockLabG = g(p1);
+      { const t = text(st.lockLabG, st.lockLab, 0, 15, 44, C.ink, { anchor: 'middle' }); fit(t, 520); const w = Math.min(540, measure(t, st.lockLab.length * 27)) + 60; box(st.lockLabG, t, w, 78, C.lime, C.ink, 14, 6, 9); }
+
+      /* ================= Temps 2 : le calcul ================= */
+      st.p2 = g(root);
+      const p2 = st.p2;
+      // paquet cadeau (centre 350, 370)
+      st.gift = g(p2);
+      st.giftBody = g(st.gift);
+      rect(st.giftBody, 180 + 10, 290 + 10, 340, 230, 14, C.pocket);
+      st.bodyFace = rect(st.giftBody, 180, 290, 340, 230, 14, C.paper, C.ink, 8);
+      st.ribbon = g(st.giftBody);
+      rect(st.ribbon, 320, 290, 60, 230, 0, C.lime, C.ink, 5);
+      rect(st.ribbon, 180, 372, 340, 56, 0, C.lime, C.ink, 5);
+      st.reveal = g(st.giftBody); st.reveal.setAttribute('display', 'none');
+      rect(st.reveal, 180, 290, 340, 230, 14, C.ink, C.paper, 8);
+      st.rv1 = text(st.reveal, eur(st.bonus), 350, 420, 120, C.lime, { anchor: 'middle' }); fit(st.rv1, 300);
+      mono(st.reveal, 'DE BONUS', 350, 482, 32, C.paper, { anchor: 'middle', weight: 800 });
+      st.lid = g(st.gift);
+      rect(st.lid, 164 + 10, 226 + 10, 372, 72, 12, C.pocket);
+      rect(st.lid, 164, 226, 372, 72, 12, C.paper, C.ink, 8);
+      rect(st.lid, 320, 226, 60, 72, 0, C.lime, C.ink, 5);
+      path(st.lid, 'M350 226 C300 176 262 190 276 226Z', C.lime, C.ink, 5);
+      path(st.lid, 'M350 226 C400 176 438 190 424 226Z', C.lime, C.ink, 5);
+      circle(st.lid, 350, 224, 20, C.lime, C.ink, 5);
+      // équation : jetons plats qui tombent
+      const mkPlate = (str1, size, face, tcol, maxW) => {
+        const pg = g(p2);
+        const t = text(pg, str1, 0, size * 0.34, size, tcol, { anchor: 'middle' }); fit(t, maxW);
+        const w = Math.min(maxW, measure(t, bwEst(str1, size))) + 64;
+        box(pg, t, w, 116, face, C.ink, 18, 7, 10);
+        // l'ombre ink sur fond ink n'est pas visible : liseré paper fin sous le contour
+        return { g: pg, w, h: 116 };
+      };
+      const bwEst = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' || ch === NB ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ×=€]/.test(ch) ? 0.68 : 0.56); return a; };
+      st.pl1 = mkPlate(eur(st.bonus), 96, C.paper, C.ink, 480);
+      st.pl2 = mkPlate('× ' + fr(st.factor), 96, C.paper, C.ink, 400);
+      st.pl3 = mkPlate('= ' + eur(st.target) + ' À MISER', 96, C.lime, C.ink, 1100);
+      const gx = 620;
+      st.pl1.cx = gx + st.pl1.w / 2; st.pl1.cy = 262;
+      st.pl2.cx = gx + st.pl1.w + 36 + st.pl2.w / 2; st.pl2.cy = 262;
+      st.pl3.cx = gx + st.pl3.w / 2; st.pl3.cy = 404;
+      // barre de mise + compteur + kicker
+      st.bar = g(p2);
+      rect(st.bar, BAR.x, BAR.y, BAR.w, BAR.h, 14, 'none', C.paper, 6);
+      st.barFill = rect(st.bar, BAR.x + 6, BAR.y + 6, 1, BAR.h - 12, 8, C.paper);
+      st.barLab = mono(st.bar, 'MISÉ : ' + eur(0) + ' / ' + eur(st.target), BAR.x, 738, 34, C.paper, { weight: 800 });
+      fitSize(st.barLab, 'MISÉ : ' + eur(st.target) + ' / ' + eur(st.target), 34, 900);
+      st.cnt = text(st.bar, 'LA MAISON GARDE ≈' + NB + eur(0), BAR.x, 580, 48, C.lime);
+      fitSize(st.cnt, 'LA MAISON GARDE ≈' + NB + eur(st.keep), 48, 800);
+      st.kick = mono(st.bar, 'ROULETTE EUROPÉENNE · ' + String(st.edge).replace('.', ',') + ' %', BAR.x + BAR.w, 536, 26, C.paper, { anchor: 'end', weight: 800 }); fit(st.kick, 640);
+      // comparaison
+      st.cmp = g(p2);
+      const BOT = 780, K = 4.4;
+      st.hA = st.bonus * K * 0 + 440; st.hB = Math.round(st.hA * st.keep / st.bonus);
+      if (st.hB > 500) { const f = 500 / st.hB; st.hA *= f; st.hB = 500; }
+      st.blkA = g(st.cmp); st.blkB = g(st.cmp);
+      st.rA = rect(st.blkA, 380, BOT - st.hA, 520, st.hA, 14, C.paper, C.ink, 8);
+      st.rB = rect(st.blkB, 1020, BOT - st.hB, 520, st.hB, 14, C.lime, C.ink, 8);
+      st.txA = g(st.blkA); st.txB = g(st.blkB);
+      { const a = text(st.txA, 'LE CADEAU', 640, BOT - st.hA + 84, 52, C.ink, { anchor: 'middle' }); fit(a, 460);
+        const b = text(st.txA, eur(st.bonus), 640, BOT - st.hA + 220, 124, C.ink, { anchor: 'middle' }); fit(b, 460);
+        const c1 = text(st.txB, 'CE QUE GARDE', 1280, BOT - st.hB + 78, 44, C.ink, { anchor: 'middle' }); fit(c1, 460);
+        const c2 = text(st.txB, 'LA MAISON', 1280, BOT - st.hB + 128, 44, C.ink, { anchor: 'middle' }); fit(c2, 460);
+        const c3 = text(st.txB, '≈' + NB + eur(st.keep), 1280, BOT - st.hB + 262, 112, C.ink, { anchor: 'middle' }); fit(c3, 470);
+        const c4 = mono(st.txB, 'EN MOYENNE', 1280, BOT - st.hB + 322, 36, C.ink, { anchor: 'middle', weight: 800 }); fit(c4, 460); }
+      st.lt = g(st.cmp);
+      circle(st.lt, 8, 8, 46, C.pocket, C.paper, 4);
+      circle(st.lt, 0, 0, 46, C.paper, C.ink, 7);
+      text(st.lt, '<', 0, 31, 90, C.ink, { anchor: 'middle' });
+      return st;
+    },
+
+    update(st, t, shot) { try { draw(st, t); } catch (e) { /* jamais d'exception */ } }
+  });
+
+  function draw(st, t) {
+    const c = st.c, gp = st.gp;
+
+    /* ---------- temps 1 ---------- */
+    const slide = gp === null ? 0 : (gp < 0 ? 1 : E.in3(prog(t, gp, gp + 0.4)));
+    if (slide >= 1) setA(st.p1, 'display', 'none');
+    else { setA(st.p1, 'display', 'inline'); setA(st.p1, 'transform', `translate(0 ${f2(-1150 * slide)})`); }
+
+    // DÉPÔT : un tour d'arc lime en exactement deposit_s, puis « 2 S »
+    const dp = c.dep === null ? 0 : prog(t, c.dep, c.dep + st.depS);
+    setA(st.hand1, 'transform', `rotate(${f2(dp * 360)})`);
+    if (dp > 0.002) { const d = arc(124, 0, dp * 360); setA(st.arcO, 'd', d); setA(st.arcL, 'd', d); setA(st.arcO, 'display', 'inline'); setA(st.arcL, 'display', 'inline'); }
+    else { setA(st.arcO, 'display', 'none'); setA(st.arcL, 'display', 'none'); }
+    if (c.dep !== null && t >= c.dep + st.depS) {
+      const p = E.back(prog(t, c.dep + st.depS, c.dep + st.depS + 0.25));
+      setA(st.two, 'display', 'inline'); setA(st.two, 'transform', `scale(${f2(Math.max(0.01, p) * 1000) / 1000})`);
+      setA(st.hand1, 'display', 'none');
+    } else { setA(st.two, 'display', 'none'); setA(st.hand1, 'display', 'inline'); }
+
+    // RETRAIT : aiguille lente, jours remplis un par un (~0,5 s par case)
+    const wd = c.wd;
+    setA(st.hand2, 'transform', `rotate(${f2(wd === null ? 0 : Math.max(0, t - wd) * 14)})`);
+    st.days.forEach((d, i) => { const on = wd !== null && t >= wd + 0.25 + i * 0.5; setA(d.rf, 'display', on ? 'inline' : 'none'); });
+
+    // cadenas : tombe avec rebond (6 i) sur le chrono RETRAIT
+    if (c.lock === null || t < c.lock) { setA(st.lock, 'display', 'none'); setA(st.lockLabG, 'display', 'none'); }
+    else {
+      const p = prog(t, c.lock, c.lock + 0.5), y = lerp(-120, CY - 6, E.bounce(p));
+      setA(st.lock, 'display', 'inline'); setA(st.lock, 'transform', `translate(${X2} ${f2(y)})`);
+      const q = E.back(prog(t, c.lock + 0.35, c.lock + 0.6));
+      sc(st.lockLabG, X2, 468, 0.7 + 0.3 * q, prog(t, c.lock + 0.35, c.lock + 0.45));
+    }
+
+    /* ---------- temps 2 ---------- */
+    if (gp === null) { setA(st.p2, 'display', 'none'); return; }
+    setA(st.p2, 'display', 'inline');
+    const cmp = c.cmp;
+    const out = cmp === null ? 0 : prog(t, cmp, cmp + 0.3);           // le reste du temps 2 s'efface pour laisser la comparaison
+    const arrive = gp < 0 ? 1 : E.out3(prog(t, gp + 0.3, gp + 0.8));
+    const outO = 1 - out;
+    // paquet
+    if (gp >= 0 && t < gp + 0.3) setA(st.gift, 'display', 'none');
+    else {
+      setA(st.gift, 'display', outO <= 0.01 ? 'none' : 'inline');
+      setA(st.gift, 'transform', `translate(0 ${f2((1 - arrive) * 520 + out * 40)})`); setA(st.gift, 'opacity', f2(outO));
+      const op = c.open === null ? 0 : prog(t, c.open, c.open + 0.5);
+      if (op <= 0) { setA(st.lid, 'transform', ''); setA(st.reveal, 'display', 'none'); setA(st.ribbon, 'display', 'inline'); }
+      else {
+        const e = E.out3(prog(op, 0, 0.7)), h = Math.sin(Math.PI * Math.min(1, op * 1.6)) * 30;
+        setA(st.lid, 'transform', `translate(${f2(e * 110)} ${f2(-e * 120 - h)}) rotate(${f2(-14 * e)} 350 262)`);
+        setA(st.reveal, 'display', 'inline'); setA(st.ribbon, 'display', 'none');
+        const pr = E.back(prog(op, 0.1, 0.55)); setA(st.reveal, 'opacity', 1);
+        setA(st.rv1, 'transform', `translate(350 ${f2(420 - (1 - Math.min(1, pr)) * 0)}) scale(${f2(Math.max(0.01, pr) * 1000) / 1000}) translate(-350 -420)`);
+      }
+    }
+    // équation
+    const drop = (pl, tc, size) => {
+      if (tc === null || t < tc) { setA(pl.g, 'display', 'none'); return; }
+      const p = prog(t, tc, tc + 0.55), y = lerp(pl.cy - 460, pl.cy, E.bounce(p));
+      const op = outO;
+      setA(pl.g, 'display', op <= 0.01 ? 'none' : 'inline'); setA(pl.g, 'opacity', f2(op));
+      setA(pl.g, 'transform', `translate(${f2(pl.cx)} ${f2(y)}${size ? '' : ''})`);
+    };
+    drop(st.pl1, c.open === null ? null : c.open + 0.45);
+    drop(st.pl2, c.times);
+    if (c.total === null || t < c.total) setA(st.pl3.g, 'display', 'none');
+    else { const p = E.out3(prog(t, c.total, c.total + 0.22)); sc(st.pl3.g, st.pl3.cx, st.pl3.cy, 1 + 0.45 * (1 - p), outO); }
+
+    // barre de mise
+    const wg = c.wager;
+    if (wg === null || t < wg) setA(st.bar, 'display', 'none');
+    else {
+      const e = 1 - Math.pow(1 - prog(t, wg + 0.15, wg + 3.15), 1.4);
+      setA(st.bar, 'display', outO <= 0.01 ? 'none' : 'inline'); setA(st.bar, 'opacity', f2(Math.min(outO, prog(t, wg, wg + 0.15))));
+      setA(st.barFill, 'width', f2(Math.max(1, (BAR.w - 12) * e)));
+      const mis = st.target * e;
+      setT(st.barLab, 'MISÉ : ' + eur(mis) + ' / ' + eur(st.target));
+      setT(st.cnt, 'LA MAISON GARDE ≈' + NB + eur(mis * st.edge / 100));
+    }
+
+    // comparaison finale : deux blocs à la même échelle, du bas (y 780) vers le haut
+    if (cmp === null || t < cmp + 0.25) { setA(st.cmp, 'display', 'none'); return; }
+    setA(st.cmp, 'display', 'inline');
+    const BOT = 780, t0 = cmp + 0.25;
+    const rise = (blk, rEl, txG, H, d) => {
+      const p = E.out3(prog(t, t0 + d, t0 + d + 0.6)), h = H * p;
+      setA(rEl, 'y', f2(BOT - h)); setA(rEl, 'height', f2(Math.max(0.1, h)));
+      setA(txG, 'display', p >= 1 ? 'inline' : 'none');
+      setA(blk, 'display', p <= 0.001 ? 'none' : 'inline');
+    };
+    rise(st.blkA, st.rA, st.txA, st.hA, 0);
+    rise(st.blkB, st.rB, st.txB, st.hB, 0.15);
+    { const p = E.back(prog(t, t0 + 0.9, t0 + 1.2)); sc(st.lt, 960, 540, p, prog(t, t0 + 0.9, t0 + 1.0)); }
+  }
+})();
+;
+/* ==== tools/video/composition/components/bus-stop.js ==== */
+// Composant `bus-stop` : « Fin de nuit. Un arrêt de bus, en face d'un casino » (ouverture et retour à l'aube, épisode 9).
+// Cues : door, nour, bubble, service, walk, dawn, night. Props : sign, name, role, service, service_note, bubble[2], you, time (night|dawn).
+// Rue vue de face : ciel 3 bandes plates, abribus à gauche, façade générique à droite (marquise + 16 ampoules), Nour (silhouette sans visage), TOI (pion).
+// Écart assumé : le panneau « PROCHAIN BUS » est posé sur la paroi vitrée (x 196-356) et non à x 560-700, pour que Nour (x ≈ 600) ne le masque pas.
+// Fond peint par le composant. Aucun dégradé, flou, lueur ni filter. Pure fonction du temps.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, F } = ZV;
+  const FR = 1 / 30;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const setT = (n, s) => { if (n.__s !== s) { n.__s = s; n.textContent = s; } };
+
+  function textW(n, size, mono, len) {
+    try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ }
+    return len * size * (mono ? 0.6 : 0.62);
+  }
+  // réduit la taille (jusqu'à min) puis impose la largeur si ça déborde encore
+  function fit(n, maxW, base, min) {
+    n.setAttribute('font-size', base);
+    let w = textW(n, base, n.getAttribute('font-family') === F.mono, (n.textContent || '').length);
+    if (w > maxW && w > 0) {
+      const s = Math.max(min || base * 0.6, base * maxW / w);
+      n.setAttribute('font-size', f2(s));
+      w = textW(n, s, n.getAttribute('font-family') === F.mono, (n.textContent || '').length);
+      if (w > maxW) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); w = maxW; }
+    }
+    return w;
+  }
+  function wrap(parent, s, size, maxW, mono, maxLines) {
+    const probe = sv('text', { 'font-size': size, 'font-family': mono ? F.mono : F.display, 'font-weight': 800, visibility: 'hidden' }, parent);
+    const words = s.split(/\s+/).filter(Boolean);
+    const w = (x) => { probe.textContent = x; return textW(probe, size, mono, x.length); };
+    let lines = [], cur = '';
+    for (const wd of words) {
+      const nx = cur ? cur + ' ' + wd : wd;
+      if (cur && w(nx) > maxW) { lines.push(cur); cur = wd; } else cur = nx;
+    }
+    if (cur) lines.push(cur);
+    if (maxLines && lines.length > maxLines) { const rest = lines.splice(maxLines - 1).join(' '); lines.push(rest); }
+    parent.removeChild(probe);
+    return lines;
+  }
+  const firstCue = (beats, n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r === null || b.t < r)) r = b.t; return r; };
+
+  const BULBS = 16, BX0 = 1140 + 18.75, BDX = 37.5, BY = 360;
+  const DOOR = { x: 1360, y: 440, w: 160, h: 260 };
+  const NOUR = { x: 600, y: 700 }, TOI_X0 = 1440, TOI_X1 = 820;
+
+  ZV.define('bus-stop', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const st = {};
+      st.tDoor = firstCue(beats, 'door'); st.tNour = firstCue(beats, 'nour'); st.tBub = firstCue(beats, 'bubble');
+      st.tSrv = firstCue(beats, 'service'); st.tWalk = firstCue(beats, 'walk');
+      st.tod = beats.filter((b) => b && b.do === 'cue' && (b.name === 'dawn' || b.name === 'night') && isNum(b.t)).map((b) => ({ t: b.t, k: b.name })).sort((a, c) => a.t - c.t);
+      st.init = p.time === 'dawn' ? 'dawn' : 'night';
+
+      const sign = str(p.sign, 'CASINO'), nameS = str(p.name, 'NOUR'), roleS = str(p.role, 'ÉCOUTANTE · PERSONNAGE FICTIF');
+      const service = str(p.service, 'JOUEURS INFO SERVICE'), note = str(p.service_note, 'UN SERVICE RÉEL · SANTÉ PUBLIQUE FRANCE');
+      const bub = Array.isArray(p.bubble) && p.bubble.length ? p.bubble.map((x) => str(x, '')).filter(Boolean) : [];
+      const b1 = bub[0] || 'TU SORS ?', b2 = bub[1] || 'IL EST TÔT. OU TARD.';
+      const youS = str(p.you, 'TOI');
+
+      /* ---- ciel (3 bandes), étoiles, mur, trottoir, chaussée ---- */
+      st.sky = [rect(root, 0, 0, 1920, 260, 0, C.ink), rect(root, 0, 260, 1920, 220, 0, C.ink), rect(root, 0, 480, 1920, 140, 0, C.pocket)];
+      st.stars = g(root);
+      const r = ZV.rng(2409);
+      for (let i = 0; i < 18; i++) { const s = 5 + Math.floor(r() * 4); rect(st.stars, Math.round(40 + r() * 1840), Math.round(20 + r() * 150), s, s, 0, C.paper, null, 0, { opacity: f2(0.55 + r() * 0.4) }); }
+      rect(root, 0, 620, 1920, 90, 0, C.pocket);
+      for (let x = 0; x < 1920; x += 160) rect(root, x, 620, 4, 90, 0, C.ink);
+      st.horizon = rect(root, 0, 628, 1920, 8, 0, C.lime);
+      rect(root, -10, 700, 1940, 60, 0, C.paper, C.ink, 6);
+      rect(root, 0, 760, 1920, 320, 0, C.ink);
+      for (let x = 40; x < 1920; x += 240) rect(root, x, 900, 120, 10, 0, C.grey);
+
+      /* ---- façade du casino (bloc sans fenêtre) ---- */
+      rect(root, 1080, 190, 720, 510, 0, C.ink, C.paper, 6);
+      rect(root, 1092, 392, 696, 8, 0, C.pocket); rect(root, 1092, 596, 696, 8, 0, C.pocket);
+      for (const x of [1220, 1660]) rect(root, x, 404, 8, 192, 0, C.pocket);
+      rect(root, 1140, 230, 600, 100, 10, C.pocket, C.paper, 6);
+      rect(root, 1150, 238, 580, 8, 0, C.red); rect(root, 1150, 314, 580, 8, 0, C.red);
+      const sg = text(root, sign, 1440, 308, 96, C.paper, { anchor: 'middle' });
+      fit(sg, 520, 96, 56);
+      st.bulbs = [];
+      for (let i = 0; i < BULBS; i++) st.bulbs.push(circle(root, f2(BX0 + i * BDX), BY, 12, C.paper, C.paper, 3));
+      // porte : ouverture sombre + battant paper qui glisse
+      rect(root, DOOR.x, DOOR.y, DOOR.w, DOOR.h, 0, C.pocket, C.paper, 6);
+      st.leaf = g(root);
+      rect(st.leaf, DOOR.x, DOOR.y, DOOR.w, DOOR.h, 0, C.paper, C.ink, 6);
+      line(st.leaf, DOOR.x + DOOR.w / 2, DOOR.y + 4, DOOR.x + DOOR.w / 2, DOOR.y + DOOR.h - 4, C.ink, 5);
+      line(st.leaf, DOOR.x + 6, DOOR.y + 130, DOOR.x + DOOR.w - 6, DOOR.y + 130, C.ink, 5);
+      rect(st.leaf, DOOR.x + DOOR.w / 2 - 22, DOOR.y + 150, 8, 56, 3, C.ink); rect(st.leaf, DOOR.x + DOOR.w / 2 + 14, DOOR.y + 150, 8, 56, 3, C.ink);
+      // trapèze de lumière
+      st.light = path(root, 'M1360 700 L1520 700 L1640 860 L1240 860Z', C.white);
+
+      /* ---- abribus ---- */
+      rect(root, 160, 330, 16, 370, 0, C.ink, C.paper, 3); rect(root, 696, 330, 16, 370, 0, C.ink, C.paper, 3);
+      rect(root, 180, 330, 340, 360, 0, C.paper, C.ink, 6);
+      path(root, 'M430 332 L494 332 L402 688 L338 688Z', C.white, null, 0, { opacity: 0.7 });
+      rect(root, 516, 330, 10, 360, 0, C.ink);
+      rect(root, 140, 300, 580, 30, 0, C.ink, C.paper, 4);
+      // banc
+      rect(root, 190, 676, 322, 16, 3, C.ink, C.paper, 3); rect(root, 214, 690, 14, 10, 0, C.ink); rect(root, 474, 690, 14, 10, 0, C.ink);
+      // panneau horaires
+      rect(root, 196, 342, 160, 146, 0, C.paper, C.ink, 6);
+      rect(root, 199, 345, 154, 36, 0, C.ink);
+      fit(text(root, 'PROCHAIN BUS', 276, 370, 19, C.paper, { anchor: 'middle', mono: true }), 140, 19, 14);
+      text(root, '— —', 276, 456, 60, C.ink, { anchor: 'middle', mono: true });
+
+      /* ---- carte du service (sur la paroi vitrée) ---- */
+      const sl = wrap(root, service, 34, 286, false, 2), nl = wrap(root, note, 20, 286, true, 2);
+      const ch = 18 + sl.length * 38 + 10 + nl.length * 25 + 14;
+      st.srv = g(root);
+      rect(st.srv, -150 + 10, -ch / 2 + 10, 300, ch, 0, C.ink);
+      rect(st.srv, -150, -ch / 2, 300, ch, 0, C.paper, C.ink, 6);
+      let yy = -ch / 2 + 18 + 28;
+      sl.forEach((l) => { fit(text(st.srv, l, -134, yy, 34, C.ink), 268, 34, 26); yy += 38; });
+      yy += -4;
+      rect(st.srv, -134, yy - 14, 268, 4, 0, C.ink); yy += 14;
+      nl.forEach((l) => { fit(text(st.srv, l, -134, yy, 20, C.ink, { mono: true }), 268, 20, 15); yy += 25; });
+      st.srvY = 592; st.srvX = 350;
+
+      /* ---- Nour ---- */
+      st.nour = g(root);
+      const n = st.nour;
+      rect(n, -30, -52, 22, 52, 3, C.ink); rect(n, 8, -52, 22, 52, 3, C.ink);
+      path(n, 'M-48 -222 L48 -222 L68 -50 L-68 -50Z', C.lime, C.ink, 6);
+      line(n, 0, -220, 0, -54, C.ink, 4);
+      path(n, 'M-48 -218 L-24 -218 L-30 -92 L-64 -92Z', C.lime, C.ink, 6);
+      path(n, 'M48 -218 L24 -218 L30 -92 L64 -92Z', C.lime, C.ink, 6);
+      line(n, -66, -104, -36, -92, C.ink, 5); line(n, 66, -104, 36, -92, C.ink, 5);
+      rect(n, -14, -236, 28, 18, 0, C.ink);
+      circle(n, 0, -266, 36, C.paper, C.ink, 6);
+      path(n, 'M-35 -262 A36 36 0 0 1 35 -262 Q0 -282 -35 -262Z', C.ink);
+      // étiquette (au-dessus de la tête)
+      st.nlab = g(root);
+      const nn = text(st.nlab, nameS, 0, -8, 52, C.ink, { anchor: 'middle' });
+      const rr = text(st.nlab, roleS, 0, 28, 24, C.ink, { anchor: 'middle', mono: true });
+      const nw = Math.max(fit(nn, 480, 52, 34), fit(rr, 480, 24, 16));
+      const lw = Math.max(200, nw + 44);
+      st.nlab.insertBefore(rect(st.nlab, -lw / 2 + 10, -58 + 10, lw, 100, 8, C.ink), st.nlab.firstChild);
+      st.nlab.insertBefore(rect(st.nlab, -lw / 2, -58, lw, 100, 8, C.paper, C.ink, 6), st.nlab.children[1]);
+      st.nlabX = NOUR.x; st.nlabY = 336;
+
+      /* ---- bulle (pointe en (0,0) du repère local) ---- */
+      st.bub = g(root);
+      const tipX = 650, tipY = 266;
+      const m1 = text(st.bub, b1, 0, 0, 44, C.ink), m2 = text(st.bub, b2, 0, 0, 44, C.ink);
+      const bw = Math.min(660, Math.max(fit(m1, 600, 44, 30), fit(m2, 600, 44, 30), 330) + 64);
+      st.bub.removeChild(m1); st.bub.removeChild(m2);
+      const bh = 62 * 2 + 40;
+      const bx = 740 - bw - tipX, by = 60 - tipY;
+      const tailX = clamp(tipX - 20, 140, 700) - tipX;
+      const bd = `M${bx} ${by} h${bw} v${bh} H${tailX + 70} L0 0 L${tailX + 10} ${by + bh} H${bx}Z`;
+      path(st.bub, bd, C.ink, null, 0, { transform: 'translate(10 10)' });
+      path(st.bub, bd, C.paper, C.ink, 6);
+      st.bub.appendChild(m1); st.bub.appendChild(m2);
+      m1.setAttribute('x', bx + 32); m1.setAttribute('y', by + 68); m2.setAttribute('x', bx + 32); m2.setAttribute('y', by + 68 + 62);
+      st.t1 = m1; st.t2 = m2; st.tipX = tipX; st.tipY = tipY;
+
+      /* ---- TOI ---- */
+      st.toi = g(root);
+      rect(st.toi, -35, -110, 70, 110, 30, C.white, C.ink, 6);
+      circle(st.toi, 0, -140, 26, C.white, C.ink, 6);
+      const yl = text(st.toi, youS, 0, -190, 22, C.ink, { anchor: 'middle', mono: true });
+      const yw = fit(yl, 140, 22, 16);
+      st.toi.insertBefore(rect(st.toi, -yw / 2 - 12, -212, yw + 24, 32, 6, C.paper, C.ink, 4), yl);
+      return st;
+    },
+
+    update(st, t) {
+      /* ---- jour / nuit ---- */
+      let last = null; for (const e of st.tod) if (e.t <= t) last = e;
+      const dawn = last ? last.k === 'dawn' : st.init === 'dawn';
+      const t0 = last && dawn ? last.t : -1e3;
+      const k0 = dawn && t >= t0, k1 = dawn && t >= t0 + 12 * FR, k2 = dawn && t >= t0 + 24 * FR, k3 = dawn && t >= t0 + 36 * FR;
+      setA(st.sky[0], 'fill', k0 ? C.pocket : C.ink);
+      setA(st.sky[1], 'fill', k1 ? C.paper : C.ink);
+      setA(st.sky[2], 'fill', k2 ? C.lime : C.pocket);
+      setA(st.horizon, 'visibility', k3 ? 'visible' : 'hidden');
+      setA(st.stars, 'visibility', k0 ? 'hidden' : 'visible');
+      const step = Math.floor(Math.max(0, t) * 2);
+      for (let i = 0; i < BULBS; i++) {
+        const off = dawn && t >= t0 + (BULBS - 1 - i) * FR;
+        const col = off ? C.ink : ((i + step) & 1 ? C.lime : C.paper);
+        setA(st.bulbs[i], 'fill', col); setA(st.bulbs[i], 'stroke', off ? C.grey : col);
+      }
+
+      /* ---- porte ---- */
+      const td = st.tDoor;
+      let open = 0;
+      if (td != null) open = E.io2(prog(t, td, td + 8 * FR)) - E.io2(prog(t, td + 1.9, td + 1.9 + 8 * FR));
+      st.leaf.setAttribute('transform', `translate(${DOOR.x} 0) scale(${f2(Math.max(0.0001, 1 - 0.88 * open))} 1) translate(${-DOOR.x} 0)`);
+      const lightOn = td != null && t >= td + 3 * FR && t < td + 1.9 + 8 * FR;
+      if (lightOn) { const q = E.out2(prog(t, td + 3 * FR, td + 9 * FR)); st.light.setAttribute('transform', `translate(0 700) scale(1 ${f2(Math.max(0.001, q))}) translate(0 -700)`); }
+      setA(st.light, 'visibility', lightOn ? 'visible' : 'hidden');
+
+      /* ---- TOI ---- */
+      const tE = td != null ? td + 8 * FR : null, tw = st.tWalk;
+      const tShow = tE != null && tw != null ? Math.min(tE, tw) : (tE != null ? tE : tw);
+      if (tShow == null || t < tShow) { ZV.show(st.toi, false); }
+      else {
+        const door = tE != null && tShow === tE;
+        const e = door ? E.out2(prog(t, tShow, tShow + 0.7)) : E.back(prog(t, tShow, tShow + 8 * FR));
+        let x = TOI_X0, rot = 0;
+        if (tw != null && t >= tw) { const w = prog(t, tw, tw + 2.4); x = lerp(TOI_X0, TOI_X1, E.io2(w)); rot = 3 * Math.sin(w * 6 * Math.PI); }
+        const y = door ? lerp(700, 735, e) : 735, sc = door ? lerp(0.86, 1, e) : Math.max(0.01, e);
+        put(st.toi, x, y, rot, sc, sc, 1);
+      }
+
+      /* ---- Nour ---- */
+      const tn = st.tNour;
+      if (tn == null || t < tn) { ZV.show(st.nour, false); ZV.show(st.nlab, false); }
+      else {
+        const q = E.back(prog(t, tn, tn + 8 * FR));
+        put(st.nour, NOUR.x, NOUR.y, 0, Math.max(0.01, q), Math.max(0.01, q), 1);
+        const ql = prog(t, tn + 0.45, tn + 0.45 + 6 * FR);
+        if (ql <= 0) ZV.show(st.nlab, false);
+        else { const s = Math.max(0.01, E.back(ql)); put(st.nlab, st.nlabX, st.nlabY, -2, s, s, 1); }
+      }
+
+      /* ---- bulle ---- */
+      const tb = st.tBub;
+      if (tb == null || t < tb) ZV.show(st.bub, false);
+      else {
+        const s = Math.max(0.01, E.back(prog(t, tb, tb + 6 * FR)));
+        put(st.bub, st.tipX, st.tipY, 0, s, s, 1);
+        setA(st.t2, 'visibility', t >= tb + 1.0 ? 'visible' : 'hidden');
+      }
+
+      /* ---- carte du service ---- */
+      const ts = st.tSrv;
+      if (ts == null || t < ts) ZV.show(st.srv, false);
+      else { const s = Math.max(0.01, E.back(prog(t, ts, ts + 8 * FR))); put(st.srv, st.srvX, st.srvY, -1.5, s, s, 1); }
     }
   });
 })();
@@ -3808,6 +4707,576 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/crowd-share.js ==== */
+// Composant `crowd-share` : « Pas une poignée de cas à part » (épisode 9, S2). 2,5 % des 18-75 ans, ≈ 1 170 000 personnes ; et en face, ce qui reste à la maison.
+// Cues : grid (vague de pions, 30 i), highlight (les pions touchés passent au rouge, 3 i d'écart ; titre = share_label ; sticker ratio), count (compteur 0 → count, 2 s),
+// tags (étiquettes reliées aux pions rouges de tag_cols, 10 i d'écart), house (la grille se réduit à gauche, panneau lime à droite).
+// Props : cols, rows, share, share_label, count, count_prefix, count_label, kicker, ratio, tags[], tag_cols[], house_value, house_kicker, house_label.
+// Sans cue `grid` la grille est présente dès le début ; sans autre cue le plan reste kicker + grille. Fond paper. Aucun dégradé, flou, lueur ni filter.
+// Écarts assumés : l'étiquette ratio se masque au cue `house` (le panneau occupe la moitié droite) ; en vue `house`, les étiquettes de colonne sont à l'échelle ≈ 0.75 (et non 0.5) pour rester lisibles.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, F } = ZV;
+  const FR = 1 / 30;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const num = (v, d, a, b) => (isNum(v) ? clamp(v, a, b) : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const setT = (n, s) => { if (n.__s !== s) { n.__s = s; n.textContent = s; } };
+  const firstCue = (beats, n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r === null || b.t < r)) r = b.t; return r; };
+  const NNBSP = ' ';
+  const fmt = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, NNBSP);
+
+  function textW(n, size, mono, len) {
+    try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ }
+    return len * size * 0.62;
+  }
+  function fit(n, maxW, base, min) {
+    n.setAttribute('font-size', base);
+    const mono = n.getAttribute('font-family') === F.mono, L = (n.textContent || '').length;
+    let w = textW(n, base, mono, L);
+    if (w > maxW && w > 0) {
+      const s = Math.max(min || base * 0.6, base * maxW / w);
+      n.setAttribute('font-size', f2(s));
+      w = textW(n, s, mono, L);
+      if (w > maxW) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); w = maxW; }
+    }
+    return w;
+  }
+  function wrap(parent, s, size, maxW, maxLines) {
+    const probe = sv('text', { 'font-size': size, 'font-family': F.display, 'font-weight': 800, visibility: 'hidden' }, parent);
+    const w = (x) => { probe.textContent = x; return textW(probe, size, false, x.length); };
+    const lines = []; let cur = '';
+    for (const wd of s.split(/\s+/).filter(Boolean)) { const nx = cur ? cur + ' ' + wd : wd; if (cur && w(nx) > maxW) { lines.push(cur); cur = wd; } else cur = nx; }
+    if (cur) lines.push(cur);
+    if (maxLines && lines.length > maxLines) { const rest = lines.splice(maxLines - 1).join(' '); lines.push(rest); }
+    parent.removeChild(probe);
+    return lines;
+  }
+
+  ZV.define('crowd-share', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const cols = Math.round(num(p.cols, 40, 4, 60)), rows = Math.round(num(p.rows, 10, 2, 16));
+      const share = num(p.share, 2.5, 0, 100), count = num(p.count, 1170000, 0, 1e9);
+      const st = { cols, rows, count };
+      st.tGrid = firstCue(beats, 'grid'); st.tHi = firstCue(beats, 'highlight'); st.tCount = firstCue(beats, 'count');
+      st.tTags = firstCue(beats, 'tags'); st.tHouse = firstCue(beats, 'house');
+      const shareLabel = str(p.share_label, '2,5 %'), prefix = typeof p.count_prefix === 'string' ? p.count_prefix : '≈';
+      st.prefix = prefix;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+
+      /* ---- en-tête (kicker, titre, compteur, étiquette du compteur, ratio) ---- */
+      st.head = g(root);
+      const kick = text(st.head, str(p.kicker, 'OFDT · 2024 · 18–75 ANS'), 160, 114, 26, C.ink, { mono: true, spacing: 1 });
+      fit(kick, 1000, 26, 18);
+      st.tt = g(st.head);                               // titre « share_label » (origine = début de ligne de base)
+      const ts = text(st.tt, shareLabel, 7, 7, 150, C.ink);
+      const tm = text(st.tt, shareLabel, 0, 0, 150, C.red);
+      fit(tm, 1300, 150, 80); ts.setAttribute('font-size', tm.getAttribute('font-size'));
+      if (tm.getAttribute('textLength')) { ts.setAttribute('textLength', tm.getAttribute('textLength')); ts.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+      st.cnt = text(st.head, '', 160, 236, 140, C.ink, { mono: true });
+      st.cl = g(st.head);
+      const clt = text(st.cl, str(p.count_label, 'PERSONNES EN FRANCE · JEU PROBLÉMATIQUE'), 0, 0, 28, C.ink, { mono: true });
+      fit(clt, 1500, 28, 18);
+      st.ratioG = null;
+      if (typeof p.ratio === 'string' && p.ratio.trim()) {
+        st.ratioG = g(st.head);
+        const rt = text(st.ratioG, p.ratio.trim(), 0, 18, 52, C.ink, { anchor: 'middle' });
+        const rw = fit(rt, 420, 52, 30) + 56;
+        st.ratioG.insertBefore(rect(st.ratioG, -rw / 2 + 9, -40 + 9, rw, 80, 14, C.ink), rt);
+        st.ratioG.insertBefore(rect(st.ratioG, -rw / 2, -40, rw, 80, 14, C.lime, C.ink, 6), rt);
+      }
+
+      /* ---- grille de pions ---- */
+      const step = Math.min(40, 1600 / cols, 400 / rows), k = step / 40;
+      const x0 = 960 - (cols * step) / 2, y0 = 500 - (rows * step) / 2;
+      st.step = step; st.k = k;
+      st.grid = g(root);
+      st.links = g(st.grid);
+      const D = 'M-13 16 A13 18 0 0 1 13 16 Z M8 -12 A8 8 0 1 0 -8 -12 A8 8 0 1 0 8 -12 Z';
+      // pions touchés : un par rangée, colonnes distinctes, tag_cols incluses
+      const rr = ZV.rng(1170);
+      const pool = []; for (let i = 0; i < rows; i++) pool.push(i);
+      for (let i = rows - 1; i > 0; i--) { const j = Math.floor(rr() * (i + 1)); const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp; }
+      const n = Math.round(clamp(Math.round(cols * rows * share / 100), 0, cols * rows));
+      let tagCols = Array.isArray(p.tag_cols) ? p.tag_cols : [4, 15, 26, 36];
+      tagCols = tagCols.filter((c, i) => isNum(c) && c >= 0 && c < cols && tagCols.indexOf(c) === i).map(Math.round).slice(0, Math.max(n, 0));
+      const taken = new Set(), touched = [];
+      const addT = (c, r) => { taken.add(r * cols + c); touched.push({ c, r }); };
+      tagCols.forEach((c, i) => addT(c, pool[i % rows]));
+      while (touched.length < n) {
+        const r = pool[touched.length % rows];
+        let c = -1;
+        for (let a = 0; a < 40 && c < 0; a++) { const cc = Math.floor(rr() * cols); if (!taken.has(r * cols + cc) && !touched.some((q) => q.c === cc && (touched.length < cols))) c = cc; }
+        if (c < 0) for (let cc = 0; cc < cols && c < 0; cc++) if (!taken.has(r * cols + cc)) c = cc;
+        if (c < 0) break;
+        addT(c, r);
+      }
+      const order = touched.slice().sort((a, b) => a.c - b.c || a.r - b.r);   // ordre d'allumage : de gauche à droite
+      const idx = new Map(); order.forEach((q, i) => idx.set(q.r * cols + q.c, i));
+      st.pawns = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const nd = sv('path', { d: D, fill: C.pocket, visibility: 'hidden' }, st.grid);
+        const ti = idx.has(r * cols + c) ? idx.get(r * cols + c) : -1;
+        st.pawns.push({ nd, x: x0 + step / 2 + c * step, y: y0 + step / 2 + r * step, c, ti, tc: cols > 1 ? c / (cols - 1) : 0 });
+      }
+      st.touched = order.map((q) => ({ x: x0 + step / 2 + q.c * step, y: y0 + step / 2 + q.r * step, c: q.c }));
+
+      /* ---- étiquettes de colonne ---- */
+      const tagTxt = Array.isArray(p.tags) ? p.tags.map((x) => str(x, '')).filter(Boolean) : ['UN COLLÈGUE', 'UN VOISIN', 'UN PÈRE', 'UN FILS'];
+      const nT = Math.min(tagTxt.length, tagCols.length);
+      st.tags = [];
+      for (let i = 0; i < nT; i++) {
+        const tg = g(root);
+        const tt = text(tg, tagTxt[i], 0, 11, 30, C.ink, { anchor: 'middle' });
+        const w = fit(tt, 300, 30, 20) + 36;
+        tg.insertBefore(rect(tg, -w / 2 + 5, -28 + 5, w, 56, 6, C.ink), tt);
+        tg.insertBefore(rect(tg, -w / 2, -28, w, 56, 6, C.paper, C.ink, 4), tt);
+        const c = tagCols[i], q = st.touched.find((z) => z.c === c) || { x: x0 + step / 2 + c * step, y: y0 + step / 2 };
+        st.tags.push({ tg, w, px: q.x, py: q.y, lx: q.x });
+      }
+      // recalage : dans x 170-1750, sans chevauchement
+      st.tags.sort((a, b) => a.px - b.px);
+      st.tags.forEach((t) => { t.lx = clamp(t.px, 170 + t.w / 2, 1750 - t.w / 2); });
+      for (let i = 1; i < st.tags.length; i++) { const a = st.tags[i - 1], b = st.tags[i], need = (a.w + b.w) / 2 + 14; if (b.lx - a.lx < need) b.lx = a.lx + need; }
+      for (let i = st.tags.length - 2; i >= 0; i--) { const a = st.tags[i], b = st.tags[i + 1], need = (a.w + b.w) / 2 + 14; if (b.lx - a.lx < need) a.lx = b.lx - need; }
+      let minGap = 1e9;
+      st.tags.forEach((t, i) => {
+        t.link = sv('path', { d: `M${f2(t.px)} ${f2(t.py)} L${f2(t.px)} 716 L${f2(t.lx)} 740`, fill: 'none', stroke: C.ink, 'stroke-width': 4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', pathLength: 1, 'stroke-dasharray': '1 1', 'stroke-dashoffset': 1 }, st.links);
+        if (i) minGap = Math.min(minGap, (t.lx - st.tags[i - 1].lx) * 0.5 - 12);
+      });
+      let kT = 0.75;
+      st.tags.forEach((t, i) => { if (i) { const a = st.tags[i - 1]; kT = Math.min(kT, (minGap) / ((a.w + t.w) / 2)); } });
+      st.kTag = clamp(kT, 0.5, 0.75);
+
+      /* ---- panneau « en face » ---- */
+      st.hp = g(root);
+      rect(st.hp, 1000 + 14, 200 + 14, 840, 500, 0, C.ink);
+      rect(st.hp, 1000, 200, 840, 500, 0, C.lime, C.ink, 8);
+      const hk = text(st.hp, str(p.house_kicker, 'PRODUIT BRUT DES JEUX · 2024'), 1044, 276, 26, C.ink, { mono: true, spacing: 1 });
+      fit(hk, 752, 26, 16);
+      const vl = wrap(st.hp, str(p.house_value, 'PRÈS DE 14 MILLIARDS €'), 96, 752, 2);
+      const vy = vl.length > 1 ? 392 : 430;
+      vl.forEach((l, i) => { fit(text(st.hp, l, 1044, vy + i * 102, 96, C.ink), 752, 96, 60); });
+      st.hl = g(st.hp);
+      const hlt = text(st.hl, str(p.house_label, 'CE QUI RESTE À LA MAISON'), 0, 13, 38, C.paper, { anchor: 'middle' });
+      const hw = fit(hlt, 700, 38, 24) + 56;
+      st.hl.insertBefore(rect(st.hl, -hw / 2 + 9, -36 + 9, hw, 72, 8, C.pocket), hlt);
+      st.hl.insertBefore(rect(st.hl, -hw / 2, -36, hw, 72, 8, C.ink, C.ink, 6), hlt);
+      st.hlX = 1000 + 44 + hw / 2; st.hlY = 604;
+      st.hlX = Math.min(st.hlX, 1840 - hw / 2 - 20);
+      return st;
+    },
+
+    update(st, t) {
+      const th = st.tHouse;
+      const ph = th == null ? 0 : E.io2(prog(t, th, th + 14 * FR));
+      /* ---- en-tête ---- */
+      const hs = lerp(1, 0.62, ph);
+      st.head.setAttribute('transform', `translate(${f2(lerp(0, -9.2, ph))} ${f2(lerp(0, 154.2, ph))}) scale(${f2(hs)})`);
+      const th0 = st.tHi, tc = st.tCount;
+      const counting = tc != null && t >= tc;
+      if (counting) {
+        const q = prog(t, tc, tc + 2), v = st.count * (1 - Math.pow(1 - q, 2.1));
+        setT(st.cnt, (st.prefix ? st.prefix + ' ' : '') + fmt(v));
+        setA(st.cnt, 'visibility', 'visible');
+      } else setA(st.cnt, 'visibility', 'hidden');
+      if (!counting && th0 == null && tc == null) put(st.tt, 160, 236, 0, 1, 1, 1);   // aucun cue de titre : le plan garde son titre
+      else if (!counting && th0 != null && t >= th0) { const s = lerp(1.5, 1, E.out3(prog(t, th0, th0 + 5 * FR))); put(st.tt, 160, 236, 0, s, s, 1); }
+      else ZV.show(st.tt, false);
+      if (counting && t >= tc + 2) { const s = Math.max(0.01, E.back(prog(t, tc + 2, tc + 2 + 6 * FR))); put(st.cl, 160, 284, 0, 1, s, 1); } else ZV.show(st.cl, false);
+      if (st.ratioG) {
+        if (th0 != null && t >= th0 + 0.15 && !(th != null && t >= th)) { const s = Math.max(0.01, E.back(prog(t, th0 + 0.15, th0 + 0.15 + 8 * FR))); put(st.ratioG, 1560, 190, 3, s, s, 1); }
+        else ZV.show(st.ratioG, false);
+      }
+
+      /* ---- grille ---- */
+      const gs = lerp(1, 0.5, ph), gtx = lerp(0, 10, ph), gty = lerp(0, 240, ph);
+      st.grid.setAttribute('transform', `translate(${f2(gtx)} ${f2(gty)}) scale(${f2(gs)})`);
+      const tg = st.tGrid, hi = st.tHi, k = st.k;
+      for (let i = 0; i < st.pawns.length; i++) {
+        const w = st.pawns[i];
+        let s = 0;
+        if (tg == null) s = 1; else { const q = prog(t, tg + w.tc * 1.0, tg + w.tc * 1.0 + 5 * FR); s = q <= 0 ? 0 : 0.35 + 0.65 * E.out2(q); }
+        let on = 0;
+        if (w.ti >= 0 && hi != null) {
+          const q = prog(t, hi + w.ti * 3 * FR, hi + w.ti * 3 * FR + 0.2);
+          if (q > 0) { on = 1; s *= 1 + 0.15 * E.back(q); }
+        }
+        const sc = s * k;
+        setA(w.nd, 'visibility', s > 0.001 ? 'visible' : 'hidden');
+        if (s > 0.001) setA(w.nd, 'transform', `translate(${f2(w.x)} ${f2(w.y)}) scale(${f2(sc)})`);
+        setA(w.nd, 'fill', on ? C.red : C.pocket);
+        setA(w.nd, 'stroke', on ? C.ink : 'none');
+        setA(w.nd, 'stroke-width', on ? 3 : 0);
+      }
+
+      /* ---- étiquettes de colonne ---- */
+      const tt = st.tTags;
+      st.tags.forEach((z, i) => {
+        const t0 = tt == null ? null : tt + i * 10 * FR;
+        const lq = t0 == null ? 0 : prog(t, t0, t0 + 0.2);
+        setA(z.link, 'stroke-dashoffset', f2(1 - E.out2(lq)));
+        setA(z.link, 'visibility', lq > 0 ? 'visible' : 'hidden');
+        const pq = t0 == null ? 0 : prog(t, t0 + 0.2, t0 + 0.2 + 6 * FR);
+        if (pq <= 0) { ZV.show(z.tg, false); return; }
+        const s = Math.max(0.01, E.back(pq)) * lerp(1, st.kTag, ph);
+        put(z.tg, gtx + gs * z.lx, gty + gs * 762, 0, s, s, 1);
+      });
+
+      /* ---- panneau « en face » ---- */
+      if (th == null || t < th + 0.2) ZV.show(st.hp, false);
+      else {
+        const q = E.out3(prog(t, th + 0.2, th + 0.2 + 12 * FR));
+        st.hp.setAttribute('transform', `translate(${f2((1 - q) * 900)} 0)`);
+        ZV.show(st.hp, true);
+        const lq = prog(t, th + 0.2 + 12 * FR, th + 0.2 + 20 * FR);
+        if (lq <= 0) ZV.show(st.hl, false); else { const s = Math.max(0.01, E.back(lq)); put(st.hl, st.hlX, st.hlY, -2, s, s, 1); }
+      }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/dealer-week.js ==== */
+// Composant `dealer-week` (épisode 6, S5 « Un croupier en pause »). Voir EP6-COMPONENTS.md.
+// Mode week  : 5 colonnes de 300 cases (une par nuit), les zéros, la pièce lime dans chaque case, « LE MÉCANISME », les gens. Cues : night, week, zeros, price, mechanism, people.
+// Mode chain : la chaîne de décision (croupier → chef de table → directeur → pause ?). Cues : question, no, c1…c4, slow.
+// Aplats, bordures, ombres dures ; aucun dégradé / flou / lueur / filter. Pas de clignotement : fondus et mouvements uniques, flèches qui pulsent à moins de 2 alternances/s.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const num = (v, d) => (isNum(v) ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const setT = (n, s) => { if (n.textContent !== s) n.textContent = s; };
+  const measure = (n) => {
+    try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ }
+    return (n.textContent || '').length * (parseFloat(n.getAttribute('font-size')) || 30) * 0.62;
+  };
+  function mkWrapped(parent, s, cx, cy, maxW, maxH, size0, fill, o) {
+    o = o || {};
+    const grp = g(parent), lh = 1.08;
+    const n1 = text(grp, s, cx, cy + size0 * 0.35, size0, fill, { anchor: 'middle', mono: o.mono });
+    let w = measure(n1);
+    if (w <= maxW) return grp;
+    const words = s.split(/\s+/);
+    if (words.length < 2) { const k = maxW / w; n1.setAttribute('font-size', f2(size0 * k)); n1.setAttribute('y', f2(cy + size0 * k * 0.35)); return grp; }
+    let best = 1, bd = 1e9;
+    for (let j = 1; j < words.length; j++) { const d = Math.abs(words.slice(0, j).join(' ').length - words.slice(j).join(' ').length); if (d < bd) { bd = d; best = j; } }
+    n1.textContent = words.slice(0, best).join(' ');
+    const n2 = text(grp, words.slice(best).join(' '), cx, 0, size0, fill, { anchor: 'middle', mono: o.mono });
+    let size = Math.min(size0, maxH / (2 * lh));
+    n1.setAttribute('font-size', f2(size)); n2.setAttribute('font-size', f2(size));
+    w = Math.max(measure(n1), measure(n2));
+    if (w > maxW) { size *= maxW / w; n1.setAttribute('font-size', f2(size)); n2.setAttribute('font-size', f2(size)); }
+    n1.setAttribute('y', f2(cy - lh * size / 2 + size * 0.35)); n2.setAttribute('y', f2(cy + lh * size / 2 + size * 0.35));
+    return grp;
+  }
+  function fitW(n, maxW) { const w = measure(n); if (w > maxW) n.setAttribute('font-size', f2((parseFloat(n.getAttribute('font-size')) || 30) * maxW / w)); return Math.min(w, maxW); }
+  // texte qui s'écrit : start-anchor, x calculé une fois sur la largeur finale
+  function mkTyper(parent, s, cx, y, size, fill, o) {
+    const n = text(parent, s, cx, y, size, fill, { mono: !!(o && o.mono) });
+    const w = fitW(n, (o && o.maxW) || 1700);
+    n.setAttribute('x', f2(cx - w / 2));
+    n.__full = s; n.__w = w;
+    return n;
+  }
+  const typeTo = (n, k) => { const s = n.__full.slice(0, Math.max(0, Math.min(n.__full.length, Math.floor(k * n.__full.length + 1e-6)))); setT(n, s); };
+
+  const WEEK_CUES = ['night', 'week', 'zeros', 'price', 'mechanism', 'people'];
+  const CHAIN_CUES = ['question', 'no', 'c1', 'c2', 'c3', 'c4', 'slow'];
+
+  /* =========================================================== */
+  /*  MODE week                                                   */
+  /* =========================================================== */
+  const COLS = 15, GY = 230;
+
+  function initWeek(root, st, p) {
+    const T = st.T, first = st.first;
+    const nights = Math.round(clamp(num(p.nights, 5), 1, 7));
+    const perNight = Math.round(clamp(num(p.per_night, 300), 15, 600));
+    const rows = Math.ceil(perNight / COLS);
+    const total = nights * perNight;
+    const zerosN = Math.round(clamp(num(p.zeros, 40), 0, total));
+    const GAP = 40;
+    const colW = Math.min(285, (1584 - (nights - 1) * GAP) / nights);
+    const pitch = Math.min(colW / COLS, 380 / rows, 19);
+    const cell = Math.max(4, pitch - 3);
+    const gridW = COLS * pitch - 3;
+    const x0 = (1920 - (nights * gridW + (nights - 1) * GAP)) / 2;
+    Object.assign(st, { nights, perNight, rows, total, pitch, cell, gridW, x0 });
+    st.tNight = first('night'); st.tWeek = first('week'); st.tZeros = first('zeros'); st.tPrice = first('price'); st.tMech = first('mechanism'); st.tPeople = first('people');
+    st.noFill = st.tNight == null && st.tWeek == null;                 // aucun cue de remplissage : repos = semaine complète
+    st.firstWeekCol = st.tNight != null ? 1 : 0;
+    const title = str(p.title, 'CROUPIER'), mech = str(p.mechanism, 'LE MÉCANISME'), odds = str(p.odds, '1 SUR 37');
+    st.zerosN = zerosN;
+
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    // titre
+    st.title = text(root, title, 960, 100, 72, C.paper, { anchor: 'middle' });
+    fitW(st.title, 1000);
+    const tw = measure(st.title);
+    st.titleW = tw;
+    st.strike = line(root, 960 - tw / 2 - 14, 74, 960 - tw / 2 - 14, 74, C.red, 12);
+    st.mechT = mkTyper(root, mech, 960, 162, 50, C.lime, { maxW: 900 });
+    // grille : cases vides (un seul tracé), cases jouées / pièces / gens par colonne
+    let dEmpty = '';
+    const rng = ZV.rng(Math.round(num(p.seed, 6)));
+    st.cols = [];
+    for (let c = 0; c < nights; c++) {
+      const cx = x0 + c * (gridW + GAP);
+      const col = { cx, played: '', off: [0], coin: '', coff: [0], pc: '', pp: '' };
+      for (let k = 0; k < perNight; k++) {
+        const x = cx + (k % COLS) * pitch, y = GY + Math.floor(k / COLS) * pitch;
+        dEmpty += `M${f2(x)} ${f2(y)}h${f2(cell)}v${f2(cell)}h${f2(-cell)}z`;
+        col.played += `M${f2(x)} ${f2(y)}h${f2(cell)}v${f2(cell)}h${f2(-cell)}z`;
+        col.off.push(col.played.length);
+        const ct = Math.max(2, Math.min(6, cell * 0.38));
+        col.coin += `M${f2(x + cell - ct)} ${f2(y)}h${f2(ct)}v${f2(ct)}z`;
+        col.coff.push(col.coin.length);
+        if (k % 25 === 0) {
+          const mx = x + cell / 2, my = y + cell / 2, u = cell / 16;
+          col.pc += `M${f2(x)} ${f2(y)}h${f2(cell)}v${f2(cell)}h${f2(-cell)}z`;
+          col.pp += `M${f2(mx - 3.2 * u)} ${f2(my - 3.6 * u)}a${f2(3.2 * u)} ${f2(3.2 * u)} 0 1 0 ${f2(6.4 * u)} 0a${f2(3.2 * u)} ${f2(3.2 * u)} 0 1 0 ${f2(-6.4 * u)} 0z`;
+          col.pp += `M${f2(mx - 6.4 * u)} ${f2(my + 6.6 * u)}Q${f2(mx - 6.4 * u)} ${f2(my + 0.6 * u)} ${f2(mx)} ${f2(my + 0.6 * u)}Q${f2(mx + 6.4 * u)} ${f2(my + 0.6 * u)} ${f2(mx + 6.4 * u)} ${f2(my + 6.6 * u)}z`;
+        }
+      }
+      st.cols.push(col);
+    }
+    path(root, dEmpty, 'none', C.pocket, 2);
+    // en-têtes
+    const nl = str(p.night_label, 'NUIT');
+    for (let c = 0; c < nights; c++) fitW(text(root, `${nl} ${c + 1}`, st.cols[c].cx + gridW / 2, 200, 28, C.paper, { anchor: 'middle', mono: true }), gridW);
+    st.cols.forEach((col) => {
+      col.played_n = path(root, '', C.paper); col.coin_n = path(root, '', C.lime);
+      col.pc_n = path(root, col.pc, C.ink); col.pp_n = path(root, col.pp, C.paper);
+      [col.pc_n, col.pp_n].forEach((n) => setA(n, 'visibility', 'hidden'));
+    });
+    // zéros : exactement zerosN cases réparties sur l'ensemble des tours (strates + rng)
+    const idx = [], seg = total / Math.max(1, zerosN);
+    for (let z = 0; z < zerosN; z++) { const a = Math.floor(z * seg), b = Math.max(a + 1, Math.floor((z + 1) * seg)); idx.push(Math.min(total - 1, a + Math.floor(rng() * (b - a)))); }
+    st.zeros = idx.map((gi) => {
+      const c = Math.floor(gi / perNight), k = gi % perNight;
+      const cx = st.cols[c].cx + (k % COLS) * pitch + cell / 2, cy = GY + Math.floor(k / COLS) * pitch + cell / 2;
+      const n = g(root);
+      rect(n, -cell / 2, -cell / 2, cell, cell, 1, C.lime);
+      text(n, '0', 0, cell * 0.22, Math.max(6, cell * 0.62), C.ink, { anchor: 'middle', mono: true });
+      put(n, cx, cy, 0, 0, 0, 0);
+      return { n, cx, cy, tz: 0 };
+    });
+    if (st.zeros.length) {
+      const xs = st.zeros.map((z) => z.cx), mn = Math.min.apply(null, xs), mx = Math.max.apply(null, xs);
+      st.zeros.forEach((z) => { z.tz = mx > mn ? (z.cx - mn) / (mx - mn) * 1.3 : 0; });
+    }
+    // compteur
+    st.cnt = g(root);
+    st.cNum = text(st.cnt, '0', 0, 0, 120, C.paper, { anchor: 'end' });
+    st.cUnit = text(st.cnt, 'TOURS / NUIT', 36, 0, 34, C.paper, { mono: true });
+    // stickers et légendes
+    st.sZero = g(root);
+    ZV.sticker(st.sZero, 560, 78, C.lime, `${odds} · ≈ ${zerosN} PAR SEMAINE`, 28, C.ink, { sh: 9, mono: true });
+    fitW(st.sZero.lastChild, 500);
+    st.leg1 = mkTyper(root, str(p.price_text, 'ET DANS LE PRIX DE CHAQUE MISE'), 960, 648, 30, C.lime, { mono: true, maxW: 1500 });
+    st.peopleY = st.tMech != null ? 648 : 156;
+    st.leg2 = mkTyper(root, str(p.people_text, 'ON COMPTE LES TOURS POUR NE PAS COMPTER LES GENS'), 960, st.peopleY, 30, C.paper, { mono: true, maxW: 1500 });
+  }
+
+  function updWeek(st, t) {
+    const { nights, perNight, tNight, tWeek } = st;
+    /* remplissage */
+    const filled = [];
+    let sum = 0, lastEnd = null;
+    for (let c = 0; c < nights; c++) {
+      let n;
+      if (st.noFill) n = perNight;
+      else if (c === 0 && tNight != null) { n = Math.floor(perNight * Math.pow(prog(t, tNight, tNight + 2.5), 2.1) + 1e-9); if (t >= tNight + 2.5) n = perNight; }
+      else if (tWeek != null && c >= st.firstWeekCol) {
+        const s0 = tWeek + (c - st.firstWeekCol) * 0.45, d = 1.3, q = prog(t, s0, s0 + d);
+        n = Math.floor(perNight * Math.pow(q, 2.1) + 1e-9); if (q >= 1) n = perNight;
+        lastEnd = s0 + d;
+      } else n = 0;
+      filled.push(n); sum += n;
+    }
+    st.cols.forEach((col, c) => {
+      const n = filled[c];
+      vis(col.played_n, n > 0); setA(col.played_n, 'd', col.played.slice(0, col.off[n]));
+    });
+    /* coins lime (dans le prix de chaque mise) : vague gauche → droite */
+    const tP = st.tPrice;
+    st.cols.forEach((col, c) => {
+      let k = 0;
+      if (tP != null) k = Math.min(filled[c], Math.floor(perNight * prog(t, tP + c * 0.9 / nights, tP + c * 0.9 / nights + 0.5)));
+      vis(col.coin_n, k > 0); setA(col.coin_n, 'd', col.coin.slice(0, col.coff[k]));
+    });
+    /* gens : une case sur 25 devient une silhouette pendant 1,5 s */
+    const tPe = st.tPeople;
+    const pe = tPe == null ? 0 : Math.min(prog(t - tPe, 0, 0.25), 1 - prog(t - tPe, 1.25, 1.5));
+    st.cols.forEach((col, c) => {
+      const on = pe > 0.001 && filled[c] >= perNight;
+      vis(col.pc_n, on); vis(col.pp_n, on);
+      if (on) { setA(col.pc_n, 'opacity', f2(pe)); setA(col.pp_n, 'opacity', f2(pe)); }
+    });
+    /* zéros en vague */
+    const tZ = st.tZeros;
+    st.zeros.forEach((z) => {
+      const q = tZ == null ? 0 : E.back(prog(t - tZ - z.tz, 0, 0.3));
+      const s = 0.55 + 0.45 * q + (q > 0 ? 0 : 0);
+      put(z.n, z.cx, z.cy, 0, tZ == null || t < tZ + z.tz ? 0 : s, tZ == null || t < tZ + z.tz ? 0 : s, tZ != null && t >= tZ + z.tz ? 1 : 0);
+    });
+    const zs = tZ == null ? 0 : E.back(prog(t, tZ + 1.35, tZ + 1.7));
+    put(st.sZero, 1500, 735, -2, zs, zs, zs > 0.001 ? 1 : 0);
+
+    /* compteur */
+    const week = st.noFill || (tWeek != null && t >= tWeek);
+    const show = sum > 0;
+    let cs = 1;
+    if (tWeek != null) {
+      const endW = Math.max(lastEnd == null ? tWeek : lastEnd, tWeek);
+      cs = 1 + 0.08 * Math.sin(Math.PI * clamp(1 - (t - endW) / 0.25)) * (t >= endW && t < endW + 0.25 ? 1 : 0);
+    }
+    setT(st.cNum, ZV.fr(sum)); setT(st.cUnit, week ? 'TOURS / SEMAINE' : 'TOURS / NUIT');
+    setA(st.cNum, 'x', 0); setA(st.cUnit, 'x', 34);
+    setA(st.cnt, 'transform', `translate(760 775) translate(0 -40) scale(${f2(cs)}) translate(0 40)`);
+    vis(st.cnt, show);
+
+    /* légendes */
+    const lp1 = tP == null ? 0 : prog(t, tP + 0.3, tP + 1.3);
+    const hide1 = tPe != null && st.peopleY === 648 ? prog(t, tPe, tPe + 0.15) : 0;
+    typeTo(st.leg1, lp1); vis(st.leg1, lp1 > 0 && hide1 < 1);
+    setA(st.leg1, 'opacity', f2(1 - hide1));
+    typeTo(st.leg2, tPe == null ? 0 : prog(t, tPe + 0.25, tPe + 1.2)); vis(st.leg2, tPe != null && t >= tPe + 0.25);
+
+    /* le mécanisme */
+    const tM = st.tMech;
+    const sp = tM == null ? 0 : E.out2(prog(t, tM, tM + 0.3));
+    vis(st.strike, sp > 0.001);
+    setA(st.strike, 'x2', f2(960 - st.titleW / 2 - 14 + (st.titleW + 28) * sp));
+    typeTo(st.mechT, tM == null ? 0 : prog(t, tM + 0.35, tM + 1.0)); vis(st.mechT, tM != null && t >= tM + 0.35);
+  }
+
+  /* =========================================================== */
+  /*  MODE chain                                                  */
+  /* =========================================================== */
+  const BY = 380, BH = 140;
+  function initChain(root, st, p) {
+    const T = st.T, first = st.first;
+    const steps = (Array.isArray(p.steps) && p.steps.length ? p.steps.map((x) => str(x, '')).filter(Boolean) : ['LE CROUPIER', 'LE CHEF DE TABLE', 'LE DIRECTEUR', 'UNE PAUSE ?']).slice(0, 5);
+    const n = steps.length;
+    const question = str(p.question, 'PEUT-IL ARRÊTER QUELQU’UN ?'), answer = str(p.answer, 'NON');
+    st.none = !CHAIN_CUES.some((k) => T[k]) && !T.c5;
+    st.tQ = first('question'); st.tNo = first('no'); st.tSlow = first('slow');
+    st.n = n;
+    st.tC = steps.map((s, i) => first('c' + (i + 1)));
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    st.q = mkTyper(root, question, 960, 120 + 22, 64, C.paper, { maxW: 1400 });
+    const qw = st.q.__w, qRight = 960 + qw / 2;
+    // chaîne
+    const widths = steps.map((s, i) => (i === n - 1 && n > 1 ? 250 : 300));
+    const sumW = widths.reduce((a, b) => a + b, 0);
+    const gap = n > 1 ? Math.max(110, Math.min(200, (1680 - sumW) / (n - 1))) : 0;
+    let x = (1920 - (sumW + gap * (n - 1))) / 2;
+    st.boxes = steps.map((s, i) => {
+      const w = widths[i], last = i === n - 1 && n > 1, h = last ? 120 : BH, cy = BY + BH / 2;
+      const b = { x, w, h, cy, g: g(root) };
+      const dashed = last;
+      if (!dashed) {
+        rect(b.g, -w / 2 + 10, -h / 2 + 10, w, h, 16, C.lime);
+        rect(b.g, -w / 2, -h / 2, w, h, 16, C.paper, C.ink, 8);
+        mkWrapped(b.g, s, 0, 0, w - 44, h - 34, 40, C.ink, {});
+      } else {
+        rect(b.g, -w / 2, -h / 2, w, h, 16, C.pocket, C.lime, 6, { 'stroke-dasharray': '18 12' });
+        mkWrapped(b.g, s, 0, 0, w - 44, h - 30, 36, C.lime, {});
+      }
+      x += w + gap;
+      return b;
+    });
+    st.arrows = [];
+    for (let i = 1; i < n; i++) {
+      const a = st.boxes[i - 1], b = st.boxes[i];
+      const ax = a.x + a.w + 16, bx = b.x - 16, y = BY + BH / 2;
+      const gr = g(root);
+      const shaft = line(gr, ax, y, ax, y, C.lime, 14);
+      const head = path(gr, 'M0 -24 L38 0 L0 24Z', C.lime, C.lime, 6);
+      st.arrows.push({ gr, shaft, head, ax, bx, y, dur: [0.27, 0.47, 0.8, 1.2][Math.min(i - 1, 3)] });
+    }
+    // tampon « NON »
+    st.no = g(root);
+    const sw = 250;
+    rect(st.no, -sw / 2 + 10, -66 + 10, sw, 132, 14, C.paper);
+    rect(st.no, -sw / 2, -66, sw, 132, 14, C.red, C.ink, 8);
+    fitW(text(st.no, answer, 0, 34, 96, C.ink, { anchor: 'middle' }), sw - 40);
+    st.noX = Math.min(1920 - 60 - sw / 2, qRight + 70 + sw / 2);
+    // horloge plate
+    st.clock = g(root);
+    circle(st.clock, 8, 8, 84, C.lime);
+    circle(st.clock, 0, 0, 84, C.paper, C.ink, 8);
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; line(st.clock, Math.sin(a) * 62, -Math.cos(a) * 62, Math.sin(a) * 72, -Math.cos(a) * 72, C.ink, i % 3 ? 3 : 6); }
+    st.hH = line(st.clock, 0, 0, 0, -40, C.ink, 9); st.hM = line(st.clock, 0, 0, 0, -58, C.ink, 6);
+    circle(st.clock, 0, 0, 9, C.red, C.ink, 3);
+    st.slowT = mkTyper(root, str(p.slow_text, 'ÇA PREND DU TEMPS'), 960, 590, 30, C.paper, { mono: true, maxW: 1200 });
+  }
+
+  function updChain(st, t) {
+    const none = st.none;
+    const tQ = st.tQ, tNo = st.tNo, tS = st.tSlow;
+    typeTo(st.q, none ? 1 : tQ == null ? 0 : prog(t, tQ, tQ + 0.9)); vis(st.q, none || (tQ != null && t >= tQ));
+    // tampon : un seul claquement
+    let ns = 0, rot = 8, ox = 0, oy = 0;
+    if (none) ns = 1;
+    else if (tNo != null && t >= tNo) { const q = prog(t, tNo, tNo + 0.14); ns = lerp(2.0, 1, E.in2(q)); const sh = shakeAt(t, tNo + 0.14, 7, 0.3); ox = sh[0]; oy = sh[1]; }
+    put(st.no, st.noX + ox, 112 + oy, rot, ns, ns, ns > 0.001 ? 1 : 0);
+    // boîtes et flèches
+    const pulse = tS != null && t >= tS ? 0.7 + 0.3 * Math.sin(2 * Math.PI * 0.85 * (t - tS) + Math.PI / 2) : 1;
+    st.boxes.forEach((b, i) => {
+      const tc = none ? -99 : st.tC[i];
+      const q = tc == null ? 0 : E.back(prog(t, tc, tc + 0.3));
+      put(b.g, b.x + b.w / 2, b.cy, 0, q, q, tc != null && t >= tc ? 1 : 0);
+      if (i > 0) {
+        const a = st.arrows[i - 1];
+        const pa = tc == null ? 0 : E.out2(prog(t, tc, tc + a.dur));
+        const xe = lerp(a.ax, a.bx, pa), headOn = pa > 0.02;
+        vis(a.gr, tc != null && t >= tc);
+        setA(a.shaft, 'x2', f2(Math.max(a.ax, xe - 20)));
+        vis(a.head, headOn);
+        setA(a.head, 'transform', `translate(${f2(xe - 38)} ${a.y})`);
+        setA(a.gr, 'opacity', f2(pa >= 1 ? pulse : 1));
+      }
+    });
+    // horloge + « ça prend du temps »
+    const cq = tS == null ? 0 : E.back(prog(t, tS, tS + 0.35));
+    put(st.clock, 960, 250, 0, cq, cq, cq > 0.001 ? 1 : 0);
+    const e = tS == null ? 0 : Math.max(0, t - tS);
+    setA(st.hM, 'transform', `rotate(${f2(e * 110)})`); setA(st.hH, 'transform', `rotate(${f2(e * 110 / 12 + 60)})`);
+    typeTo(st.slowT, tS == null ? 0 : prog(t, tS + 0.3, tS + 1.0)); vis(st.slowT, tS != null && t >= tS + 0.3);
+  }
+
+  ZV.define('dealer-week', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const T = {};
+      beats.forEach((b) => { if (b && b.do === 'cue' && typeof b.name === 'string' && isNum(b.t)) (T[b.name] || (T[b.name] = [])).push(b.t); });
+      Object.keys(T).forEach((k) => T[k].sort((a, c) => a - c));
+      const first = (n) => (T[n] ? T[n][0] : null);
+      const hasW = WEEK_CUES.some((n) => T[n]), hasC = CHAIN_CUES.some((n) => T[n]);
+      const mode = p.mode === 'chain' ? 'chain' : p.mode === 'week' ? 'week' : (hasC && !hasW ? 'chain' : 'week');
+      const st = { mode, T, first };
+      try { if (mode === 'chain') initChain(root, st, p); else initWeek(root, st, p); } catch (e) { st.err = e; }
+      return st;
+    },
+    update(st, t) {
+      if (!st || st.err) return;
+      t = isNum(t) ? t : 0;
+      try { if (st.mode === 'chain') updChain(st, t); else updWeek(st, t); } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/disguise-loop.js ==== */
 // Composant `disguise-loop` (épisode 5) : « On le reconnaît. On le sort. » Voir EP5-COMPONENTS.md.
 // Fond paper. Une entrée de casino générique, un œil plat, une silhouette SANS visage (déguisements = formes plates), deux mains qui poussent dehors.
@@ -5106,6 +6575,445 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/exit-route.js ==== */
+// Composant `exit-route` (épisode 9) : la sortie qu'aucun casino ne dessine. Deux modes.
+// `plan` (S1, S6) : plan de dessus d'un bâtiment sans issue (8 salles = 8 épisodes), un pion TOI dans le couloir ; cues plan, room (répétable), rooms, no-exit, sign, route, step-1..4, leave.
+// `road` (S5) : une route en S ; le marcheur avance d'un poteau toutes les `pace` s, rechute, repart, est rejoint par deux accompagnants ; le trait lime ne recule jamais ; cues walk, relapse, continue, together, door.
+// Props : mode, rooms[], no_exit, exit, steps[], leave_label ; start, markers, markers_kicker, walker, walker_note, pace, relapse_back, relapse_label, continue_label, trail_label, not_door, path_label, together.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter ; aucun portrait ; rien d'important sous y = 840.
+(() => {
+  'use strict';
+  const { C, F, E, clamp, prog, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const I = 1 / 30;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.trim().length ? v.trim() : d);
+  const arr = (v, d) => (Array.isArray(v) && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const dsp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
+  const tr = (n, x, y, r, sx, sy) => { let s = `translate(${f2(x)} ${f2(y)})`; if (r) s += ` rotate(${f2(r)})`; if (sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) s += ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})`; setA(n, 'transform', s); };
+  const setT = (n, s) => { if (n.__t !== s) { n.__t = s; n.textContent = s; } };
+  const pop = (n, x, y, rot, p) => { if (p <= 0) { vis(n, false); return; } vis(n, true); tr(n, x, y, rot, Math.max(0.0001, E.back(clamp(p)))); };
+  // mesure réelle du texte (getComputedTextLength), repli sur une estimation hors DOM
+  function metric(root) {
+    const probe = sv('text', { x: 0, y: -3000, 'font-size': 100, 'font-weight': 800, visibility: 'hidden' }, root);
+    const cache = {};
+    const est = (s, mono) => { let a = 0; for (const ch of s) a += mono ? 60 : (ch === ' ' ? 26 : /[0-9]/.test(ch) ? 60 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 68 : /[.,:;'’!|·]/.test(ch) ? 32 : 58); return a; };
+    return (s, size, mono) => {
+      s = String(s); const k = (mono ? 'm' : 'd') + s; let w = cache[k];
+      if (w === undefined) {
+        probe.setAttribute('font-family', mono ? F.mono : F.display); probe.textContent = s;
+        w = 0; try { w = probe.getComputedTextLength(); } catch (e) { w = 0; }
+        if (!(w > 0)) w = est(s, mono);
+        cache[k] = w;
+      }
+      return w * size / 100;
+    };
+  }
+  // texte ajusté : réduit la taille jusqu'à o.min si dépasse o.maxW, puis impose la largeur (textLength) ; o.free = pas de textLength (machine à écrire)
+  const mkT = (M) => function T(parent, s, x, y, size, fill, o) {
+    o = o || {}; s = String(s);
+    let w = M(s, size, o.mono);
+    if (o.maxW && w > o.maxW) { size = Math.max(o.min || 10, size * o.maxW / w); w = M(s, size, o.mono); }
+    const n = text(parent, s, x, y, f2(size), fill, { mono: o.mono, anchor: o.anchor });
+    if (!o.free) { const lim = o.maxW ? Math.min(w, o.maxW) : w; n.setAttribute('textLength', f2(lim)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); w = lim; }
+    n.__w = w; n.__s = size; return n;
+  };
+  // coupe en lignes équilibrées (≤ maxL) ; réduit la taille jusqu'à min si besoin
+  const mkWrap = (M) => {
+    const part = (words, n, sz, mono) => {
+      const wl = (a, b) => M(words.slice(a, b).join(' '), sz, mono);
+      let best = null;
+      const rec = (start, left, cuts, mx) => {
+        if (left === 1) { const m = Math.max(mx, wl(start, words.length)); if (!best || m < best.w - 0.5) best = { w: m, cuts: cuts.slice() }; return; }
+        for (let e = start + 1; e <= words.length - (left - 1); e++) { cuts.push(e); rec(e, left - 1, cuts, Math.max(mx, wl(start, e))); cuts.pop(); }
+      };
+      rec(0, n, [], 0);
+      const lines = []; let s0 = 0;
+      for (const c of best.cuts.concat([words.length])) { lines.push(words.slice(s0, c).join(' ')); s0 = c; }
+      return { w: best.w, lines };
+    };
+    return (s, size, maxW, maxL, mono, min) => {
+      const words = String(s).split(/\s+/).filter(Boolean); if (!words.length) words.push(' ');
+      maxL = Math.max(1, Math.min(maxL, words.length)); min = min || 12;
+      for (let sz = size; ; sz -= 1) {
+        for (let n = 1; n <= maxL; n++) { const p = part(words, n, sz, mono); if (p.w <= maxW) return { lines: p.lines, size: sz, w: p.w }; }
+        if (sz <= min) { const p = part(words, maxL, sz, mono); return { lines: p.lines, size: sz, w: Math.min(p.w, maxW) }; }
+      }
+    };
+  };
+  // bloc plat + ombre dure décalée
+  function blk(parent, x, y, w, h, fill, r, sw, sh) {
+    const grp = g(parent);
+    if (sh) rect(grp, x + sh, y + sh, w, h, r, C.ink);
+    rect(grp, x, y, w, h, r, fill, sw === 0 ? null : C.ink, sw || 6);
+    return grp;
+  }
+  // sticker centré sur (0,0), lignes centrées
+  function stk(parent, lines, size, fill, tfill, o, M, T) {
+    o = o || {}; lines = [].concat(lines);
+    const lh = size * 1.18;
+    let mw = 0; lines.forEach((l) => { mw = Math.max(mw, M(l, size, o.mono)); });
+    const padX = o.padX === undefined ? 30 : o.padX;
+    const w = Math.round(mw + padX * 2), h = Math.round(lines.length * lh + (o.padY === undefined ? 26 : o.padY));
+    const grp = g(parent), sh = o.sh === undefined ? 10 : o.sh;
+    if (sh) rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, o.r === undefined ? 14 : o.r, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, o.r === undefined ? 14 : o.r, fill, C.ink, o.sw || 6);
+    lines.forEach((l, i) => T(grp, l, 0, -h / 2 + (h - lines.length * lh) / 2 + lh * (i + 0.5) + size * 0.34, size, tfill, { anchor: 'middle', mono: o.mono }));
+    grp.__w = w; grp.__h = h; return grp;
+  }
+
+  let UID = 0;
+  const lerp = ZV.lerp;
+  const RX = [120, 480, 840, 1200];            // x des 4 colonnes de salles
+  const CY = 455;                              // axe du couloir
+  const STEPX = [0, 1, 2, 3].map((k) => 420 + k * 980 / 3);
+  const OUTER = 'M1560 410 V100 H120 V800 H1560 V500', OUTER_L = 310 + 1440 + 700 + 1440 + 300;
+  const BAIES = [[255, 345], [615, 705], [975, 1065], [1335, 1425]];
+  const WALLS = (() => {
+    let d = '', L = 0;
+    [410, 500].forEach((y) => { let x0 = 120; BAIES.forEach(([a, b]) => { d += `M${x0} ${y} H${a} `; L += a - x0; x0 = b; }); d += `M${x0} ${y} H1560 `; L += 1560 - x0; });
+    [480, 840, 1200].forEach((x) => { d += `M${x} 100 V410 M${x} 500 V800 `; L += 310 + 300; });
+    return { d, L };
+  })();
+  // pion plat (tête + corps), origine = centre de la route au niveau des pieds
+  function pawnShape(parent, fill, stroke, sw, k) {
+    const gp = g(parent);
+    path(gp, `M${-30 * k} ${12 * k} Q${-30 * k} ${-26 * k} 0 ${-26 * k} Q${30 * k} ${-26 * k} ${30 * k} ${12 * k} Z`, fill, stroke, sw);
+    circle(gp, 0, -44 * k, 24 * k, fill, stroke, sw);
+    return gp;
+  }
+
+  ZV.define('exit-route', {
+    init(root, shot) {
+      const P = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const cuL = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((x, y) => x - y);
+      const cu = (n) => { const a = cuL(n); return a.length ? a[0] : null; };
+      const M = metric(root), T = mkT(M), WR = mkWrap(M);
+      const uid = 'er' + (++UID);
+      const mode = P.mode === 'road' ? 'road' : 'plan';
+      const st = { mode, c: {}, uid };
+      const defs = sv('defs', null, root);
+
+      if (mode === 'plan') {
+        const rooms = arr(P.rooms, ['LA CASE VERTE', 'LES MACHINES QUI COMPTENT TON TEMPS', 'LE SYSTÈME INFAILLIBLE', 'SE REFAIRE', "LE SEUL JEU QU'ON PEUT BATTRE", 'SANS HORLOGES', 'LES CADEAUX CALCULÉS SUR TES PERTES', 'LE CASINO DANS LA POCHE']).slice(0, 8).map(String);
+        while (rooms.length < 8) rooms.push('');
+        const noExit = str(P.no_exit, 'AUCUN PANNEAU SORTIE'), exitT = str(P.exit, 'SORTIE');
+        const steps = arr(P.steps, ['REPÉRER LES SIGNES', 'APPELER', "S'INTERDIRE", 'SE FAIRE AIDER']).slice(0, 4).map(String);
+        const leaveL = str(P.leave_label, 'SE LEVER DE LA TABLE');
+        const c = st.c;
+        ['plan', 'no-exit', 'sign', 'route', 'leave'].forEach((n) => { c[n] = cu(n); });
+        [1, 2, 3, 4].forEach((n) => { c['step-' + n] = cu('step-' + n); });
+        // allumage des salles : `room` allume la suivante, `rooms` toutes les éteintes en cascade (4 i)
+        const ev = cuL('room').map((t) => ({ t, k: 'r' })).concat(cuL('rooms').map((t) => ({ t, k: 'a' }))).sort((a, b) => a.t - b.t || (a.k < b.k ? 1 : -1));
+        const lit = [null, null, null, null, null, null, null, null];
+        ev.forEach((e) => {
+          if (e.k === 'r') { const i = lit.indexOf(null); if (i >= 0) lit[i] = e.t; }
+          else { let n = 0; for (let i = 0; i < 8; i++) if (lit[i] == null) { lit[i] = e.t + n * 4 * I; n++; } }
+        });
+        st.lit = lit;
+
+        rect(root, 0, 0, 1920, 1080, 0, C.ink);
+        const bld = st.bld = g(root);
+        rect(bld, 120, 100, 1440, 700, 0, C.paper);
+        st.rm = [];
+        for (let i = 0; i < 8; i++) {
+          const col = i % 4, row = i < 4 ? 0 : 1, x = RX[col];
+          const ry = row ? 506 : 106, rh = row ? 288 : 298;
+          const lime = rect(bld, x + 6, ry, 348, rh, 0, C.lime);
+          const wl = WR(rooms[i] || ' ', 30, 310, 2, false, 24);
+          const lh = 36, nl = wl.lines.length;
+          const numY = row ? 776 : 172;
+          const base = row ? (numY - 34 - (nl - 1) * lh) : 214;
+          const veil = rect(bld, x + 6, ry, 348, rh, 0, C.ink);
+          const tg = g(bld), tx = [];
+          tx.push(T(tg, String(i + 1).padStart(2, '0'), x + 26, numY, 26, C.ink, { mono: true }));
+          wl.lines.forEach((l, j) => tx.push(T(tg, l, x + 26, base + j * lh, wl.size, C.ink, { maxW: 312 })));
+          st.rm.push({ lime, tg, veil, tx, ax: x + 26, ay: row ? 740 : 190 });
+        }
+        // murs
+        const wl1 = path(bld, WALLS.d, 'none', C.ink, 12, { 'stroke-linecap': 'butt', 'stroke-linejoin': 'miter' });
+        const outer = path(bld, OUTER, 'none', C.ink, 12, { 'stroke-linecap': 'butt', 'stroke-linejoin': 'miter' });
+        const dw = rect(bld, 1548, 410, 24, 90, 0, C.ink);
+        st.walls = wl1; st.outer = outer; st.dw = dw;
+        st.floorAll = bld;
+        // route et jalons
+        const clipId = uid + 'r';
+        st.clipR = sv('rect', { x: 200, y: 420, width: 0, height: 70 }, sv('clipPath', { id: clipId }, defs));
+        const rg = st.route = g(root, { 'clip-path': `url(#${clipId})` });
+        [[22, C.ink], [14, C.lime]].forEach(([w, col]) => path(rg, `M220 ${CY} H1560`, 'none', col, w, { 'stroke-dasharray': '10 44', 'stroke-linecap': 'round' }));
+        st.steps = steps.map((s, i) => {
+          const sg = g(root);
+          const w = Math.round(M(s, 22, true) + 24);
+          const top = i % 2 === 0, left = i >= 2;
+          const x0 = left ? -24 - w : 24, y0 = top ? -38 : 10;
+          rect(sg, x0, y0, w, 28, 6, C.paper, C.ink, 3);
+          T(sg, s, x0 + w / 2, y0 + 21, 22, C.ink, { mono: true, anchor: 'middle', maxW: w - 12, min: 14 });
+          const dot = circle(sg, 0, 0, 18, C.lime, C.ink, 5);
+          return { g: sg, dot, x: STEPX[i] };
+        });
+        st.pawn = circle(root, 0, 0, 24, C.white, C.ink, 6);
+        // plaque de sortie
+        const pl = st.plaque = g(root);
+        rect(pl, -108, -50, 240, 120, 12, C.ink);
+        rect(pl, -120, -60, 240, 120, 12, C.lime, C.ink, 8);
+        rect(pl, -100, -26, 30, 52, 3, C.ink); circle(pl, -78, 2, 3, C.lime);
+        line(pl, -62, 0, -34, 0, C.ink, 8); path(pl, 'M-46 -13 L-32 0 L-46 13', 'none', C.ink, 8);
+        T(pl, exitT, -20, 16, 44, C.ink, { maxW: 124, min: 26 });
+        // stickers
+        st.noExit = stk(root, [noExit], 44, C.paper, C.ink, { sh: 8, padX: 28, padY: 20, sw: 6 }, M, T);
+        const wlv = WR(leaveL, 44, 248, 2, false, 30);
+        st.leaveS = stk(root, wlv.lines, wlv.size, C.paper, C.ink, { sh: 10, padX: 26, padY: 28, sw: 6 }, M, T);
+      } else {
+        /* ================= mode road ================= */
+        const c = st.c;
+        ['walk', 'relapse', 'continue', 'together', 'door'].forEach((n) => { c[n] = cu(n); });
+        const startT = str(P.start, 'CENTRE DE SOINS · GRATUIT'), nMark = Math.max(2, Math.min(16, Math.round(num(P.markers, 8))));
+        const mkK = str(P.markers_kicker, 'UN RENDEZ-VOUS TOUTES LES DEUX SEMAINES');
+        const walker = str(P.walker, 'SAMI'), wnote = str(P.walker_note, 'PERSONNAGE COMPOSITE');
+        const pace = Math.max(0.2, num(P.pace, 1.4)), back = Math.max(0, num(P.relapse_back, 1.5));
+        const relL = str(P.relapse_label, 'RECHUTE'), contL = str(P.continue_label, "C'EST NORMAL, ON CONTINUE."), trailL = str(P.trail_label, "UNE RECHUTE N'EFFACE PAS LE CHEMIN");
+        const notDoor = str(P.not_door, 'PAS UNE PORTE'), pathL = str(P.path_label, 'UN CHEMIN'), together = str(P.together, "PERSONNE N'OBLIGE À LE FAIRE SEUL");
+        // courbe de Bézier fixe et table d'abscisses curvilignes
+        const PB = [[100, 640], [700, 820], [1150, 190], [1820, 360]], NS = 600, X = [], Y = [], S = [0];
+        for (let i = 0; i <= NS; i++) { const u = i / NS, v = 1 - u; X.push(v * v * v * PB[0][0] + 3 * v * v * u * PB[1][0] + 3 * v * u * u * PB[2][0] + u * u * u * PB[3][0]); Y.push(v * v * v * PB[0][1] + 3 * v * v * u * PB[1][1] + 3 * v * u * u * PB[2][1] + u * u * u * PB[3][1]); if (i) S.push(S[i - 1] + Math.hypot(X[i] - X[i - 1], Y[i] - Y[i - 1])); }
+        const L = S[NS];
+        const at = (s) => {
+          s = clamp(s, 0, L); let lo = 0, hi = NS; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (S[m] <= s) lo = m; else hi = m; }
+          const f = (s - S[lo]) / Math.max(1e-6, S[hi] - S[lo]), x = lerp(X[lo], X[hi], f), y = lerp(Y[lo], Y[hi], f);
+          let tx = X[hi] - X[lo], ty = Y[hi] - Y[lo]; const n = Math.hypot(tx, ty) || 1; tx /= n; ty /= n;
+          return { x, y, tx, ty, ux: ty, uy: -tx };     // (ux,uy) : normale vers le haut
+        };
+        const DEL = 0.77 * L / (nMark - 1);
+        st.L = L; st.at = at; st.DEL = DEL; st.nMark = nMark; st.pace = pace; st.back = back;
+        // trajet du marcheur : segments { t0, t1, p0, p1, k } (p en intervalles de poteau)
+        const maxP = nMark - 1, segs = [];
+        if (c.walk == null) segs.push({ t0: -1e9, t1: 1e9, p0: 0, p1: 0, k: 'still' });
+        else {
+          let tt = c.walk, pp = 0, moving = true;
+          const evs = [];
+          if (c.relapse != null && c.relapse >= c.walk) evs.push({ t: c.relapse, k: 'r' });
+          if (c['continue'] != null && c['continue'] >= c.walk) evs.push({ t: c['continue'], k: 'c' });
+          evs.sort((a, b) => a.t - b.t);
+          segs.push({ t0: -1e9, t1: c.walk, p0: 0, p1: 0, k: 'still' });
+          const run = (tEnd) => {      // avance jusqu'à tEnd (ou l'arrivée au dernier poteau)
+            const tArr = tt + (maxP - pp) * pace;
+            if (tArr <= tEnd) { segs.push({ t0: tt, t1: tArr, p0: pp, p1: maxP, k: 'move' }); segs.push({ t0: tArr, t1: tEnd, p0: maxP, p1: maxP, k: 'still' }); pp = maxP; }
+            else { const p1 = pp + (tEnd - tt) / pace; segs.push({ t0: tt, t1: tEnd, p0: pp, p1, k: 'move' }); pp = p1; }
+            tt = tEnd;
+          };
+          evs.forEach((e) => {
+            if (e.k === 'r' && moving) { run(e.t); const p1 = Math.max(0, pp - back); segs.push({ t0: tt, t1: tt + 10 * I, p0: pp, p1, k: 'slide' }); tt += 10 * I; pp = p1; moving = false; st.relStop = { t: e.t + 10 * I, p: p1 }; }
+            else if (e.k === 'c' && !moving && e.t >= tt) { segs.push({ t0: tt, t1: e.t, p0: pp, p1: pp, k: 'still' }); tt = e.t; moving = true; }
+          });
+          if (moving) { const tArr = tt + (maxP - pp) * pace; segs.push({ t0: tt, t1: tArr, p0: pp, p1: maxP, k: 'move' }); segs.push({ t0: tArr, t1: 1e9, p0: maxP, p1: maxP, k: 'still' }); }
+          else segs.push({ t0: tt, t1: 1e9, p0: pp, p1: pp, k: 'still' });
+        }
+        st.segs = segs;
+
+        rect(root, 0, 0, 1920, 1080, 0, C.paper);
+        T(root, mkK, 100, 100, 26, C.ink, { mono: true, maxW: 760, min: 16 });
+        const dMain = `M${PB[0][0]} ${PB[0][1]} C${PB[1][0]} ${PB[1][1]} ${PB[2][0]} ${PB[2][1]} ${PB[3][0]} ${PB[3][1]}`;
+        const extD = 'M1820 360 L2090 428';
+        const cid = uid + 'x';
+        st.clipX = sv('rect', { x: 1800, y: 300, width: 0, height: 300 }, sv('clipPath', { id: cid }, defs));
+        path(root, dMain, 'none', C.ink, 72);
+        const ext = st.ext = g(root, { 'clip-path': `url(#${cid})` });
+        path(ext, extD, 'none', C.ink, 72);
+        path(root, dMain, 'none', C.paper, 56);
+        path(ext, extD, 'none', C.paper, 56);
+        st.lime = path(root, dMain, 'none', C.lime, 56, { 'stroke-linecap': 'butt', 'stroke-dasharray': `0 ${f2(L * 3)}` });
+        path(root, dMain, 'none', C.ink, 6, { 'stroke-dasharray': '34 26', 'stroke-linecap': 'butt' });
+        path(ext, extD, 'none', C.ink, 6, { 'stroke-dasharray': '34 26', 'stroke-linecap': 'butt' });
+        // poteaux « RDV »
+        for (let k = 1; k < nMark; k++) {
+          const a = at(k * DEL), bx = a.x + a.ux * 40, by = a.y + a.uy * 40;
+          line(root, f2(bx), f2(by + 4), f2(bx), f2(by - 70), C.ink, 9).setAttribute('stroke-linecap', 'butt');
+          rect(root, f2(bx + 5), f2(by - 76), 62, 30, 5, C.paper, C.ink, 4);
+          T(root, 'RDV', f2(bx + 36), f2(by - 54), 22, C.ink, { mono: true, anchor: 'middle' });
+        }
+        // poteau-panneau de départ
+        { const a = at(0), sx = 150, sy = a.y + a.uy * 40; const sw2 = WR(startT, 30, 270, 2, false, 22);
+          line(root, sx + 30, sy + 6, sx + 30, 470, C.ink, 10).setAttribute('stroke-linecap', 'butt');
+          const bw2 = Math.round(sw2.w + 44), bh2 = sw2.lines.length * 36 + 26;
+          const bx0 = sx - 50, by0 = 470 - bh2;
+          rect(root, bx0 + 8, by0 + 8, bw2, bh2, 8, C.ink); rect(root, bx0, by0, bw2, bh2, 8, C.lime, C.ink, 6);
+          sw2.lines.forEach((l, i) => T(root, l, bx0 + bw2 / 2, by0 + 13 + 28 + i * 36 - 2, sw2.size, C.ink, { anchor: 'middle', maxW: bw2 - 24 })); }
+        // cadre de porte
+        const door = st.door = g(root);
+        rect(door, -70, -240, 140, 240, 0, C.ink);
+        rect(door, -54, -224, 108, 224, 0, C.paper);
+        rect(door, -54, -224, 108, 224, 0, 'none', C.ink, 6);
+        circle(door, 32, -110, 9, C.ink);
+        const cross = st.cross = g(door);
+        line(cross, -46, -204, 46, -26, C.ink, 26); line(cross, 46, -204, -46, -26, C.ink, 26);
+        st.cr1 = line(cross, -46, -204, 46, -26, C.red, 18); st.cr2 = line(cross, 46, -204, -46, -26, C.red, 18);
+        { const nd = WR(notDoor, 36, 330, 1, false, 24); st.notDoor = stk(root, nd.lines, nd.size, C.ink, C.paper, { sh: 8, padX: 26, padY: 22, sw: 4 }, M, T); }
+        { const pw = WR(pathL, 52, 262, 2, false, 40); st.pathL = stk(root, pw.lines, pw.size, C.lime, C.ink, { sh: 10, padX: 28, padY: 26, sw: 6 }, M, T); }
+        // repère de rechute
+        const rc = st.relMark = g(root);
+        line(rc, -16, -16, 16, 16, C.red, 10); line(rc, 16, -16, -16, 16, C.red, 10);
+        // compagnons et marcheur
+        st.comp = [0, 1].map(() => { const cg = g(root); pawnShape(cg, C.ink, C.ink, 12, 0.62); pawnShape(cg, C.paper, C.lime, 6, 0.62); return cg; });
+        st.wk = pawnShape(root, C.white, C.ink, 6, 1);
+        // étiquette du marcheur
+        { const w = Math.round(Math.max(M(walker, 30), M(wnote, 20, true)) + 36), h = 86; const tg = st.tag = g(root);
+          rect(tg, -w / 2 + 8, -h / 2 + 8, w, h, 10, C.ink); rect(tg, -w / 2, -h / 2, w, h, 10, C.paper, C.ink, 5);
+          T(tg, walker, 0, -h / 2 + 36, 30, C.ink, { anchor: 'middle', maxW: w - 24 }); T(tg, wnote, 0, -h / 2 + 66, 20, C.ink, { mono: true, anchor: 'middle', maxW: w - 20, min: 14 });
+          tg.__w = w; tg.__h = h; }
+        // stickers du récit
+        { const rw = WR(relL, 32, 300, 1, false, 24); st.relS = stk(root, rw.lines, rw.size, C.red, C.ink, { sh: 8, padX: 24, padY: 22, sw: 6 }, M, T); }
+        { const tw = WR(trailL, 24, 560, 1, true, 16); st.trailS = stk(root, tw.lines, tw.size, C.paper, C.ink, { sh: 8, padX: 22, padY: 22, sw: 5, mono: true }, M, T); }
+        { const bw = WR(contL, 40, 760, 1, false, 26); const h = bw.size * 1.18 + 38, w = Math.round(bw.w + 64);
+          const bg = st.bubble = g(root);
+          path(bg, 'M-24 -22 L0 8 L24 -22Z', C.ink, C.ink, 6).setAttribute('transform', 'translate(7 7)');
+          rect(bg, -w / 2 + 8, -h - 22 + 8, w, h, 22, C.ink);
+          path(bg, 'M-24 -24 L0 8 L24 -24Z', C.paper, C.ink, 6);
+          rect(bg, -w / 2, -h - 22, w, h, 22, C.paper, C.ink, 6);
+          rect(bg, -19, -27, 38, 8, 0, C.paper);
+          bw.lines.forEach((l, i) => T(bg, l, 0, -h - 22 + h / 2 + bw.size * 0.34, bw.size, C.ink, { anchor: 'middle', maxW: w - 40 }));
+          bg.__w = w; bg.__h = h + 30; }
+        { const tw = WR(together, 40, 840, 1, false, 30); st.togS = stk(root, tw.lines, tw.size, C.lime, C.ink, { sh: 10, padX: 30, padY: 24, sw: 6 }, M, T); st.togS.__w2 = tw.w + 60; }
+      }
+      return st;
+    },
+
+    update(st, t) {
+      if (st.mode === 'plan') return updPlan(st, t);
+      return updRoad(st, t);
+    }
+  });
+
+  function updPlan(st, t) {
+    const c = st.c;
+    const p = c.plan == null ? 1 : prog(t, c.plan, c.plan + 20 * I);
+    const on = p > 0;
+    dsp(st.bld, on);
+    const pOn = c.plan == null ? 1 : prog(t, c.plan + 12 * I, c.plan + 20 * I);
+    dsp(st.pawn, pOn > 0);
+    if (!on) { dsp(st.route, false); st.steps.forEach((s) => dsp(s.g, false)); dsp(st.plaque, false); dsp(st.noExit, false); dsp(st.leaveS, false); return; }
+    // murs : tracé progressif
+    const wp = E.io2(p);
+    if (wp >= 1) { setA(st.walls, 'stroke-dasharray', 'none'); setA(st.outer, 'stroke-dasharray', 'none'); }
+    else { setA(st.walls, 'stroke-dasharray', `${f2(WALLS.L)} ${f2(WALLS.L + 10)}`); setA(st.walls, 'stroke-dashoffset', f2(WALLS.L * (1 - wp))); setA(st.outer, 'stroke-dasharray', `${OUTER_L} ${OUTER_L + 10}`); setA(st.outer, 'stroke-dashoffset', f2(OUTER_L * (1 - wp))); }
+    // contour rouge, une seule fois, 10 i
+    const flash = c['no-exit'] != null && t >= c['no-exit'] && t < c['no-exit'] + 10 * I;
+    setA(st.outer, 'stroke', flash ? C.red : C.ink); setA(st.dw, 'fill', flash ? C.red : C.ink);
+    // mur-porte qui glisse
+    const sp = c.sign == null ? 0 : E.io2(prog(t, c.sign, c.sign + 10 * I));
+    dsp(st.dw, sp < 1); tr(st.dw, 0, -92 * sp);
+    const vp = c.sign == null ? 0 : prog(t, c.sign, c.sign + 8 * I);
+    // salles
+    st.rm.forEach((r, i) => {
+      const lt = st.lit[i];
+      const q = lt == null ? 0 : prog(t, lt, lt + 8 * I);
+      dsp(r.lime, lt != null && t >= lt);
+      if (q <= 0) dsp(r.tg, false); else { dsp(r.tg, true); const s = Math.max(0.0001, E.back(q)); setA(r.tg, 'transform', `translate(${r.ax} ${r.ay}) scale(${f2(s)}) translate(${-r.ax} ${-r.ay})`); }
+      const vo = 0.62 * vp * (lt != null && t >= lt ? 1 : 0);
+      dsp(r.veil, vo > 0.001); setA(r.veil, 'opacity', f2(vo));
+      const tf = vp > 0 ? C.paper : C.ink; r.tx.forEach((n) => setA(n, 'fill', tf));
+    });
+    // route
+    const rp = c.route == null ? 0 : E.out2(prog(t, c.route, c.route + 24 * I));
+    dsp(st.route, rp > 0); setA(st.clipR, 'width', f2(1380 * rp));
+    // marche
+    const lv = c.leave == null ? 0 : c.leave, pl1 = c.leave == null ? 0 : E.io2(prog(t, lv, lv + 2)), pl2 = c.leave == null ? 0 : E.out3(prog(t, lv + 2, lv + 2.5));
+    let px = lerp(220, 1560, pl1), py = CY;
+    if (pl2 > 0) { px = lerp(1560, 1710, pl2); py = lerp(CY, 560, pl2); }
+    tr(st.pawn, px, py, 0);
+    st.steps.forEach((s, i) => {
+      const cn = c['step-' + (i + 1)], q = cn == null ? 0 : prog(t, cn, cn + 8 * I);
+      if (q <= 0) dsp(s.g, false); else { dsp(s.g, true); const k = Math.max(0.0001, E.back(q)); setA(s.g, 'transform', `translate(${f2(s.x)} ${CY}) scale(${f2(k)})`); }
+      setA(s.dot, 'fill', c.leave != null && px >= s.x ? C.ink : C.lime);
+    });
+    // plaque, stickers
+    pop(st.plaque, 1710, 390, 0, c.sign == null ? 0 : prog(t, c.sign, c.sign + 8 * I));
+    pop(st.noExit, 840, 100, -3, c['no-exit'] == null ? 0 : prog(t, c['no-exit'], c['no-exit'] + 8 * I));
+    pop(st.leaveS, 1740, 682, 2, c.leave == null ? 0 : prog(t, c.leave + 2.5, c.leave + 2.5 + 8 * I));
+  }
+
+  function updRoad(st, t) {
+    const c = st.c, segs = st.segs, DEL = st.DEL, at = st.at;
+    // position du marcheur et atteinte maximale (en intervalles de poteau)
+    let pos = 0, mx = 0, moving = false, segT = 0, segE = 1e9;
+    for (const sg of segs) {
+      if (t < sg.t0) break;
+      const te = Math.min(t, sg.t1);
+      const val = sg.k === 'move' ? sg.p0 + (te - sg.t0) / st.pace : sg.k === 'slide' ? sg.p0 + (sg.p1 - sg.p0) * E.out2(prog(te, sg.t0, sg.t1)) : sg.p0;
+      mx = Math.max(mx, sg.p0, val);
+      if (t <= sg.t1 || sg === segs[segs.length - 1]) { pos = val; moving = sg.k === 'move' && t < sg.t1; segT = sg.t0; segE = sg.t1; break; }
+    }
+    pos = clamp(pos, 0, st.nMark - 1); mx = Math.max(mx, pos);
+    // trait lime : jusqu'à la distance maximale atteinte
+    const ml = mx * DEL;
+    dsp(st.lime, ml >= 1); setA(st.lime, 'stroke-dasharray', `${f2(ml)} ${f2(st.L * 3)}`);
+    // marcheur
+    const A = at(pos * DEL);
+    const ramp = moving ? Math.min(1, (t - segT) / 0.12, (segE - t) / 0.12) : 0;
+    const bob = moving ? -6 * Math.abs(Math.sin(Math.PI * t / 0.34)) * clamp(ramp) : 0;
+    const wx = A.x, wy = A.y + 12 + bob;
+    tr(st.wk, wx, wy, moving ? 3 * Math.sin(Math.PI * t / 0.34) : 0);
+    const tw = st.tag.__w / 2, twx = clamp(wx, tw + 40, 1920 - tw - 40);
+    tr(st.tag, twx, A.y + 101 + bob * 0.5, 0);
+    // rechute
+    const tr0 = st.relStop ? st.relStop.t : null;
+    if (tr0 != null && t >= tr0) {
+      const B = at(st.relStop.p * DEL), B2 = at(Math.max(0, st.relStop.p * DEL - 56));
+      dsp(st.relMark, true); tr(st.relMark, B2.x, B2.y, 0, Math.max(0.0001, E.back(prog(t, tr0, tr0 + 6 * I))));
+      const cT = c['continue'];
+      const relOn = cT == null || t < cT;
+      pop(st.relS, B.x, B.y - 152, -2, relOn ? prog(t, tr0, tr0 + 8 * I) : 0);
+      // bande lime devant le marcheur : étiquette sous la bande, à côté de l'étiquette du marcheur
+      const ahead = mx - pos > 0.04;
+      const w2 = st.trailS.__w / 2, th = st.tag.__w / 2;
+      let lx = A.x + th + 18 + w2; if (lx + w2 > 1860) lx = A.x - th - 18 - w2;
+      pop(st.trailS, clamp(lx, w2 + 40, 1920 - w2 - 40), Math.min(800, A.y + 58 + st.trailS.__h / 2), 0, ahead ? prog(t, tr0 + 6 * I, tr0 + 14 * I) : 0);
+    } else { dsp(st.relMark, false); pop(st.relS, 0, 0, 0, 0); pop(st.trailS, 0, 0, 0, 0); }
+    // bulle « on continue »
+    if (c['continue'] != null && t >= c['continue']) {
+      const tc = c['continue'], f = at(pos0(st, Math.min(t, tc + 2)) * DEL);
+      const bw2 = st.bubble.__w / 2, bx = clamp(f.x, bw2 + 30, Math.max(bw2 + 30, 1460 - bw2));
+      const by = lerp(f.y - 100, 267, E.io2(prog(t, tc, tc + 2)));
+      pop(st.bubble, bx, by, 0, prog(t, tc, tc + 8 * I));
+    } else pop(st.bubble, 0, 0, 0, 0);
+    // compagnons
+    const tg = c.together, e = tg == null ? 0 : E.out3(prog(t, tg, tg + 1));
+    st.comp.forEach((cg, i) => {
+      if (tg == null || t < tg) { dsp(cg, false); return; }
+      dsp(cg, true);
+      const sd = i ? -1 : 1, tx = A.x + A.ux * 46 * sd, ty = A.y + 12 + A.uy * 46 * sd + bob;
+      tr(cg, tx, lerp(1130, ty, e), 0);
+    });
+    pop(st.togS, 1860 - st.togS.__w2 / 2 + 0, 120, 0, tg == null ? 0 : prog(t, tg + 0.5, tg + 0.5 + 8 * I));
+    // porte
+    const dt = c.door;
+    const D = at(0.85 * st.L);
+    pop(st.door, D.x, D.y + 76, 0, dt == null ? 0 : prog(t, dt, dt + 8 * I));
+    const cp = dt == null ? 0 : prog(t, dt + 10 * I, dt + 16 * I);
+    setA(st.cr1, 'x2', f2(lerp(-46, 46, Math.min(1, cp * 2)))); setA(st.cr1, 'y2', f2(lerp(-204, -26, Math.min(1, cp * 2))));
+    dsp(st.cr2, cp > 0.5); setA(st.cr2, 'x2', f2(lerp(46, -46, clamp(cp * 2 - 1)))); setA(st.cr2, 'y2', f2(lerp(-204, -26, clamp(cp * 2 - 1))));
+    dsp(st.cross, cp > 0);
+    pop(st.notDoor, D.x, D.y + 76 + 124, -2, dt == null ? 0 : prog(t, dt + 16 * I, dt + 24 * I));
+    const xp = dt == null ? 0 : E.out3(prog(t, dt + 36 * I, dt + 50 * I));
+    dsp(st.ext, xp > 0); setA(st.clipX, 'width', f2(300 * xp));
+    pop(st.pathL, 1766, 250, 0, dt == null ? 0 : prog(t, dt + 52 * I, dt + 60 * I));
+  }
+  // position (en intervalles de poteau) du marcheur à t, sans effets : version réutilisable
+  function pos0(st, t) {
+    let pos = 0;
+    for (const sg of st.segs) {
+      if (t < sg.t0) break;
+      const te = Math.min(t, sg.t1);
+      pos = sg.k === 'move' ? sg.p0 + (te - sg.t0) / st.pace : sg.k === 'slide' ? sg.p0 + (sg.p1 - sg.p0) * E.out2(prog(te, sg.t0, sg.t1)) : sg.p0;
+      if (t <= sg.t1) break;
+    }
+    return clamp(pos, 0, st.nMark - 1);
+  }
+})();
+;
 /* ==== tools/video/composition/components/felt.js ==== */
 // Composant « felt » : tapis de roulette vu de dessus (1920×1080), jetons, râteau, pluie de jetons, compteur.
 // Fonction pure du temps : tout est recalculé à partir de `t` et des repères (cues) du plan. Aplats seulement.
@@ -5411,6 +7319,1369 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/floor-plan.js ==== */
+// Composant `floor-plan` (épisode 6) : le plan du casino vu de dessus, façon dessin d'architecte, et la liste des 13 principes. Voir EP6-COMPONENTS.md.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter. Aucun nom réel : un lieu générique.
+// Cues : draw, no-windows, no-clocks, low-ceiling, maze, sightlines, exit, others, you, carpet, mirrors, zero.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, rng } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
+  const tr = (n, x, y, r, s) => setA(n, 'transform', `translate(${f2(x)} ${f2(y)})` + (r ? ` rotate(${f2(r)})` : '') + (s !== undefined && s !== 1 ? ` scale(${f2(Math.max(s, 0.0001))})` : ''));
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  function T(parent, s, x, y, size, fill, o) {
+    o = o || {};
+    const est = (sz) => (o.mono ? mw(s, sz) : bw(s, sz));
+    if (o.maxW && est(size) > o.maxW) size = size * o.maxW / est(size);
+    const n = text(parent, s, x, y, size, fill, { mono: o.mono, anchor: o.anchor, weight: o.weight });
+    n.setAttribute('textLength', f2(est(size)));
+    n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    n.__size = size; n.__w = est(size);
+    return n;
+  }
+  // sticker plat centré sur (0,0)
+  function stk(parent, label, size, fill, textFill, h) {
+    h = h || Math.round(size * 1.7);
+    const w = Math.round(bw(label, size) + 56);
+    const grp = g(parent);
+    rect(grp, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, 14, fill, C.ink, 6);
+    T(grp, label, 0, size * 0.35, size, textFill, { anchor: 'middle' });
+    grp.__w = w; grp.__h = h;
+    return grp;
+  }
+  // bulle de BD paper bordée ink : lignes centrées, queue pointée vers (tx, ty) (coordonnées relatives au centre de la bulle)
+  function bubble(parent, lines, size, tx, ty) {
+    const w = Math.round(Math.max(...lines.map((l) => bw(l, size))) + 70), h = Math.round(lines.length * size * 1.22 + 44);
+    const grp = g(parent);
+    const dx = clamp(tx * 0.4, -w / 2 + 50, w / 2 - 50), by = h / 2;
+    const tail = `M${f2(dx - 36)} ${by - 4} L${f2(tx)} ${f2(ty)} L${f2(dx + 36)} ${by - 4} Z`;
+    path(grp, tail, C.ink, C.ink, 6).setAttribute('transform', 'translate(10 10)');
+    rect(grp, -w / 2 + 10, -h / 2 + 10, w, h, 22, C.ink);
+    path(grp, tail, C.paper, C.ink, 6);
+    rect(grp, -w / 2, -h / 2, w, h, 22, C.paper, C.ink, 6);
+    rect(grp, dx - 31, by - 9, 65, 13, 0, C.paper);
+    lines.forEach((l, i) => T(grp, l, 0, -h / 2 + 22 + size * 0.95 + i * size * 1.22, size, C.ink, { anchor: 'middle' }));
+    grp.__w = w; grp.__h = h;
+    return grp;
+  }
+  const popT = (n, x, y, rot, p) => { if (p <= 0) { vis(n, false); return; } const s = Math.max(0.0001, E.back(clamp(p))); vis(n, true); tr(n, x, y, rot, s); };
+
+  /* ---------- géométrie du plan (repère local 1120 × 730) ---------- */
+  const PW = 1120, PHT = 730;
+  const ISL = [
+    [80, 90, 260, 90], [400, 90, 200, 90], [680, 90, 160, 90],
+    [80, 260, 110, 170], [250, 260, 130, 90], [740, 260, 120, 170], [930, 230, 110, 200],
+    [240, 480, 160, 80], [480, 550, 220, 90], [780, 540, 150, 80]
+  ];
+  const CIR = { x: 560, y: 365, r: 110 };
+  const WINS = [[360, 20, 0], [620, 20, 0], [20, 200, 90], [20, 420, 90], [640, 710, 0], [1100, 330, 90]];
+  const CLKS = [[200, 52], [520, 52], [760, 52]];
+  const ENTR = [150, 710], EXITP = [950, 20];
+  const MAZE = [[150, 710], [150, 630], [440, 630], [440, 415], [220, 415], [220, 220], [900, 220], [900, 505], [600, 505]];
+  const ROUTE = [[600, 505], [1070, 505], [1070, 150], [950, 150], [950, 20]];
+  const MIRR = [[270, 462, 100, 16, 'h', 470], [722, 300, 16, 100, 'v', 730], [450, 184, 100, 16, 'h', 192], [934, 548, 16, 64, 'v', 942]];
+  const NAMED = ['no-windows', 'no-clocks', 'low-ceiling', 'maze', 'sightlines', 'exit'];
+
+  function poly(pts) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    return { pts, cum, len: cum[cum.length - 1], d: 'M' + pts.map((p) => p[0] + ' ' + p[1]).join(' L') };
+  }
+  function at(pl, s) {
+    s = clamp(s, 0, pl.len);
+    for (let i = 1; i < pl.pts.length; i++) if (s <= pl.cum[i] + 1e-6) { const k = (s - pl.cum[i - 1]) / Math.max(1e-6, pl.cum[i] - pl.cum[i - 1]); return [pl.pts[i - 1][0] + (pl.pts[i][0] - pl.pts[i - 1][0]) * k, pl.pts[i - 1][1] + (pl.pts[i][1] - pl.pts[i - 1][1]) * k]; }
+    return pl.pts[pl.pts.length - 1];
+  }
+  // pointillés (a, b) révélés sur la longueur d (chaîne mise en cache)
+  function dashes(node, d, a, b) {
+    d = Math.round(d);
+    if (node.__d === d) return;
+    node.__d = d;
+    if (d <= 0) { vis(node, false); return; }
+    const arr = []; let pos = 0;
+    while (pos < d) { const da = Math.min(a, d - pos); arr.push(da); pos += da; if (pos >= d) break; arr.push(b); pos += b; }
+    if (arr.length % 2) arr.push(5000);
+    else arr[arr.length - 1] = 5000;
+    node.setAttribute('stroke-dasharray', arr.join(' '));
+    vis(node, true);
+  }
+  const solid = (node, len, d) => {
+    d = Math.round(d * 2) / 2;
+    if (node.__d === d) return;
+    node.__d = d;
+    node.setAttribute('stroke-dasharray', `${f2(len)} ${f2(len + 10)}`);
+    node.setAttribute('stroke-dashoffset', f2(len - d));
+    vis(node, d > 0);
+  };
+
+  ZV.define('floor-plan', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cu = (n) => { const a = beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((x, y) => x - y); return a.length ? a[0] : null; };
+      const c = {};
+      ['draw', 'no-windows', 'no-clocks', 'low-ceiling', 'maze', 'sightlines', 'exit', 'others', 'you', 'carpet', 'mirrors', 'zero'].forEach((n) => { c[n] = cu(n); });
+      const principles = Array.isArray(P.principles) && P.principles.length ? P.principles.slice(0, 10).map(String) : ['PAS DE FENÊTRES', "PAS D'HORLOGES", 'PLAFONDS BAS', 'ALLÉES EN LABYRINTHE', 'MACHINES VISIBLES DE PARTOUT', 'SORTIE JAMAIS EN LIGNE DROITE'];
+      const unnamed = clamp(Math.round(num(P.unnamed, 7)), 0, 10);
+      const title = str(P.title, '13 PRINCIPES'), source = str(P.source, "D'APRÈS BILL FRIEDMAN, 2000"), youLab = str(P.you, 'TOI');
+      const hasList = P.list !== false;
+      const nRows = principles.length + unnamed;
+      const px = hasList ? 100 : 400, py = 70;
+      const st = { dur, c, hasList, nRows, nNamed: principles.length, px, py };
+      const uid = 'fp' + (++UID);
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+      const clip = sv('clipPath', { id: uid + 'c' }, defs);
+      rect(clip, 25, 25, PW - 50, PHT - 45, 0, '#000');
+      const pg = st.pg = g(root, { transform: `translate(${px} ${py})` });
+
+      /* ---- machines : positions calculées une fois ---- */
+      const mach = [];                                                           // [x, y, island, color]
+      const islG = [];
+      let col = 0;
+      /* moquette (au fond) */
+      st.carpetG = g(pg);
+      /* îlots */
+      ISL.forEach(([x, y, w, h], i) => {
+        const grp = g(pg), cx = x + w / 2, cy = y + h / 2;
+        rect(grp, -w / 2 + 6, -h / 2 + 6, w, h, 18, C.ink);
+        rect(grp, -w / 2, -h / 2, w, h, 18, C.paper, C.ink, 6);
+        const horiz = w >= h, Ls = horiz ? w : h, Ss = horiz ? h : w;
+        const cols = Ss >= 75 ? 2 : 1, per = cols === 1 ? clamp(Math.round(Ls / 45), 3, 6) : clamp(Math.round(Ls / 60), 2, 3);
+        for (let a = 0; a < cols; a++) for (let k = 0; k < per; k++) {
+          const u = -Ls / 2 + 30 + (Ls - 60) * (per === 1 ? 0.5 : k / (per - 1));
+          const v = cols === 1 ? 0 : (a === 0 ? -1 : 1) * 21;
+          const mx = horiz ? u : v, my = horiz ? v : u, red = (col++ % 2) === 0;
+          if (red) rect(grp, mx - 11, my - 11, 22, 22, 2, C.red, C.ink, 3); else rect(grp, mx - 11, my - 11, 22, 22, 2, C.ink, C.ink, 3);
+          mach.push([cx + mx, cy + my]);
+        }
+        grp.__c = [cx, cy];
+        islG.push(grp);
+      });
+      {
+        const grp = g(pg);
+        st.cirFill = circle(grp, 0, 0, CIR.r, C.paper, C.ink, 6);
+        st.cirRing = circle(grp, 0, 0, 62, 'none', C.ink, 4);
+        st.cirRing.setAttribute('stroke-dasharray', '10 10');
+        st.zero = T(grp, '0', 0, 56, 160, C.ink, { anchor: 'middle' });
+        grp.__c = [CIR.x, CIR.y];
+        st.cirG = grp;
+        // dents du cylindre autour du cercle (37 cases)
+        st.cyl = [];
+        const cg = g(pg);
+        for (let k = 0; k < 37; k++) {
+          const a = k / 37 * Math.PI * 2, s = Math.sin(a), co = -Math.cos(a);
+          st.cyl.push(line(cg, CIR.x + s * 117, CIR.y + co * 117, CIR.x + s * 125, CIR.y + co * 125, C.ink, 5, { 'stroke-linecap': 'butt' }));
+        }
+      }
+      st.islG = islG;
+
+      /* ---- moquette : chevrons sur la grille de 40 px, hors îlots ---- */
+      st.chev = [];
+      for (let gy = 0; gy < 17; gy++) for (let gx = 0; gx < 27; gx++) {
+        const cx = 40 + gx * 40, cy = 40 + gy * 40;
+        if (ISL.some(([x, y, w, h]) => cx > x - 16 && cx < x + w + 16 && cy > y - 16 && cy < y + h + 16)) continue;
+        if (Math.hypot(cx - CIR.x, cy - CIR.y) < CIR.r + 20) continue;
+        if (cx < 32 || cx > PW - 32 || cy < 32 || cy > PHT - 40) continue;
+        let best = 1e9, ang = 0;
+        for (const m of mach) { const d = Math.hypot(m[0] - cx, m[1] - cy); if (d < best) { best = d; ang = Math.atan2(m[1] - cy, m[0] - cx) * 180 / Math.PI; } }
+        const n = path(st.carpetG, 'M-5 -8 L5 0 L-5 8', 'none', C.ink, 3.5);
+        st.chev.push({ n, cx, cy, ang, dl: cx / PW * 0.5 });
+      }
+      st.carpetG.setAttribute('opacity', '0.55');
+
+      /* ---- tracés ---- */
+      const mz = st.mz = poly(MAZE);
+      const atEntrance = c.exit != null && c.you != null && c.exit < c.you;       // TOI n'a pas encore marché : il est à l'entrée
+      st.sp = atEntrance ? [150, 698] : [600, 505];
+      const rt = st.rt = poly(atEntrance ? MAZE.concat(ROUTE.slice(1)) : ROUTE);
+      st.ghost = MIRR.map((m) => {
+        const pts = MAZE.map(([x, y]) => (m[4] === 'h' ? [x, 2 * m[5] - y] : [2 * m[5] - x, y]));
+        const gg = g(pg, { 'clip-path': `url(#${uid}c)` });
+        const n = path(gg, poly(pts).d, 'none', C.pocket, 6);
+        n.setAttribute('stroke-dasharray', '1 9999'); n.setAttribute('opacity', '0.55');
+        return { g: gg, n, len: poly(pts).len };
+      });
+      st.mzN = path(pg, mz.d, 'none', C.ink, 8, { 'stroke-linecap': 'butt', 'stroke-linejoin': 'miter' });
+      st.rtN = path(pg, rt.d, 'none', C.ink, 9, { 'stroke-linecap': 'butt', 'stroke-linejoin': 'miter' });
+      // rayons : de l'entrée vers 14 machines
+      {
+        const sorted = mach.map((m) => ({ m, a: Math.atan2(m[1] - ENTR[1], m[0] - ENTR[0]) })).sort((p, q) => p.a - q.a);
+        st.rays = [];
+        for (let k = 0; k < 14; k++) {
+          const m = sorted[Math.round(k * (sorted.length - 1) / 13)].m;
+          st.rays.push({ n: line(pg, ENTR[0], ENTR[1] - 8, m[0], m[1], C.red, 4, { 'stroke-linecap': 'butt' }), x: m[0], y: m[1] });
+        }
+      }
+      st.straight = line(pg, st.sp[0], st.sp[1], EXITP[0], EXITP[1] + 6, C.red, 5, { 'stroke-linecap': 'butt' });
+      st.straight.setAttribute('stroke-dasharray', '14 10');
+      st.xg = g(pg);
+      line(st.xg, -22, -22, 22, 22, C.red, 8); line(st.xg, 22, -22, -22, 22, C.red, 8);
+      st.sTag = g(pg);
+      {
+        const lab = 'EN LIGNE DROITE', w = Math.round(mw(lab, 22) + 30);
+        rect(st.sTag, -w / 2 + 5, -17 + 5, w, 34, 6, C.ink);
+        rect(st.sTag, -w / 2, -17, w, 34, 6, C.red, C.ink, 4);
+        T(st.sTag, lab, 0, 8, 22, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+      }
+
+      /* ---- murs, fenêtres, horloges, ouvertures ---- */
+      st.walls = [
+        path(pg, 'M200 710 L1100 710 L1100 20 L1000 20', 'none', C.ink, 10, { 'stroke-linecap': 'square', 'stroke-linejoin': 'miter', pathLength: 1, 'stroke-dasharray': '1 1' }),
+        path(pg, 'M900 20 L20 20 L20 710 L100 710', 'none', C.ink, 10, { 'stroke-linecap': 'square', 'stroke-linejoin': 'miter', pathLength: 1, 'stroke-dasharray': '1 1' })
+      ];
+      st.furn = g(pg);
+      st.wins = WINS.map(([x, y, r]) => {
+        const grp = g(st.furn, { transform: `translate(${x} ${y}) rotate(${r})` });
+        rect(grp, -45, -8, 90, 16, 0, C.paper);
+        line(grp, -45, -8, 45, -8, C.ink, 2.5, { 'stroke-linecap': 'butt' }); line(grp, -45, 8, 45, 8, C.ink, 2.5, { 'stroke-linecap': 'butt' });
+        line(grp, -45, -8, -45, 8, C.ink, 2.5, { 'stroke-linecap': 'butt' }); line(grp, 45, -8, 45, 8, C.ink, 2.5, { 'stroke-linecap': 'butt' });
+        const plug = g(grp); rect(plug, -45, -8, 90, 16, 0, C.ink);
+        plug.__r = r;
+        return { g: grp, plug };
+      });
+      st.clks = CLKS.map(([x, y]) => {
+        const grp = g(st.furn, { transform: `translate(${x} ${y})` });
+        circle(grp, 0, 0, 18, C.paper, C.ink, 4);
+        line(grp, 0, 0, 0, -11, C.ink, 3); line(grp, 0, 0, 8, 4, C.ink, 3);
+        const xx = g(grp); line(xx, -17, -17, 17, 17, C.red, 5); line(xx, 17, -17, -17, 17, C.red, 5);
+        const l1 = xx.childNodes[0], l2 = xx.childNodes[1];
+        return { g: grp, x1: l1, x2: l2 };
+      });
+      st.labE = T(st.furn, 'ENTRÉE', ENTR[0], 758, 22, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+      path(st.furn, `M${ENTR[0] - 12} 738 L${ENTR[0] + 12} 738 L${ENTR[0]} 721 Z`, C.ink, C.ink, 3);
+      st.labS = T(st.furn, 'SORTIE', EXITP[0], 8, 22, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+
+      /* ---- miroirs ---- */
+      st.mirrors = MIRR.map(([x, y, w, h, o]) => {
+        const grp = g(pg), cx = x + w / 2, cy = y + h / 2;
+        rect(grp, -w / 2 + 5, -h / 2 + 5, w, h, 3, C.ink);
+        rect(grp, -w / 2, -h / 2, w, h, 3, C.paper, C.ink, 4);
+        if (o === 'h') { line(grp, -w / 2 + 14, 4, -w / 2 + 34, -4, C.ink, 3); line(grp, -w / 2 + 40, 4, -w / 2 + 60, -4, C.ink, 3); }
+        else { line(grp, -3, -h / 2 + 10, 3, -h / 2 + 24, C.ink, 3); line(grp, -3, -h / 2 + 30, 3, -h / 2 + 44, C.ink, 3); }
+        grp.__c = [cx, cy];
+        return grp;
+      });
+
+      /* ---- TOI ---- */
+      st.toi = g(pg);
+      circle(st.toi, 0, 0, 18, C.lime, C.ink, 5);
+      {
+        const tl = text(st.toi, youLab, 28, 8, 22, C.ink, { mono: true, weight: 800 });
+        tl.setAttribute('stroke', C.paper); tl.setAttribute('stroke-width', 7); tl.setAttribute('paint-order', 'stroke'); tl.setAttribute('stroke-linejoin', 'round');
+      }
+
+      /* ---- autocollants, bulles, légendes (superposés, gérés en créneaux) ---- */
+      st.ovs = [];
+      const oAdd = (node, x, y, rot, t0, slot, life) => { node.setAttribute('visibility', 'hidden'); if (t0 != null) st.ovs.push({ n: node, x, y, rot, t0, slot, life }); };
+      const sLow = stk(pg, 'PLAFOND BAS', 46, C.red, C.ink, 72);
+      oAdd(sLow, 560, 365, -6, c['low-ceiling'], 'S', 3.0);
+      const sLost = stk(pg, 'PERDU ?', 56, C.paper, C.ink, 84);
+      oAdd(sLost, 760, 410, -4, c.you != null ? c.you + 3.2 : null, 'S');
+      const bNon = bubble(pg, ["NON. TU ES EXACTEMENT", "LÀ OÙ JE T'AI MIS."], 40, 62, 150);
+      oAdd(bNon, 538, 325, 0, c.you != null ? c.you + 4.4 : null, 'S', 4.5);
+      const bMir = bubble(pg, ['JE CROIS QUE JE SUIS', 'DÉJÀ PASSÉ ICI.'], 40, 62, 150);
+      oAdd(bMir, 538, 325, 0, c.mirrors != null ? c.mirrors + 2.0 : null, 'S', 2.6);
+      const sMir = stk(pg, 'LES MIROIRS SONT LÀ POUR ÇA', 40, C.paper, C.ink, 66);
+      oAdd(sMir, 560, 365, -2, c.mirrors != null ? c.mirrors + 4.6 : null, 'S');
+      const sZero = stk(pg, 'LE ZÉRO EST DANS LE PLAN', 42, C.paper, C.ink, 68);
+      oAdd(sZero, 560, 44, -2, c.zero != null ? c.zero + 0.6 : null, 'S');
+      const mkLeg = (lab) => { const grp = g(pg); const w = Math.round(mw(lab, 26) + 40); rect(grp, -w / 2, -18, w, 36, 4, C.ink); T(grp, lab, 0, 9, 26, C.paper, { mono: true, anchor: 'middle', weight: 800 }); return grp; };
+      oAdd(mkLeg("VISIBLES DÈS L'ENTRÉE"), 560, 745, 0, c.sightlines != null ? c.sightlines + 0.5 : null, 'L');
+      oAdd(mkLeg('LES MOTIFS POINTENT VERS LES MACHINES'), 560, 745, 0, c.carpet != null ? c.carpet + 1.0 : null, 'L');
+      st.ovs.sort((a, b) => a.t0 - b.t0);
+      st.ovs.forEach((o, i) => { o.out = o.life ? o.t0 + o.life : null; for (let j = i + 1; j < st.ovs.length; j++) if (st.ovs[j].slot === o.slot && st.ovs[j].t0 > o.t0) { o.out = o.out == null ? st.ovs[j].t0 : Math.min(o.out, st.ovs[j].t0); break; } });
+
+      /* ---- liste des principes ---- */
+      st.list = g(root);
+      if (hasList) {
+        const L = st.list, LX = 1270;
+        {
+          const w = Math.round(bw(title, 52) + 70);
+          rect(L, LX + 8, 90 + 8, w, 70, 12, C.lime);
+          rect(L, LX, 90, w, 70, 12, C.ink, C.ink, 4);
+          T(L, title, LX + w / 2, 90 + 52, 52, C.lime, { anchor: 'middle' });
+        }
+        const pitch = Math.min(40, 520 / Math.max(1, nRows));
+        st.rows = [];
+        for (let i = 0; i < nRows; i++) {
+          const y = 190 + i * pitch, named = i < principles.length, r = { i, named };
+          const rg = g(L);
+          line(rg, LX, y + pitch - 1, 1820, y + pitch - 1, '#CFC9B8', 2);
+          if (named) {
+            const lw = mw(principles[i], 26) + 16;
+            r.hl = rect(rg, LX + 38, y + 4, Math.min(lw, 500), pitch - 8, 4, C.lime);
+            T(rg, principles[i], LX + 46, y + pitch * 0.7, 26, C.ink, { mono: true, weight: 800, maxW: 490 });
+          } else rect(rg, LX + 46, y + pitch / 2 - 7, 260, 14, 0, C.pocket);
+          rect(rg, LX + 2, y + pitch / 2 - 13, 26, 26, 3, C.paper, C.ink, 4);
+          const ck = g(rg);
+          const d = `M${LX + 7} ${y + pitch / 2} L${LX + 14} ${y + pitch / 2 + 8} L${LX + 25} ${y + pitch / 2 - 12}`;
+          path(ck, d, 'none', C.ink, 11, { 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+          r.ck = path(ck, d, 'none', C.lime, 6, { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', pathLength: 1, 'stroke-dasharray': '1 1' });
+          r.ckg = ck; r.y = y;
+          st.rows.push(r);
+        }
+        st.count = g(L);
+        T(st.count, `${nRows} / ${nRows}`, LX, 756, 42, C.ink, { mono: true, weight: 800 });
+        T(L, source, LX, 800 - 8, 22, C.ink, { mono: true, weight: 800, maxW: 540 });
+      }
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { c } = st;
+        const has = (x) => x != null && t >= x;
+        const pr = (t0, d) => (t0 == null ? 0 : prog(t, t0, t0 + d));
+
+        /* ---- dessin initial : sans cue `draw`, le plan est déjà fait ---- */
+        const td = c.draw;
+        const wallP = td == null ? 1 : pr(td, 1.0);
+        for (const w of st.walls) { vis(w, wallP > 0); setA(w, 'stroke-dashoffset', f2(1 - wallP)); }
+        const fP = td == null ? 1 : pr(td + 1.0, 0.25);
+        op(st.furn, fP);
+        st.islG.forEach((grp, i) => {
+          const p = td == null ? 1 : pr(td + 1.0 + i * 0.12, 0.32);
+          if (p <= 0) { vis(grp, false); return; }
+          vis(grp, true); tr(grp, grp.__c[0], grp.__c[1], 0, E.back(p));
+        });
+        {
+          const p = td == null ? 1 : pr(td + 1.0 + 10 * 0.12, 0.32);
+          const zp = c.zero == null ? 0 : pr(c.zero, 0.45);
+          if (p <= 0) vis(st.cirG, false);
+          else { vis(st.cirG, true); tr(st.cirG, st.cirG.__c[0], st.cirG.__c[1], 0, E.back(p)); }
+          setA(st.cirFill, 'fill', zp > 0.001 ? C.lime : C.paper);
+          op(st.cirRing, 1 - clamp(zp * 3));
+          const zs = zp > 0 ? Math.max(0.0001, E.back(zp)) : 0;
+          setA(st.zero, 'transform', `scale(${f2(zs || 0.0001)})`);
+          vis(st.zero, zp > 0.001);
+          st.cyl.forEach((l, k) => op(l, c.zero == null ? 0 : pr(c.zero + 0.3 + k * 0.015, 0.1)));
+        }
+        const pgOn = td == null || t >= td;
+        vis(st.pg, pgOn);
+
+        /* ---- fenêtres bouchées ---- */
+        st.wins.forEach((w, i) => { const p = c['no-windows'] == null ? 0 : E.out2(pr(c['no-windows'] + i * (4 / 30), 0.12)); setA(w.plug, 'transform', `scale(${f2(Math.max(p, 0.0001))} 1)`); vis(w.plug, p > 0); });
+        /* ---- horloges barrées puis retirées ---- */
+        st.clks.forEach((k, i) => {
+          const t0 = c['no-clocks'];
+          const p = t0 == null ? 0 : pr(t0 + i * 0.12, 0.2);
+          const gone = t0 == null ? 0 : pr(t0 + 0.75 + i * 0.1, 0.2);
+          op(k.g, 1 - gone);
+          vis(k.x1.parentNode, p > 0);
+          setA(k.x1, 'stroke-dasharray', `${f2(48 * p)} 100`); setA(k.x2, 'stroke-dasharray', `${f2(48 * clamp(p * 1.4 - 0.4))} 100`);
+        });
+
+        /* ---- moquette ---- */
+        const t0c = c.carpet;
+        st.chev.forEach((ch) => {
+          const a = t0c == null ? 0 : pr(t0c + ch.dl, 0.15);
+          if (a <= 0) { vis(ch.n, false); ch.n.__k = null; return; }
+          let an = ch.ang; an = an > 180 ? an - 360 : an;
+          const r = E.io2(pr(t0c + 0.9, 20 / 30));
+          const key = Math.round(r * 200) + ':' + Math.round(a * 4);
+          if (ch.n.__k === key) return;
+          ch.n.__k = key;
+          vis(ch.n, true);
+          ch.n.setAttribute('transform', `translate(${ch.cx} ${ch.cy}) rotate(${f2(an * r)}) scale(${f2(0.4 + 0.6 * a)})`);
+        });
+
+        /* ---- chemin, rayons, sortie ---- */
+        dashes(st.mzN, c.maze == null ? 0 : st.mz.len * E.io2(pr(c.maze, 2.0)), 18, 12);
+        st.rays.forEach((r, k) => {
+          const p = c.sightlines == null ? 0 : E.out2(pr(c.sightlines + k * (12 / 30 / 14), 0.2));
+          vis(r.n, p > 0);
+          setA(r.n, 'x2', f2(150 + (r.x - 150) * p)); setA(r.n, 'y2', f2(702 + (r.y - 702) * p));
+        });
+        {
+          const te = c.exit;
+          const sp = te == null ? 0 : E.out2(pr(te, 0.55));
+          vis(st.straight, sp > 0);
+          setA(st.straight, 'x2', f2(st.sp[0] + (EXITP[0] - st.sp[0]) * sp)); setA(st.straight, 'y2', f2(st.sp[1] + (EXITP[1] + 6 - st.sp[1]) * sp));
+          const mx = (st.sp[0] + EXITP[0]) / 2, my = (st.sp[1] + EXITP[1]) / 2;
+          const tp = te == null ? 0 : pr(te + 0.45, 0.3);
+          popT(st.sTag, 790, 472, -3, tp);
+          const xp = te == null ? 0 : pr(te + 0.85, 0.2);
+          popT(st.xg, mx, my - 26, 0, xp);
+          solid(st.rtN, st.rt.len, te == null ? 0 : st.rt.len * E.io2(pr(te + 1.2, 1.6)));
+        }
+
+        /* ---- miroirs et copies fantômes ---- */
+        st.mirrors.forEach((m, i) => { const p = c.mirrors == null ? 0 : pr(c.mirrors + i * 0.15, 0.3); if (p <= 0) vis(m, false); else { vis(m, true); tr(m, m.__c[0], m.__c[1], 0, E.back(p)); } });
+        st.ghost.forEach((gh, i) => dashes(gh.n, c.mirrors == null ? 0 : st.mz.len * E.io2(pr(c.mirrors + 0.9 + i * 0.35, 1.0)), 8, 10));
+
+        /* ---- TOI ---- */
+        {
+          const ty = c.you, endPt = MAZE[MAZE.length - 1];
+          const firsts = [ty, c.exit, c.mirrors].filter((x) => x != null);
+          const tv = firsts.length ? Math.min(...firsts) : null;
+          if (tv == null || t < tv) vis(st.toi, false);
+          else {
+            let pos = endPt;
+            if (ty != null) pos = at(st.mz, st.mz.len * clamp((t - ty) / 3));
+            vis(st.toi, true); setA(st.toi, 'opacity', f2(clamp((t - tv) / 0.2)));
+            tr(st.toi, pos[0], pos[1], 0, 1);
+          }
+        }
+
+        /* ---- stickers / bulles / légendes : un seul à la fois par créneau ---- */
+        for (const o of st.ovs) {
+          const pin = pr(o.t0, 0.28), pout = o.out == null ? 0 : pr(o.out, 0.2);
+          if (pin <= 0 || pout >= 1) { vis(o.n, false); continue; }
+          vis(o.n, true);
+          tr(o.n, o.x, o.y, o.rot, Math.max(0.0001, E.back(pin)));
+          setA(o.n, 'opacity', f2(clamp(pin * 5) * (1 - pout)));
+        }
+
+        /* ---- liste ---- */
+        if (st.hasList) {
+          const lp = td == null ? 1 : pr(td, 0.4);
+          op(st.list, lp); setA(st.list, 'transform', `translate(${f2(40 * (1 - E.out3(lp)))} 0)`);
+          const tOth = c.others;
+          st.rows.forEach((r) => {
+            let tc = null;
+            if (r.named) { const nm = r.i < NAMED.length ? NAMED[r.i] : null; tc = nm ? c[nm] : null; }
+            else if (tOth != null) tc = tOth + (r.i - st.nNamed) * 0.1;
+            const p = tc == null ? 0 : pr(tc, 0.22);
+            setA(r.ck, 'stroke-dashoffset', f2(1 - E.out2(p)));
+            vis(r.ckg, p > 0);
+            if (r.hl) op(r.hl, p > 0 ? 1 : 0);
+          });
+          const cp = tOth == null ? 0 : pr(tOth + (st.nRows - st.nNamed) * 0.1 + 0.1, 0.25);
+          if (cp <= 0) vis(st.count, false);
+          else { vis(st.count, true); const s = 1.08 - 0.08 * E.out3(cp); setA(st.count, 'transform', `translate(1270 756) scale(${f2(s)}) translate(-1270 -756)`); setA(st.count, 'opacity', f2(clamp(cp * 4))); }
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/head-counter.js ==== */
+// Composant `head-counter` (épisode 6, S4 « Des jetons qui ne pèsent rien ») : ce que les objets font à tes comptes. Voir EP6-COMPONENTS.md.
+// Mode weigh : un billet qui pèse (plié, hésitant, posé sur une balance) face à un jeton qui glisse sans poids. Cues : bill, fold, weight, slide, clack, back, again, untag.
+// Mode head  : la tête, l'écran de comptes qui se brouille. Cues : cash, chips, glass-1, glass-2, seat, no-clock, memory, ball.
+// Aplats, bordures, ombres dures ; aucun dégradé / flou / lueur / filter. « Flou » = chiffres doublés décalés. Rien ne clignote (un seul fondu ou mouvement par étape).
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const num = (v, d) => (isNum(v) ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const setT = (n, s) => { if (n.textContent !== s) n.textContent = s; };
+  const measure = (n) => {
+    try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ }
+    return (n.textContent || '').length * (parseFloat(n.getAttribute('font-size')) || 30) * 0.62;
+  };
+  // texte centré sur (cx,cy) dans une boîte maxW × maxH : 1 ligne si possible, sinon 2 lignes équilibrées, sinon police réduite
+  function mkWrapped(parent, s, cx, cy, maxW, maxH, size0, fill, o) {
+    o = o || {};
+    const grp = g(parent), lh = 1.08;
+    const n1 = text(grp, s, cx, cy + size0 * 0.35, size0, fill, { anchor: 'middle', mono: o.mono });
+    let w = measure(n1);
+    if (w <= maxW) return grp;
+    const words = s.split(/\s+/);
+    if (words.length < 2) { const k = maxW / w; n1.setAttribute('font-size', f2(size0 * k)); n1.setAttribute('y', f2(cy + size0 * k * 0.35)); return grp; }
+    let best = 1, bd = 1e9;
+    for (let j = 1; j < words.length; j++) { const d = Math.abs(words.slice(0, j).join(' ').length - words.slice(j).join(' ').length); if (d < bd) { bd = d; best = j; } }
+    n1.textContent = words.slice(0, best).join(' ');
+    const n2 = text(grp, words.slice(best).join(' '), cx, 0, size0, fill, { anchor: 'middle', mono: o.mono });
+    let size = Math.min(size0, maxH / (2 * lh));
+    n1.setAttribute('font-size', f2(size)); n2.setAttribute('font-size', f2(size));
+    w = Math.max(measure(n1), measure(n2));
+    if (w > maxW) { size *= maxW / w; n1.setAttribute('font-size', f2(size)); n2.setAttribute('font-size', f2(size)); }
+    n1.setAttribute('y', f2(cy - lh * size / 2 + size * 0.35)); n2.setAttribute('y', f2(cy + lh * size / 2 + size * 0.35));
+    return grp;
+  }
+  function fitW(n, maxW) { const w = measure(n); if (w > maxW) n.setAttribute('font-size', f2((parseFloat(n.getAttribute('font-size')) || 30) * maxW / w)); return Math.min(w, maxW); }
+  const mix = (a, b, k) => { const h = (s, i) => parseInt(s.slice(1 + i * 2, 3 + i * 2), 16); let r = '#'; for (let i = 0; i < 3; i++) r += ('0' + Math.round(h(a, i) + (h(b, i) - h(a, i)) * k).toString(16)).slice(-2); return r; };
+  let UID = 0;
+
+  const WEIGH_CUES = ['bill', 'fold', 'weight', 'slide', 'clack', 'back', 'again', 'untag'];
+  const HEAD_CUES = ['cash', 'chips', 'glass-1', 'glass-2', 'seat', 'no-clock', 'memory', 'ball'];
+
+  /* =========================================================== */
+  /*  MODE weigh                                                  */
+  /* =========================================================== */
+  const A_X = 1170, B_X = 1716, CHIP_Y = 440;     // jeton : repos / contre le bord
+  const DISH_Y = 620, BILL_REST_Y = DISH_Y - 130, HOVER_Y = 300;
+
+  function billFace(par, part, label, uid) {
+    const grp = g(par);
+    let fillN = null;
+    if (part === 'all') fillN = rect(grp, -260, -130, 520, 260, 14, C.paper, C.ink, 8);
+    else if (part === 'L') {
+      fillN = path(grp, 'M0 -130 L-246 -130 Q-260 -130 -260 -116 L-260 116 Q-260 130 -246 130 L0 130 Z', C.paper);
+      path(grp, 'M0 -130 L-246 -130 Q-260 -130 -260 -116 L-260 116 Q-260 130 -246 130 L0 130', 'none', C.ink, 8);
+    } else {
+      fillN = path(grp, 'M0 -130 L246 -130 Q260 -130 260 -116 L260 116 Q260 130 246 130 L0 130 Z', C.paper);
+      path(grp, 'M0 -130 L246 -130 Q260 -130 260 -116 L260 116 Q260 130 246 130 L0 130', 'none', C.ink, 8);
+    }
+    const cg = g(grp);
+    if (part !== 'all') {
+      const defs = sv('defs', null, grp), cp = sv('clipPath', { id: uid + part }, defs);
+      sv('rect', part === 'L' ? { x: -270, y: -140, width: 270, height: 280 } : { x: 0, y: -140, width: 270, height: 280 }, cp);
+      cg.setAttribute('clip-path', `url(#${uid + part})`);
+    }
+    rect(cg, -256, -126, 52, 252, 0, C.lime);
+    line(cg, -188, -104, 238, -104, C.ink, 4); line(cg, -188, 104, 238, 104, C.ink, 4);
+    fitW(text(cg, label, -58, 42, 120, C.ink, { anchor: 'middle' }), 262);
+    // rosace géométrique plate (aucun motif de vrai billet)
+    let d = '';
+    for (let i = 0; i < 24; i++) { const a = i * Math.PI / 12, r = i % 2 ? 40 : 64; d += (i ? 'L' : 'M') + f2(170 + Math.sin(a) * r) + ' ' + f2(Math.cos(a) * r); }
+    circle(cg, 170, 0, 76, 'none', C.ink, 5);
+    path(cg, d + 'Z', C.lime, C.ink, 4);
+    circle(cg, 170, 0, 18, C.ink);
+    return fillN;
+  }
+
+  function initWeigh(root, st, p) {
+    const T = st.T, first = st.first;
+    const uid = 'hcb' + (++UID);
+    const label = str(p.bill, '50 €'), chipTxt = str(p.chip, '1 €');
+    const tagsIn = Array.isArray(p.tags) && p.tags.length ? p.tags.map((x) => str(x, '')).filter(Boolean).slice(0, 2) : ['LES COURSES', 'UN BOUT DE LOYER'];
+    const gameTxt = str(p.game, 'UN JEU');
+    const none = !WEIGH_CUES.some((n) => T[n]);
+    const fo = (names) => { let r = null; names.forEach((n) => { const v = first(n); if (v != null && (r == null || v < r)) r = v; }); return r; };
+    st.tBill = none ? -99 : (fo(['bill', 'fold', 'weight', 'untag']) != null ? fo(['bill', 'fold', 'weight', 'untag']) : -99);
+    st.tChip = none ? -99 : (fo(['slide', 'clack', 'back', 'again', 'untag']) != null ? fo(['slide', 'clack', 'back', 'again', 'untag']) : -99);
+    st.tFold = first('fold'); st.tWeight = first('weight'); st.tUntag = first('untag');
+    st.clacks = (T.clack || []).slice();
+    // déplacements du jeton
+    const mv = [];
+    (T.slide || []).forEach((t) => mv.push({ t, to: B_X, kind: 'go' }));
+    (T.again || []).forEach((t) => mv.push({ t, to: B_X, kind: 'go' }));
+    (T.back || []).forEach((t) => mv.push({ t, to: A_X, kind: 'back' }));
+    mv.sort((a, b) => a.t - b.t);
+    mv.forEach((m, i) => {
+      if (m.kind === 'go') { const nc = st.clacks.find((c) => c > m.t + 0.2); m.d = nc != null ? clamp(nc - m.t, 0.25, 2.2) : 0.6; } else m.d = 0.7;
+      m.ease = m.kind === 'go' ? E.in2 : E.io2;
+      m.from = A_X;
+      if (i > 0) { const q = mv[i - 1]; m.from = lerp(q.from, q.to, q.ease(prog(m.t, q.t, q.t + q.d))); }
+    });
+    st.moves = mv;
+
+    rect(root, 0, 0, 1920, 1080, 0, C.paper);
+    /* ---- gauche : balance + billet ---- */
+    st.lg = g(root);
+    rect(st.lg, 450, 640, 60, 150, 0, C.ink);                                 // colonne
+    path(st.lg, 'M 340 812 L 620 812 L 590 780 L 370 780 Z', C.ink, C.ink, 6);   // pied
+    st.dish = g(st.lg);
+    path(st.dish, 'M -330 0 L 330 0 L 270 40 L -270 40 Z', C.ink, C.ink, 6);
+    rect(st.dish, -330, -6, 660, 10, 3, C.lime, C.ink, 4);
+    st.bill = g(st.lg);
+    st.bSh = rect(st.bill, -250, -120, 520, 260, 14, C.ink);
+    st.flat = g(st.bill); billFace(st.flat, 'all', label, uid);
+    st.fold = g(st.bill);
+    st.fL = g(st.fold); billFace(st.fL, 'L', label, uid);
+    st.fR = g(st.fold); st.rFill = billFace(st.fR, 'R', label, uid);
+    st.crease = line(st.fold, 0, -126, 0, 126, C.ink, 4);
+    // étiquettes Dymo (ficelles + rubans ink)
+    st.tags = tagsIn.map((s, i) => {
+      const sg = i === 0 ? -1 : 1;
+      const str1 = line(st.lg, 0, 0, 0, 0, C.ink, 4);
+      const tg = g(st.lg);
+      const tx = text(tg, s, 0, 0, 26, C.paper, { anchor: 'middle', mono: true });
+      const w = fitW(tx, 300) + 40;
+      rect(tg, -w / 2 + 6, -10 + 6, w, 62, 6, C.ink);
+      const rr = rect(tg, -w / 2, -10, w, 62, 6, C.ink, C.ink, 4);
+      rect(tg, -w / 2 + 6, -4, w - 12, 50, 3, 'none', C.paper, 2);
+      circle(tg, 0, -1, 5, C.lime, C.paper, 2);
+      tg.appendChild(tx); tx.setAttribute('y', 38);
+      return { sg, str1, tg, rr };
+    });
+    // stickers
+    st.sHes = g(st.lg); ZV.sticker(st.sHes, 380, 84, C.lime, 'TU HÉSITES', 50, C.ink, { sh: 8 });
+    st.sWei = g(st.lg); ZV.sticker(st.sWei, 470, 84, C.ink, 'IL A UN POIDS', 50, C.paper, { sh: 8 });
+
+    /* ---- droite : jeton ---- */
+    line(root, 960, 0, 960, 1080, C.ink, 6);
+    st.rg = g(root);
+    rect(st.rg, 990, 560, 940, 160, 0, C.ink);
+    line(st.rg, 1010, 640, 1900, 640, C.lime, 4, { 'stroke-dasharray': '22 18' });
+    rect(st.rg, 1836, 380, 34, 340, 4, C.red, C.ink, 6);
+    st.chip = g(st.rg);
+    circle(st.chip, 10, 10, 120, C.ink);
+    circle(st.chip, 0, 0, 120, C.white, C.ink, 8);
+    for (let k = 0; k < 8; k++) { const n = g(st.chip, { transform: `rotate(${k * 45})` }); rect(n, -16, -116, 32, 38, 4, C.lime, C.ink, 4); }
+    circle(st.chip, 0, 0, 74, C.white, C.ink, 5);
+    text(st.chip, chipTxt, 0, 22, 64, C.ink, { anchor: 'middle', mono: true });
+    st.spark = [-130, -90, -50].map((a) => ({ a: a * Math.PI / 180, n: line(st.rg, 0, 0, 0, 0, C.ink, 9) }));
+    st.sGame = g(st.rg); ZV.sticker(st.sGame, 300, 88, C.lime, gameTxt, 54, C.ink, { sh: 9 });
+  }
+
+  function updWeigh(st, t) {
+    const tw = st.tWeight, tf = st.tFold, tU = st.tUntag;
+    /* billet : plié (accordéon par moitiés) */
+    let f = 0;
+    if (tf != null) {
+      const e = t - tf;
+      if (e > 0) f = e < 0.33 ? E.io2(e / 0.33) : e < 0.9 ? 1 : e < 1.25 ? lerp(1, 0.4, E.io2((e - 0.9) / 0.35)) : e < 1.5 ? 0.4 : e < 1.8 ? lerp(0.4, 1, E.io2((e - 1.5) / 0.3)) : 1;
+    }
+    if (tw != null) f *= 1 - E.io2(prog(t, tw, tw + 0.25));
+    const s = 1 - 0.5 * f;
+    const folded = f > 0.002;
+    vis(st.flat, !folded); vis(st.fold, folded);
+    if (folded) {
+      setA(st.fL, 'transform', `scale(${f2(s)} 1)`); setA(st.fR, 'transform', `scale(${f2(s)} 1)`);
+      setA(st.rFill, 'fill', mix(C.paper, '#D6D0BF', Math.min(1, f)));
+    }
+    setA(st.bSh, 'x', f2(-260 * s + 10)); setA(st.bSh, 'width', f2(520 * s));
+
+    /* billet : position */
+    const en = prog(t, st.tBill, st.tBill + 0.55);
+    const bob = (x) => 3 * Math.sin(x * 2.1);
+    const hover = (x) => lerp(-250, HOVER_Y, E.back(prog(x, st.tBill, st.tBill + 0.55))) + bob(Math.min(x, tw == null ? 1e9 : tw));
+    let cy = hover(t), rot = lerp(-9, 0, E.out3(en));
+    let dep = 0, tImp = null;
+    if (tw != null) {
+      tImp = tw + 0.3;
+      if (t >= tw) {
+        const q = prog(t, tw, tImp);
+        cy = lerp(hover(tw), BILL_REST_Y, E.in2(q)); rot = lerp(rot, 0, q);
+        if (t > tImp) { const tau = t - tImp; dep = 60 * (1 - Math.exp(-6 * tau) * Math.cos(16 * tau)); cy = BILL_REST_Y + dep; rot = 0; }
+      }
+    }
+    const bOn = t >= st.tBill;
+    const sh = tImp != null ? shakeAt(t, tImp, 8, 0.4) : [0, 0];
+    setA(st.lg, 'transform', `translate(${f2(sh[0])} ${f2(sh[1])})`);
+    put(st.bill, 480, cy, rot, 1, 1, bOn ? 1 : 0);
+    setA(st.dish, 'transform', `translate(480 ${f2(DISH_Y + dep)})`);
+
+    /* étiquettes */
+    const r = rot * Math.PI / 180;
+    st.tags.forEach((tag, i) => {
+      const lx = tag.sg * 130 * s, ly = 130;
+      const ax = 480 + Math.cos(r) * lx - Math.sin(r) * ly, ay = cy + Math.sin(r) * lx + Math.cos(r) * ly;
+      let tx = 480 + tag.sg * 138 + 3 * Math.sin(t * 2.2 + i * 1.9), ty = ay + 38, tr = 0, on = bOn;
+      let e = 0;
+      if (tU != null) e = t - (tU + i * 0.14);
+      if (e > 0) { tx += tag.sg * 90 * e; ty += 0.5 * 2700 * e * e; tr = tag.sg * 170 * e; if (e > 1.3) on = false; }
+      vis(tag.tg, on); vis(tag.str1, on);
+      if (!on) return;
+      setA(tag.tg, 'transform', `translate(${f2(tx)} ${f2(ty)}) rotate(${f2(tr)})`);
+      if (e > 0) { setA(tag.str1, 'x1', f2(tx)); setA(tag.str1, 'y1', f2(ty + 3)); setA(tag.str1, 'x2', f2(tx - Math.sin(tr * Math.PI / 180) * -26)); setA(tag.str1, 'y2', f2(ty - 26)); }
+      else { setA(tag.str1, 'x1', f2(ax)); setA(tag.str1, 'y1', f2(ay)); setA(tag.str1, 'x2', f2(tx)); setA(tag.str1, 'y2', f2(ty + 3)); }
+    });
+
+    /* stickers de la scène gauche */
+    let hs = 0;
+    if (tf != null) hs = E.back(prog(t, tf + 1.25, tf + 1.5));
+    if (tw != null && t >= tw) hs = Math.min(hs, 1 - prog(t, tw, tw + 0.15));
+    put(st.sHes, 480, 108, -3, hs, hs, hs > 0.001 ? 1 : 0);
+    const ws = tw != null ? E.back(prog(t, tw + 0.35, tw + 0.65)) : 0;
+    put(st.sWei, 480, 108, -2, ws, ws, ws > 0.001 ? 1 : 0);
+
+    /* jeton */
+    const cp = E.back(prog(t, st.tChip, st.tChip + 0.35));
+    let x = A_X, lastKind = null;
+    for (let i = 0; i < st.moves.length; i++) {
+      const m = st.moves[i];
+      if (t < m.t) break;
+      x = lerp(m.from, m.to, m.ease(prog(t, m.t, m.t + m.d))); lastKind = m;
+    }
+    if (lastKind && lastKind.to === B_X && t >= lastKind.t + lastKind.d) {
+      for (let i = 0; i < st.clacks.length; i++) { const c = st.clacks[i]; if (t >= c && t < c + 0.22) x -= 12 * Math.sin(Math.PI * (t - c) / 0.22); }
+    }
+    put(st.chip, x, CHIP_Y, 0, cp, cp, t >= st.tChip ? 1 : 0);
+    // éclat plat de 3 traits au claquement
+    let lc = null;
+    for (let i = 0; i < st.clacks.length; i++) if (st.clacks[i] <= t) lc = st.clacks[i];
+    const ce = lc == null ? 9 : t - lc;
+    st.spark.forEach((sp) => {
+      const q = ce / 0.3;
+      if (q >= 1) { vis(sp.n, false); return; }
+      const ro = 14 + 56 * E.out2(q), ri = 10 + 52 * E.in2(q);
+      vis(sp.n, true);
+      setA(sp.n, 'x1', f2(1851 + Math.cos(sp.a) * ri)); setA(sp.n, 'y1', f2(376 + Math.sin(sp.a) * ri));
+      setA(sp.n, 'x2', f2(1851 + Math.cos(sp.a) * ro)); setA(sp.n, 'y2', f2(376 + Math.sin(sp.a) * ro));
+    });
+    // étiquette « UN JEU » sur le jeton (après la chute des étiquettes du billet)
+    const gp = tU != null ? E.back(prog(t, tU + 0.55, tU + 0.85)) : 0;
+    put(st.sGame, x, CHIP_Y - 172, -4, gp, gp, gp > 0.001 ? 1 : 0);
+  }
+
+  /* =========================================================== */
+  /*  MODE head                                                   */
+  /* =========================================================== */
+  const HEAD_D = 'M 120 800 C 120 725 190 695 300 672 C 330 665 345 650 346 625 C 230 590 170 480 170 366 C 176 190 322 70 500 70 C 690 70 828 188 836 338 C 840 410 826 456 808 492 C 798 514 792 536 790 566 C 788 600 774 628 748 646 C 770 664 846 684 868 710 L 868 800 Z';
+  const SCR = { x: 500, y: 340 };
+  const CW = 43.2;                                // largeur d'un caractère Mono 72 px
+  const ROW_Y = (i) => 180 + 135 * i;
+  const OBJ_X = 1065, LEG_X = 1170;
+  const LINE_END = { chips: 412, glass: 424, seat: 436, noclock: 280 };
+
+  function mkGlass(par) {
+    const o = g(par);
+    path(o, 'M -36 -52 L 36 -52 L 28 52 L -28 52 Z', C.paper, C.ink, 5);
+    path(o, 'M -32.6 -8 L 32.6 -8 L 28 52 L -28 52 Z', C.lime, C.ink, 4);
+    rect(o, -2, -26, 26, 26, 4, C.paper, C.ink, 4).setAttribute('transform', 'rotate(14 11 -13)');
+    rect(o, -40, -58, 80, 10, 4, C.paper, C.ink, 4);
+    return o;
+  }
+  function mkNoClock(par) {
+    const o = g(par);
+    circle(o, 0, 0, 52, C.paper, C.ink, 5);
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; line(o, Math.sin(a) * 40, -Math.cos(a) * 40, Math.sin(a) * 47, -Math.cos(a) * 47, C.ink, i % 3 ? 3 : 5); }
+    line(o, 0, 0, 22, 12, C.ink, 6); line(o, 0, 0, -6, -32, C.ink, 5);
+    line(o, -50, -50, 50, 50, C.red, 12); line(o, 50, -50, -50, 50, C.red, 12);
+    return o;
+  }
+  function mkPic(par, name, scale) {
+    let o;
+    try { if (ZV.PICTO && ZV.PICTO.mk) { const pk = ZV.PICTO.mk(par, name, { bg: 'ink', color: 'white', text: '€' }); pk.root.setAttribute('transform', `scale(${scale})`); return pk.root; } } catch (e) { /* repli */ }
+    o = g(par);
+    if (name === 'chip') { circle(o, 0, 0, 58, C.white, C.ink, 5); circle(o, 0, 0, 34, C.white, C.ink, 4); } else { rect(o, -30, -64, 60, 60, 8, C.white, C.ink, 4); rect(o, -38, -4, 76, 18, 6, C.red, C.ink, 4); rect(o, -30, 14, 10, 50, 2, C.pocket); rect(o, 20, 14, 10, 50, 2, C.pocket); }
+    return o;
+  }
+
+  function initHead(root, st, p) {
+    const T = st.T, first = st.first;
+    const amount = str(String(p.amount !== undefined ? p.amount : '100'), '100'), unit = str(p.unit, '€'), chipsUnit = str(p.chips_unit, 'JETONS');
+    const question = str(p.question, '?? H ??');
+    const need = str(p.need, 'TOUT CE DONT TU AURAIS BESOIN POUR DÉCIDER DE PARTIR');
+    const erase = str(p.erase, 'LE BÂTIMENT EFFACE LA TIENNE');
+    const bill = str(p.ball_text, 'LA BILLE N’A PAS DE MÉMOIRE');
+    const none = !HEAD_CUES.some((n) => T[n]);
+    st.amount = amount; st.unit = unit; st.chipsUnit = chipsUnit; st.question = question;
+    const fo = (names) => { let r = null; names.forEach((n) => { const v = first(n); if (v != null && (r == null || v < r)) r = v; }); return r; };
+    st.tOn = none ? -99 : fo(['cash', 'chips', 'glass-1', 'glass-2', 'seat', 'no-clock', 'memory']);
+    st.tCh = first('chips'); st.tG1 = first('glass-1'); st.tG2 = first('glass-2'); st.tSeat = first('seat'); st.tNC = first('no-clock'); st.tMem = first('memory'); st.tBall = first('ball');
+
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    /* ---- silhouette (aucun trait de visage : contour seul) ---- */
+    path(root, HEAD_D, C.pocket, C.paper, 6);
+    st.pad = g(root);
+    rect(st.pad, 100, 790, 800, 30, 8, C.grey, C.paper, 5);
+    /* ---- écran ---- */
+    st.scr = g(root);
+    st.scrR = rect(st.scr, -260, -150, 520, 300, 20, C.ink, C.paper, 8);
+    st.sc = g(st.scr);
+    text(st.sc, 'L’HEURE', -228, -52, 26, C.ink, { mono: true });
+    line(st.sc, -228, -6, 228, -6, C.ink, 3, { opacity: 0.25 });
+    text(st.sc, 'DÉJÀ SORTI', -228, 28, 26, C.ink, { mono: true });
+    // cadran à aiguilles (sans chiffres)
+    st.dial = g(st.sc);
+    st.dialR = g(st.dial);
+    circle(st.dialR, 0, 0, 44, C.paper, C.ink, 5);
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; line(st.dialR, Math.sin(a) * 34, -Math.cos(a) * 34, Math.sin(a) * 40, -Math.cos(a) * 40, C.ink, i % 3 ? 2 : 4); }
+    st.hands = g(st.dial);
+    line(st.hands, 0, 0, 22, 12, C.ink, 7); line(st.hands, 0, 0, -8, -30, C.ink, 5); circle(st.hands, 0, 0, 5, C.ink);
+    st.q1 = text(st.sc, question, 0, 14, 40, C.ink, { mono: true, anchor: 'middle' });
+    fitW(st.q1, 190);
+    st.q1size = parseFloat(st.q1.getAttribute('font-size'));
+    // valeur
+    st.vG = g(st.sc);
+    st.vC2 = text(st.vG, '', 0, 104, 72, C.grey, { mono: true });
+    st.vC1 = text(st.vG, '', 0, 104, 72, C.red, { mono: true });
+    st.vNum = text(st.vG, amount, 0, 104, 72, C.ink, { mono: true });
+    st.vUnit = text(st.vG, unit, 0, 104, 72, C.ink, { mono: true });
+    st.vChip = g(st.vG);
+    circle(st.vChip, 0, 0, 27, C.white, C.ink, 5);
+    for (let k = 0; k < 4; k++) { const n = g(st.vChip, { transform: `rotate(${k * 90})` }); rect(n, -5, -26, 10, 12, 2, C.lime, C.ink, 2); }
+    circle(st.vChip, 0, 0, 13, C.white, C.ink, 3);
+    [st.vC2, st.vC1, st.vNum, st.vUnit].forEach((n) => { n.setAttribute('xml:space', 'preserve'); });
+
+    /* ---- colonne d'objets (jamais plus de 4) ---- */
+    st.col = g(root);
+    const kinds = [
+      { key: 'chips', t0: st.tCh },
+      { key: 'glass', t0: fo(['glass-1', 'glass-2']) },
+      { key: 'seat', t0: st.tSeat },
+      { key: 'noclock', t0: st.tNC }
+    ].filter((k) => k.t0 != null).sort((a, b) => a.t0 - b.t0);
+    const lg = p.legends && typeof p.legends === 'object' ? p.legends : {};
+    const L = {
+      chips: str(lg.chips, 'ÇA RESSEMBLE À UN JEU'), g1: str(lg.glass1, 'UN VERRE, ÇA DÉTEND'), g2: str(lg.glass2, 'DEUX VERRES, ÇA ARRONDIT'),
+      seat: str(lg.seat, 'POUR QUE TU NE TE LÈVES PAS'), noclock: str(lg.noclock, 'PLUS D’HORLOGE')
+    };
+    st.objs = kinds.map((k, i) => {
+      const y = ROW_Y(i), o = { key: k.key, t0: k.t0, y };
+      o.line = line(st.col, 985, y, 761, LINE_END[k.key], C.paper, 4, { opacity: 0.8 });
+      o.g = g(st.col);
+      if (k.key === 'chips') {
+        const pk = mkPic(o.g, 'chip', 0.58); pk.setAttribute('transform', `translate(${OBJ_X} ${y}) ` + (pk.getAttribute('transform') || ''));
+        o.stk = g(o.g);
+        const tx = text(o.stk, L.chips, 0, 9, 26, C.ink, { anchor: 'middle', mono: true });
+        const w = fitW(tx, 560) + 52;
+        rect(o.stk, -w / 2 + 8, -29 + 8, w, 58, 10, C.paper);
+        rect(o.stk, -w / 2, -29, w, 58, 10, C.lime, C.ink, 5);
+        o.stk.appendChild(tx);
+        o.stkX = LEG_X + w / 2; o.stkY = y;
+      } else if (k.key === 'glass') {
+        const a = mkGlass(o.g); a.setAttribute('transform', `translate(${OBJ_X - 40} ${y}) scale(1.05)`);
+        o.g2 = mkGlass(o.g); o.gx = OBJ_X + 42; o.gy = y;
+        o.leg1 = text(o.g, L.g1, LEG_X + 50, y + 9, 26, C.paper, { mono: true }); fitW(o.leg1, 590);
+        o.leg2 = text(o.g, L.g2, LEG_X + 50, y + 9, 26, C.paper, { mono: true }); fitW(o.leg2, 590);
+      } else if (k.key === 'seat') {
+        const pk = mkPic(o.g, 'chair', 0.5); pk.setAttribute('transform', `translate(${OBJ_X} ${y}) ` + (pk.getAttribute('transform') || ''));
+        o.leg1 = text(o.g, L.seat, LEG_X, y + 9, 26, C.paper, { mono: true }); fitW(o.leg1, 620);
+      } else {
+        const c = mkNoClock(o.g); c.setAttribute('transform', `translate(${OBJ_X} ${y}) scale(0.95)`);
+        o.leg1 = text(o.g, L.noclock, LEG_X, y + 9, 26, C.paper, { mono: true }); fitW(o.leg1, 620);
+      }
+      return o;
+    });
+
+    /* ---- bandeaux red ---- */
+    const mkBan = (x, w, s, size) => {
+      const b = g(root);
+      rect(b, x, 700, w, 90, 6, C.red, C.paper, 5);
+      mkWrapped(b, s, x + w / 2, 745, w - 56, 80, size, C.ink, {});
+      return b;
+    };
+    st.b1 = mkBan(140, 1640, need, 50);
+    st.b2 = mkBan(120, 760, erase, 44);
+    /* ---- la bille ---- */
+    st.ball = g(root);
+    circle(st.ball, 0, 0, 60, C.white, C.paper, 4);
+    path(st.ball, 'M -36 -20 A 42 42 0 0 1 -8 -42', 'none', C.lime, 8);
+    st.ballT = mkWrapped(root, bill, 1390, 440, 780, 130, 54, C.paper, {});
+  }
+
+  function updHead(st, t) {
+    const tOn = st.tOn, tCh = st.tCh, tG1 = st.tG1, tG2 = st.tG2, tNC = st.tNC, tMem = st.tMem, tBall = st.tBall, tSeat = st.tSeat;
+    const on = tOn != null && t >= tOn;
+    setA(st.scrR, 'fill', on ? C.paper : C.ink); setA(st.scrR, 'stroke', on ? C.ink : C.paper);
+    setA(st.sc, 'display', on ? 'inline' : 'none');
+    // inclinaison et coins (verre)
+    const tg = tG1 != null ? tG1 : tG2;
+    const gp = tg == null ? 0 : E.io2(prog(t, tg, tg + 0.5));
+    setA(st.scrR, 'rx', f2(lerp(20, 64, gp)));
+    setA(st.scr, 'transform', `translate(${SCR.x} ${SCR.y}) rotate(${f2(3 * gp)})`);
+
+    /* ---- ligne 1 : cadran / ?? H ?? / ? ---- */
+    const mem = tMem != null && t >= tMem;
+    const hs = Math.min(tNC == null ? 1 : 1 - E.in2(prog(t, tNC, tNC + 0.3)), tMem == null ? 1 : 1 - prog(t, tMem, tMem + 0.2));
+    const rs = Math.min(tNC == null ? 1 : 1 - E.in2(prog(t, tNC + 0.3, tNC + 0.5)), tMem == null ? 1 : 1 - prog(t, tMem, tMem + 0.2));
+    put(st.hands, 0, 0, 0, hs, hs, hs > 0.01 ? 1 : 0);
+    put(st.dialR, 0, 0, 0, rs, rs, rs > 0.01 ? 1 : 0);
+    put(st.dial, 650 - SCR.x, -62, 0, 1, 1, 1);
+    let qs = 0, qTxt = st.question;
+    if (mem) { qTxt = '?'; qs = E.back(prog(t, tMem + 0.1, tMem + 0.4)); }
+    else if (tNC != null && t >= tNC) qs = E.back(prog(t, tNC + 0.4, tNC + 0.7));
+    if (qTxt === '?') { setA(st.q1, 'font-size', 72); setA(st.q1, 'y', 26); } else { setA(st.q1, 'font-size', f2(st.q1size)); setA(st.q1, 'y', 14); }
+    setT(st.q1, qTxt);
+    setA(st.q1, 'x', 0);
+    put(st.q1, 650 - SCR.x, -62, 0, qs, qs, qs > 0.001 ? 1 : 0);
+
+    /* ---- ligne 2 : la valeur ---- */
+    let numS = st.amount, unitS = st.unit, copies = 0;
+    const g2 = tG2 != null && t >= tG2;
+    const ch = tCh != null && t >= tCh && !g2 && !mem;
+    if (mem) { numS = '?'; unitS = ''; }
+    else if (g2) { numS = '≈ ' + st.amount; unitS = ''; copies = 10 * E.out2(prog(t, tG2 + 0.4, tG2 + 1.2)); }
+    else if (ch) unitS = st.chipsUnit;
+    if (mem) copies = 10 * E.out2(prog(tG2 == null ? 0 : tG2 + 0.4, 0, 1)) * (1 - prog(t, tMem, tMem + 0.25)) * (tG2 == null ? 0 : 1);
+    const nN = numS.length;
+    let left, unitX, chipOp = 0, unitOp = 1, uScale = 1, txt2 = unitS;
+    const wUnit = (n) => (n ? (nN + 1 + n) * CW : nN * CW);
+    if (ch && !mem) {
+      const e = t - tCh, w0 = (nN + 2) * CW, w1 = (nN + 1 + st.chipsUnit.length) * CW;
+      left = lerp(-w0 / 2, -w1 / 2, E.io2(prog(e, 0.55, 0.8)));
+      unitX = left + (nN + 1) * CW;
+      if (e < 0.15) { txt2 = st.unit; uScale = 1 - prog(e, 0, 0.15); chipOp = 0; unitOp = 1; }
+      else { txt2 = st.chipsUnit; unitOp = prog(e, 0.6, 0.8); uScale = 1; chipOp = e < 0.55 ? 1 : 1 - prog(e, 0.55, 0.75); }
+      const cs = e < 0.15 ? 0 : prog(e, 0.15, 0.3);
+      put(st.vChip, unitX + CW / 2, 78, 0, cs, 1, chipOp > 0.01 && cs > 0.01 ? chipOp : 0);
+      if (e < 0.15) { setA(st.vUnit, 'transform', `translate(${f2(unitX + CW / 2)} 0) scale(${f2(Math.max(uScale, 0.001))} 1) translate(${f2(-(unitX + CW / 2))} 0)`); }
+      else setA(st.vUnit, 'transform', '');
+      setA(st.vUnit, 'opacity', f2(unitOp));
+      setA(st.vUnit, 'x', f2(unitX));
+      vis(st.vUnit, unitOp > 0.01 && (e < 0.15 || e >= 0.6));
+      setT(st.vUnit, e < 0.15 ? st.unit : st.chipsUnit);
+    } else {
+      const w = wUnit(unitS.length);
+      left = -w / 2; unitX = left + (nN + 1) * CW;
+      vis(st.vChip, false);
+      if (tCh == null && !g2 && !mem) {
+        // cash seul (ou repos) : « 100 € »
+      }
+      setA(st.vUnit, 'transform', ''); setA(st.vUnit, 'opacity', 1);
+      setT(st.vUnit, unitS); setA(st.vUnit, 'x', f2(unitX)); vis(st.vUnit, !!unitS);
+    }
+    setT(st.vNum, numS); setA(st.vNum, 'x', f2(left));
+    const vis2 = copies > 0.05;
+    [st.vC1, st.vC2].forEach((n, i) => { vis(n, vis2); if (vis2) { setT(n, numS); setA(n, 'x', f2(left + (i ? 0.8 : -1) * copies * (i ? 1 : 1))); setA(n, 'y', f2(104 + (i ? -0.6 : 0.5) * copies)); } });
+    // taille / pop de la valeur
+    const totW = (nN + (ch ? Math.max(1, st.chipsUnit.length) + 1 : (unitS ? unitS.length + 1 : 0))) * CW + 14;
+    const fitK = Math.min(1, 440 / Math.max(totW, 1));
+    const tPop = g2 ? tG2 : mem ? tMem : (tOn != null && t >= tOn ? tOn : null);
+    const bump = tPop == null ? 1 : 1 + 0.1 * Math.sin(Math.PI * prog(t, tPop, tPop + 0.3));
+    setA(st.vG, 'transform', `translate(0 78) scale(${f2(fitK * bump)}) translate(0 -78)`);
+
+    /* ---- objets ---- */
+    const exitQ = tBall == null ? 0 : prog(t, tBall, tBall + 0.35);
+    st.objs.forEach((o) => {
+      const e = t - o.t0;
+      const pe = E.out3(prog(e, 0, 0.4)), op = prog(e, 0, 0.2) * (1 - exitQ);
+      const show = e >= 0 && exitQ < 1;
+      setA(o.g, 'display', show ? 'inline' : 'none');
+      setA(o.g, 'transform', `translate(${f2((1 - pe) * 260 + exitQ * 300)} 0)`);
+      setA(o.g, 'opacity', f2(op));
+      const lp = prog(e, 0.2, 0.5);
+      vis(o.line, show && lp > 0.01);
+      setA(o.line, 'x1', f2(985)); setA(o.line, 'x2', f2(lerp(985, 761, lp)));
+      setA(o.line, 'y2', f2(lerp(o.y, LINE_END[o.key], lp)));
+      setA(o.line, 'opacity', f2(0.8 * (1 - exitQ)));
+      if (o.key === 'chips') {
+        const sp = E.back(prog(e, 0.25, 0.5));
+        put(o.stk, o.stkX, o.stkY, -1.5, sp, sp, sp > 0.001 ? 1 : 0);
+      } else if (o.key === 'glass') {
+        const second = tG2 != null && t >= tG2;
+        const b = second ? E.back(prog(t, tG2, tG2 + 0.3)) : 0;
+        put(o.g2, o.gx, o.gy, 0, 1.05 * b, 1.05 * b, b > 0.001 ? 1 : 0);
+        const lq = E.out2(prog(second ? t - tG2 : e, 0.05, 0.3));
+        vis(o.leg1, !second); vis(o.leg2, second);
+        const ln = second ? o.leg2 : o.leg1;
+        setA(ln, 'opacity', f2(lq));
+      }
+    });
+    // siège sous la silhouette
+    const sq = tSeat == null ? 0 : E.out3(prog(t, tSeat, tSeat + 0.5));
+    setA(st.pad, 'transform', `translate(${f2((1 - sq) * -820)} 0)`);
+    vis(st.pad, tSeat != null && sq > 0.001);
+
+    /* ---- bandeaux ---- */
+    const showB1 = tMem != null && t >= tMem + 0.2 && (tBall == null || t < tBall + 0.3);
+    const q1 = tMem == null ? 0 : E.out3(prog(t, tMem + 0.2, tMem + 0.55));
+    const out1 = tBall == null ? 0 : E.in2(prog(t, tBall, tBall + 0.3));
+    setA(st.b1, 'transform', `translate(0 ${f2((1 - q1) * 150 + out1 * 150)})`);
+    vis(st.b1, showB1);
+    const q2 = tBall == null ? 0 : E.out3(prog(t, tBall + 0.3, tBall + 0.65));
+    setA(st.b2, 'transform', `translate(0 ${f2((1 - q2) * 150)})`);
+    vis(st.b2, tBall != null && t >= tBall + 0.3);
+    // bille
+    const bp = tBall == null ? 0 : E.back(prog(t, tBall + 0.35, tBall + 0.75));
+    put(st.ball, 1390, 270, 0, bp, bp, bp > 0.001 ? 1 : 0);
+    const bt = tBall == null ? 0 : E.out2(prog(t, tBall + 0.6, tBall + 0.9));
+    setA(st.ballT, 'opacity', f2(bt)); vis(st.ballT, bt > 0.001);
+  }
+
+  ZV.define('head-counter', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const T = {};
+      beats.forEach((b) => { if (b && b.do === 'cue' && typeof b.name === 'string' && isNum(b.t)) (T[b.name] || (T[b.name] = [])).push(b.t); });
+      Object.keys(T).forEach((k) => T[k].sort((a, c) => a - c));
+      const first = (n) => (T[n] ? T[n][0] : null);
+      const hasW = WEIGH_CUES.some((n) => T[n]), hasH = HEAD_CUES.some((n) => T[n]);
+      const mode = p.mode === 'head' ? 'head' : p.mode === 'weigh' ? 'weigh' : (hasH && !hasW ? 'head' : 'weigh');
+      const st = { mode, T, first };
+      try { if (mode === 'head') initHead(root, st, p); else initWeigh(root, st, p); } catch (e) { st.err = e; }
+      return st;
+    },
+    update(st, t) {
+      if (!st || st.err) return;
+      t = isNum(t) ? t : 0;
+      try { if (st.mode === 'head') updHead(st, t); else updWeigh(st, t); } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/help-phone.js ==== */
+// Composant `help-phone` (épisode 9, S4) : « Ce qui se passe quand tu appelles ». Un téléphone générique plat (vues : dial, call, search, save) et, à droite, un panneau lime
+// qui montre le dernier contenu déclenché (hours, noname, first-time, relatives, saved). Voir EP9-COMPONENTS.md.
+// Cues : dial, d1..d5, call, hours, noname, first-time, search, results, relatives, save, saved. Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter ; aucun shake.
+// Aucune marque : maquette plate générique (ni icône reconnaissable, ni logo). Rien d'important sous y = 800.
+(() => {
+  'use strict';
+  const { C, F, E, clamp, prog, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const I = 1 / 30;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.trim().length ? v.trim() : d);
+  const arr = (v, d) => (Array.isArray(v) && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const dsp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
+  const tr = (n, x, y, r, sx, sy) => { let s = `translate(${f2(x)} ${f2(y)})`; if (r) s += ` rotate(${f2(r)})`; if (sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) s += ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})`; setA(n, 'transform', s); };
+  const setT = (n, s) => { if (n.__t !== s) { n.__t = s; n.textContent = s; } };
+  const pop = (n, x, y, rot, p) => { if (p <= 0) { vis(n, false); return; } vis(n, true); tr(n, x, y, rot, Math.max(0.0001, E.back(clamp(p)))); };
+  // mesure réelle du texte (getComputedTextLength), repli sur une estimation hors DOM
+  function metric(root) {
+    const probe = sv('text', { x: 0, y: -3000, 'font-size': 100, 'font-weight': 800, visibility: 'hidden' }, root);
+    const cache = {};
+    const est = (s, mono) => { let a = 0; for (const ch of s) a += mono ? 60 : (ch === ' ' ? 26 : /[0-9]/.test(ch) ? 60 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 68 : /[.,:;'’!|·]/.test(ch) ? 32 : 58); return a; };
+    return (s, size, mono) => {
+      s = String(s); const k = (mono ? 'm' : 'd') + s; let w = cache[k];
+      if (w === undefined) {
+        probe.setAttribute('font-family', mono ? F.mono : F.display); probe.textContent = s;
+        w = 0; try { w = probe.getComputedTextLength(); } catch (e) { w = 0; }
+        if (!(w > 0)) w = est(s, mono);
+        cache[k] = w;
+      }
+      return w * size / 100;
+    };
+  }
+  // texte ajusté : réduit la taille jusqu'à o.min si dépasse o.maxW, puis impose la largeur (textLength) ; o.free = pas de textLength (machine à écrire)
+  const mkT = (M) => function T(parent, s, x, y, size, fill, o) {
+    o = o || {}; s = String(s);
+    let w = M(s, size, o.mono);
+    if (o.maxW && w > o.maxW) { size = Math.max(o.min || 10, size * o.maxW / w); w = M(s, size, o.mono); }
+    const n = text(parent, s, x, y, f2(size), fill, { mono: o.mono, anchor: o.anchor });
+    if (!o.free) { const lim = o.maxW ? Math.min(w, o.maxW) : w; n.setAttribute('textLength', f2(lim)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); w = lim; }
+    n.__w = w; n.__s = size; return n;
+  };
+  // coupe en lignes équilibrées (≤ maxL) ; réduit la taille jusqu'à min si besoin
+  const mkWrap = (M) => {
+    const part = (words, n, sz, mono) => {
+      const wl = (a, b) => M(words.slice(a, b).join(' '), sz, mono);
+      let best = null;
+      const rec = (start, left, cuts, mx) => {
+        if (left === 1) { const m = Math.max(mx, wl(start, words.length)); if (!best || m < best.w - 0.5) best = { w: m, cuts: cuts.slice() }; return; }
+        for (let e = start + 1; e <= words.length - (left - 1); e++) { cuts.push(e); rec(e, left - 1, cuts, Math.max(mx, wl(start, e))); cuts.pop(); }
+      };
+      rec(0, n, [], 0);
+      const lines = []; let s0 = 0;
+      for (const c of best.cuts.concat([words.length])) { lines.push(words.slice(s0, c).join(' ')); s0 = c; }
+      return { w: best.w, lines };
+    };
+    return (s, size, maxW, maxL, mono, min) => {
+      const words = String(s).split(/\s+/).filter(Boolean); if (!words.length) words.push(' ');
+      maxL = Math.max(1, Math.min(maxL, words.length)); min = min || 12;
+      for (let sz = size; ; sz -= 1) {
+        for (let n = 1; n <= maxL; n++) { const p = part(words, n, sz, mono); if (p.w <= maxW) return { lines: p.lines, size: sz, w: p.w }; }
+        if (sz <= min) { const p = part(words, maxL, sz, mono); return { lines: p.lines, size: sz, w: Math.min(p.w, maxW) }; }
+      }
+    };
+  };
+  // bloc plat + ombre dure décalée
+  function blk(parent, x, y, w, h, fill, r, sw, sh) {
+    const grp = g(parent);
+    if (sh) rect(grp, x + sh, y + sh, w, h, r, C.ink);
+    rect(grp, x, y, w, h, r, fill, sw === 0 ? null : C.ink, sw || 6);
+    return grp;
+  }
+  // sticker centré sur (0,0), lignes centrées
+  function stk(parent, lines, size, fill, tfill, o, M, T) {
+    o = o || {}; lines = [].concat(lines);
+    const lh = size * 1.18;
+    let mw = 0; lines.forEach((l) => { mw = Math.max(mw, M(l, size, o.mono)); });
+    const padX = o.padX === undefined ? 30 : o.padX;
+    const w = Math.round(mw + padX * 2), h = Math.round(lines.length * lh + (o.padY === undefined ? 26 : o.padY));
+    const grp = g(parent), sh = o.sh === undefined ? 10 : o.sh;
+    if (sh) rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, o.r === undefined ? 14 : o.r, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, o.r === undefined ? 14 : o.r, fill, C.ink, o.sw || 6);
+    lines.forEach((l, i) => T(grp, l, 0, -h / 2 + (h - lines.length * lh) / 2 + lh * (i + 0.5) + size * 0.34, size, tfill, { anchor: 'middle', mono: o.mono }));
+    grp.__w = w; grp.__h = h; return grp;
+  }
+  let UID = 0;
+  const PX = 302, PY = 140, PW = 376, PH = 600;          // contenu de l'écran du téléphone
+  const BX = 868, BY = 98, BW = 924, BH = 694;           // intérieur du panneau
+  const VIEWS = ['dial', 'call', 'search', 'save'];
+  const PANELS = ['hours', 'noname', 'first-time', 'relatives', 'saved'];
+  const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
+  const D2R = Math.PI / 180;
+
+  // combiné téléphonique plat (centré sur 0,0), sans visage
+  function handset(parent, fill) {
+    const h = g(parent);
+    path(h, 'M-40 -14 Q0 34 40 -14', 'none', fill, 20);
+    for (const sx of [-1, 1]) rect(h, -15, -19, 30, 38, 9, fill).setAttribute('transform', `translate(${sx * 44} -22) rotate(${-sx * 22})`);
+    return h;
+  }
+  const lastIdx = (ev, t) => { let r = -1; for (let i = 0; i < ev.length; i++) if (ev[i].t <= t) r = i; return r; };
+
+  ZV.define('help-phone', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const cu = (n) => { const a = beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((x, y) => x - y); return a.length ? a[0] : null; };
+      const M = metric(root), T = mkT(M), WR = mkWrap(M);
+      const uid = 'hp' + (++UID);
+      const clock = str(P.clock, '01:00');
+      const digits = arr(P.digits, ['09', '74', '75', '13', '13']).slice(0, 5).map(String);
+      const name = str(P.name, 'JOUEURS INFO SERVICE'), query = str(P.query, 'joueurs info service');
+      const results = arr(P.results, ['CHAT', 'FORUM · DES HISTOIRES', 'ANNUAIRE DES CONSULTATIONS']).slice(0, 3).map(String);
+      const first = str(P.first, 'LE DIRE À VOIX HAUTE, SOUVENT POUR LA PREMIÈRE FOIS');
+      const relTitle = str(P.relatives_title, 'AUSSI POUR LES PROCHES');
+      const rels = arr(P.relatives, [{ who: 'UNE MÈRE', what: "OÙ PASSE L'ARGENT ?" }, { who: 'UNE COPINE', what: "LE TÉLÉPHONE S'ALLUME À CHAQUE BUT" }, { who: 'UN FRÈRE', what: 'A DÉJÀ PRÊTÉ TROIS FOIS' }]).slice(0, 3).map((r) => ({ who: str(r && r.who, ''), what: str(r && r.what, '') }));
+      const savedTxt = str(P.saved, 'ENREGISTRÉ'), someday = str(P.someday, "UN JOUR, QUELQU'UN EN AURA BESOIN");
+      const numTxt = digits.join(' ');
+      const c = {};
+      ['dial', 'd1', 'd2', 'd3', 'd4', 'd5', 'call', 'hours', 'noname', 'first-time', 'search', 'results', 'relatives', 'save', 'saved'].forEach((n) => { c[n] = cu(n); });
+      const td = [c.d1, c.d2, c.d3, c.d4, c.d5];
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+
+      /* ---------- panneau droit (fond lime fixe, contenu qui glisse) ---------- */
+      blk(root, 860, 90, 940, 710, C.lime, 26, 8, 14);
+      const defs = sv('defs', null, root);
+      sv('rect', { x: BX, y: BY, width: BW, height: BH }, sv('clipPath', { id: uid + 'p' }, defs));
+      sv('rect', { x: PX, y: PY, width: PW, height: PH }, sv('clipPath', { id: uid + 'v' }, defs));
+      const panelLayer = g(root, { 'clip-path': `url(#${uid}p)` });
+      const pg = {}, pu = {};
+
+      // -- hours : cadran 24 h
+      {
+        const hg = pg.hours = g(panelLayer);
+        const cx = 1330, cy = 440, R = 250, Rr = 165;
+        const a2p = (deg, r) => [cx + r * Math.sin(deg * D2R), cy - r * Math.cos(deg * D2R)];
+        circle(hg, cx + 12, cy + 12, R, C.ink);
+        circle(hg, cx, cy, R, C.paper, C.ink, 8);
+        for (let h = 0; h < 24; h++) { const maj = h % 6 === 0, p0 = a2p(h * 15, R - (maj ? 44 : 24)), p1 = a2p(h * 15, R - 8); line(hg, f2(p0[0]), f2(p0[1]), f2(p1[0]), f2(p1[1]), C.ink, maj ? 8 : 4).setAttribute('stroke-linecap', 'butt'); }
+        [[0, '0'], [90, '6'], [180, '12'], [270, '18']].forEach(([a, s]) => { const p = a2p(a, 288); T(hg, s, f2(p[0]), f2(p[1] + 10), 32, C.ink, { mono: true, anchor: 'middle' }); });
+        const s0 = a2p(120, Rr), s1 = a2p(30, Rr);
+        const d = `M${f2(s0[0])} ${f2(s0[1])} A${Rr} ${Rr} 0 1 1 ${f2(s1[0])} ${f2(s1[1])}`;
+        const L = Rr * 270 * D2R;
+        const ringInk = path(hg, d, 'none', C.ink, 72), ringLime = path(hg, d, 'none', C.lime, 60);
+        [ringInk, ringLime].forEach((n) => { n.setAttribute('stroke-dasharray', `${f2(L)} ${f2(L + 20)}`); });
+        const cl = WR('TOUS LES JOURS', 40, 200, 2, false, 28);
+        cl.lines.forEach((l, i) => T(hg, l, cx, cy + (i - (cl.lines.length - 1) / 2) * cl.size * 1.1 + cl.size * 0.34, cl.size, C.ink, { anchor: 'middle', maxW: 210 }));
+        const pill = (label, a) => { const gp = g(hg), p = a2p(a, R); const w = Math.round(M(label, 24, true) + 28); rect(gp, -w / 2 + 5, -19 + 5, w, 38, 10, C.ink); rect(gp, -w / 2, -19, w, 38, 10, C.ink, C.paper, 3); T(gp, label, 0, 8, 24, C.paper, { mono: true, anchor: 'middle' }); tr(gp, p[0], p[1], 0); return gp; };
+        const p8 = pill('8 H', 120), p2 = pill('2 H', 30);
+        // index à 1 h et son étiquette
+        const ix = g(hg);
+        const tip = a2p(15, R + 6), bs = a2p(15, R + 52), nx = Math.cos(15 * D2R), ny = Math.sin(15 * D2R);
+        path(ix, `M${f2(tip[0])} ${f2(tip[1])} L${f2(bs[0] + nx * 15)} ${f2(bs[1] + ny * 15)} L${f2(bs[0] - nx * 15)} ${f2(bs[1] - ny * 15)}Z`, C.ink, C.ink, 5);
+        line(ix, f2(bs[0]), f2(bs[1]), 1534, f2(bs[1]), C.ink, 5).setAttribute('stroke-linecap', 'butt');
+        const lab = stk(ix, ['1 H DU MATIN :', 'ÇA DÉCROCHE'], 24, C.paper, C.ink, { mono: true, sh: 8, padX: 20, padY: 22 }, M, T);
+        const lx = 1534 + lab.__w / 2 - 2, ly = f2(bs[1]);
+        tr(lab, lx, ly, 0);
+        pu.hours = (tp) => {
+          const p = E.io2(prog(tp, 10 * I, 30 * I));
+          const dd = L * p;
+          if (dd < 1) { vis(ringInk, false); vis(ringLime, false); } else { vis(ringInk, true); vis(ringLime, true); const o = f2(L - dd); setA(ringInk, 'stroke-dashoffset', o); setA(ringLime, 'stroke-dashoffset', o); }
+          pop(p8, ...a2p(120, R), 0, prog(tp, 10 * I, 18 * I));
+          pop(p2, ...a2p(30, R), 0, prog(tp, 30 * I, 38 * I));
+          const pi = prog(tp, 34 * I, 42 * I);
+          if (pi <= 0) vis(ix, false); else { vis(ix, true); const s = E.out3(pi); tr(ix, (1 - s) * 40, 0, 0); op(ix, s * 3); }
+        };
+      }
+
+      // -- noname : « ON NE TE DEMANDE PAS TON NOM. » / « ON NE TE JUGE PAS. »
+      {
+        const ng = pg.noname = g(panelLayer);
+        const w1 = WR("ON NE TE DEMANDE PAS TON NOM.", 64, 820, 2, false, 46);
+        const lh = w1.size * 1.2;
+        const l1 = g(ng);
+        w1.lines.forEach((l, i) => T(l1, l, 930, 292 + i * lh, w1.size, C.ink, { maxW: 830 }));
+        const y2 = 292 + (w1.lines.length - 1) * lh + 62;
+        const l2 = g(ng);
+        const t2 = "ON NE TE JUGE PAS.";
+        const s2 = Math.min(w1.size, 64), tw2 = Math.min(820, M(t2, s2));
+        blk(l2, 920, y2, tw2 + 60, s2 * 1.45, C.paper, 14, 6, 12);
+        T(l2, t2, 950, y2 + s2 * 1.45 / 2 + s2 * 0.34, s2, C.ink, { maxW: 820 });
+        const cyy = y2 + s2 * 0.72;
+        pu.noname = (tp) => {
+          const a = prog(tp, 8 * I, 16 * I);
+          if (a <= 0) vis(l1, false); else { vis(l1, true); tr(l1, (1 - E.out3(a)) * 30, 0, 0); op(l1, a * 3); }
+          const b = prog(tp, 1.0 + 8 * I, 1.0 + 16 * I);
+          if (b <= 0) vis(l2, false); else { vis(l2, true); const s = Math.max(0.0001, E.back(b)); setA(l2, 'transform', `translate(930 ${f2(cyy)}) scale(${f2(s)}) translate(-930 ${f2(-cyy)})`); }
+        };
+      }
+
+      // -- first-time : grande bulle de BD sortant côté téléphone
+      {
+        const fg = pg['first-time'] = g(panelLayer);
+        const inner = g(fg), tipX = 884, tipY = 520;
+        const bx = 960, by = 190, bw = 790, bh = 470;
+        const body = g(inner, { transform: `translate(${-tipX} ${-tipY})` });
+        const tail = `M${bx + 6} 470 L${tipX} ${tipY} L${bx + 6} 568 Z`;
+        path(body, tail, C.ink, C.ink, 8).setAttribute('transform', 'translate(14 14)');
+        rect(body, bx + 14, by + 14, bw, bh, 36, C.ink);
+        path(body, tail, C.paper, C.ink, 8);
+        rect(body, bx, by, bw, bh, 36, C.paper, C.ink, 8);
+        rect(body, bx - 2, 477, 16, 84, 0, C.paper);
+        const wf = WR(first, 54, bw - 110, 3, false, 36);
+        const lh = wf.size * 1.2, y0 = by + bh / 2 - (wf.lines.length * lh) / 2 + lh * 0.5 + wf.size * 0.34;
+        wf.lines.forEach((l, i) => T(body, l, bx + bw / 2 + 6, f2(y0 + i * lh), wf.size, C.ink, { anchor: 'middle', maxW: bw - 100 }));
+        pu['first-time'] = (tp) => {
+          const p = prog(tp, 6 * I, 18 * I);
+          if (p <= 0) { vis(inner, false); return; }
+          vis(inner, true); const s = Math.max(0.0001, E.back(p));
+          setA(inner, 'transform', `translate(${tipX} ${tipY}) scale(${f2(s)})`);
+        };
+      }
+
+      // -- relatives : trois cartes inclinées
+      {
+        const rg = pg.relatives = g(panelLayer);
+        T(rg, relTitle, 930, 182, 56, C.ink, { maxW: 840 });
+        const rots = [-2, 1, -1], cards = [];
+        rels.forEach((r, i) => {
+          const cg = g(rg), y0 = 222 + i * 172;
+          blk(cg, -400, -70, 800, 140, C.paper, 14, 6, 10);
+          rect(cg, -400, -70, 22, 140, 0, C.ink);
+          T(cg, r.who, -356, -14, 40, C.ink, { maxW: 740 });
+          T(cg, r.what, -356, 40, 24, C.ink, { mono: true, maxW: 740, min: 18 });
+          cards.push({ g: cg, x: 1330, y: y0 + 70, r: rots[i] });
+        });
+        pu.relatives = (tp) => {
+          cards.forEach((k, i) => {
+            const p = prog(tp, 14 * I + i * 10 * I, 22 * I + i * 10 * I);
+            if (p <= 0) { vis(k.g, false); return; }
+            vis(k.g, true); const e = E.back(p);
+            tr(k.g, k.x, k.y + (1 - clamp(e, 0, 1)) * 60, k.r * (0.4 + 0.6 * clamp(p)), Math.max(0.0001, 0.85 + 0.15 * e));
+            op(k.g, p * 4);
+          });
+        };
+      }
+
+      // -- saved : sticker « un jour, quelqu'un en aura besoin »
+      {
+        const sg = pg.saved = g(panelLayer);
+        const ws = WR(someday, 48, 640, 2, false, 34);
+        const st = stk(sg, ws.lines, ws.size, C.paper, C.ink, { sh: 14, padX: 36, padY: 44, sw: 8, r: 18 }, M, T);
+        pu.saved = (tp) => { pop(st, 1330, 440, -2, prog(tp, 8 * I, 18 * I)); };
+      }
+      PANELS.forEach((k) => { if (!pu[k]) pu[k] = () => {}; });
+
+      /* ---------- téléphone ---------- */
+      rect(root, 294, 84, 420, 740, 56, C.lime, C.ink, 6);
+      rect(root, 280, 70, 420, 740, 56, C.ink);
+      rect(root, 302, 92, 376, 696, 38, C.paper);
+      T(root, clock, 326, 124, 22, C.ink, { mono: true, free: true });
+      [[590, 10], [606, 16], [622, 22]].forEach(([x, h]) => rect(root, x, 126 - h, 10, h, 2, C.ink));
+      rect(root, 640, 108, 26, 16, 4, 'none', C.ink, 3);
+      rect(root, 644, 112, 16, 8, 1, C.ink);
+      rect(root, 440, 758, 100, 8, 4, C.ink);
+
+      const viewLayer = g(root, { 'clip-path': `url(#${uid}v)` });
+      const vg = {};
+      // -- dial
+      const dial = vg.dial = g(viewLayer);
+      rect(dial, 20, 14, 336, 72, 16, C.white, C.ink, 4);
+      const caret = rect(dial, 40, 32, 5, 36, 0, C.ink);
+      const fieldTxt = T(dial, '', 38, 62, 34, C.ink, { mono: true, free: true });
+      const keyC = {};
+      KEYS.forEach((k, i) => {
+        const cx = [66, 188, 310][i % 3], cy = 144 + Math.floor(i / 3) * 96;
+        keyC[k] = circle(dial, cx, cy, 38, C.paper, C.ink, 4);
+        T(dial, k, cx, cy + (k === '*' ? 22 : 15), 44, C.ink, { mono: true, anchor: 'middle', free: true });
+      });
+      blk(dial, 20, 504, 336, 72, C.lime, 36, 5, 0);
+      const hs0 = handset(dial, C.ink); tr(hs0, 98, 541, -40, 0.62);
+      T(dial, 'APPELER', 148, 553, 30, C.ink, { maxW: 190 });
+      // -- call
+      const call = vg.call = g(viewLayer);
+      circle(call, 188, 112, 88, C.lime, C.ink, 6);
+      const hs1 = handset(call, C.ink); tr(hs1, 188, 112, -40, 1.25);
+      const wn = WR(name, 36, 330, 2, false, 26);
+      wn.lines.forEach((l, i) => T(call, l, 188, 244 + i * 40, wn.size, C.ink, { anchor: 'middle', maxW: 336 }));
+      const ny0 = 244 + (wn.lines.length - 1) * 40;
+      T(call, 'APPEL EN COURS', 188, ny0 + 40, 22, C.ink, { mono: true, anchor: 'middle' });
+      const timer = T(call, '00:00', 188, ny0 + 104, 56, C.ink, { mono: true, anchor: 'middle', free: true });
+      {
+        const labs = ['ANONYME', 'NON SURTAXÉ'], ws = labs.map((l) => Math.round(M(l, 20, true) + 30));
+        let x = 188 - (ws[0] + ws[1] + 12) / 2;
+        labs.forEach((l, i) => { blk(call, x, ny0 + 126, ws[i], 40, C.white, 20, 4, 0); T(call, l, x + ws[i] / 2, ny0 + 126 + 27, 20, C.ink, { mono: true, anchor: 'middle' }); x += ws[i] + 12; });
+      }
+      const nfY = ny0 + 190;
+      rect(call, 20, nfY, 336, 70, 14, C.white, C.ink, 4);
+      T(call, 'NOM : ______', 40, nfY + 45, 28, C.ink, { mono: true, free: true });
+      const strike = line(call, 30, nfY + 35, 30, nfY + 35, C.red, 10); vis(strike, false);
+      // -- search
+      const srch = vg.search = g(viewLayer);
+      rect(srch, 20, 14, 336, 74, 37, C.white, C.ink, 4);
+      circle(srch, 62, 49, 13, 'none', C.ink, 5); line(srch, 72, 59, 84, 71, C.ink, 6);
+      const qs = Math.min(24, 240 / (query.length * 0.6));
+      const qTxt = T(srch, '', 98, 49 + qs * 0.34, qs, C.ink, { mono: true, free: true });
+      const tiles = results.map((r, i) => {
+        const tg = g(srch), y0 = 130 + i * 128;
+        blk(tg, 0, 0, 336, 112, C.paper, 14, 4, 6);
+        circle(tg, 34, 56, 14, C.lime, C.ink, 4);
+        const w = WR(r, 28, 250, 2, false, 20);
+        w.lines.forEach((l, j) => T(tg, l, 64, 56 + (j - (w.lines.length - 1) / 2) * w.size * 1.15 + w.size * 0.34, w.size, C.ink, { maxW: 256 }));
+        return { g: tg, x: 20, y: y0 };
+      });
+      // -- save
+      const save = vg.save = g(viewLayer);
+      circle(save, 188, 62, 40, C.lime, C.ink, 5);
+      line(save, 188, 44, 188, 80, C.ink, 8); line(save, 170, 62, 206, 62, C.ink, 8);
+      T(save, 'NOUVEAU CONTACT', 188, 150, 30, C.ink, { anchor: 'middle', maxW: 330 });
+      rect(save, 20, 176, 336, 100, 14, C.white, C.ink, 4);
+      T(save, 'NOM', 36, 198, 16, C.grey, { mono: true });
+      { const w = WR(name, 28, 300, 2, false, 22); w.lines.forEach((l, i) => T(save, l, 36, 232 + i * 31, w.size, C.ink, { maxW: 304 })); }
+      rect(save, 20, 292, 336, 84, 14, C.white, C.ink, 4);
+      T(save, 'NUMÉRO', 36, 314, 16, C.grey, { mono: true });
+      T(save, numTxt, 36, 358, 34, C.ink, { mono: true, maxW: 304, min: 24 });
+      const btn = g(save);
+      const btnBody = rect(btn, -168, -36, 336, 72, 16, C.ink, C.ink, 5);
+      const btnL1 = T(btn, 'ENREGISTRER', 0, 12, 32, C.paper, { anchor: 'middle', maxW: 300 });
+      const sv2 = g(btn);
+      const sl = T(sv2, savedTxt, 0, 12, 32, C.ink, { maxW: 250, min: 20 });
+      const tot = 36 + 12 + sl.__w, left = -tot / 2;
+      sl.setAttribute('x', f2(left + 48));
+      path(sv2, `M${f2(left + 4)} 2 L${f2(left + 15)} 14 L${f2(left + 34)} -10`, 'none', C.ink, 8);
+      VIEWS.forEach((k) => dsp(vg[k], false));
+
+      return { c, td, digits, numTxt, query, uid, vg, pg, pu, fieldTxt, caret, keyC, timer, strike, nfY, qTxt, tiles, btn, btnBody, btnL1, sv2,
+        vEv: VIEWS.map((k) => ({ key: k, t: c[k] })).filter((e) => e.t != null).sort((a, b) => a.t - b.t).filter((e, i, a) => !i || a[i - 1].key !== e.key),
+        pEv: PANELS.map((k) => ({ key: k, t: c[k] })).filter((e) => e.t != null).sort((a, b) => a.t - b.t) };
+    },
+
+    update(st, t, shot) {
+      const c = st.c;
+      /* ---- vues de l'écran ---- */
+      const vi = lastIdx(st.vEv, t);
+      const cur = vi >= 0 ? st.vEv[vi].key : 'dial', prev = vi >= 0 ? (vi > 0 ? st.vEv[vi - 1].key : 'dial') : null;
+      const vp = vi >= 0 ? prog(t, st.vEv[vi].t, st.vEv[vi].t + 10 * I) : 1;
+      VIEWS.forEach((k) => {
+        const n = st.vg[k];
+        if (k === cur) { dsp(n, true); tr(n, PX + (1 - E.out3(vp)) * PW, PY, 0); }
+        else if (k === prev && vp < 1) { dsp(n, true); tr(n, PX - E.out3(vp) * PW, PY, 0); }
+        else dsp(n, false);
+      });
+      // dial : numéro et touches
+      let k = -1;
+      for (let i = 0; i < st.digits.length; i++) if (st.td[i] != null && st.td[i] <= t) k = i;
+      setT(st.fieldTxt, st.digits.slice(0, k + 1).join(' '));
+      vis(st.caret, k < 0);
+      const lit = {};
+      for (let i = 0; i < st.digits.length; i++) if (st.td[i] != null && t >= st.td[i] && t < st.td[i] + 4 * I) for (const ch of st.digits[i]) lit[ch] = true;
+      for (const key in st.keyC) setA(st.keyC[key], 'fill', lit[key] ? C.lime : C.paper);
+      // call : chronomètre et barré
+      const t0 = c.call != null ? c.call : (c.noname != null ? c.noname : 0), sec = Math.max(0, Math.floor(t - t0));
+      setT(st.timer, String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0'));
+      if (c.noname != null && t >= c.noname) { vis(st.strike, true); setA(st.strike, 'x2', f2(30 + 316 * E.out2(prog(t, c.noname, c.noname + 6 * I)))); } else vis(st.strike, false);
+      // search : requête tapée, tuiles qui tombent
+      const nq = c.search == null || t < c.search ? 0 : Math.min(st.query.length, Math.floor((t - c.search) * 30) + 1);
+      setT(st.qTxt, st.query.slice(0, nq));
+      st.tiles.forEach((tl, i) => {
+        const p = c.results == null ? 0 : prog(t, c.results + i * 7 * I, c.results + i * 7 * I + 12 * I);
+        if (p <= 0) { vis(tl.g, false); return; }
+        vis(tl.g, true); tr(tl.g, tl.x, tl.y - (1 - E.bounce(p)) * (tl.y + 130), 0);
+      });
+      // save : bouton
+      {
+        const dt = c.saved == null ? -1 : t - c.saved;
+        const sc = dt < 0 ? 1 : dt < 3 * I ? 1 - 0.06 * (dt / (3 * I)) : dt < 6 * I ? 0.94 + 0.06 * ((dt - 3 * I) / (3 * I)) : 1;
+        tr(st.btn, 188, 470, 0, sc);
+        const done = dt >= 3 * I;
+        setA(st.btnBody, 'fill', done ? C.lime : C.ink);
+        vis(st.btnL1, !done); vis(st.sv2, done);
+      }
+
+      /* ---- panneau ---- */
+      const pi = lastIdx(st.pEv, t);
+      const ck = pi >= 0 ? st.pEv[pi].key : null, pk = pi > 0 ? st.pEv[pi - 1].key : null;
+      const pp = pi >= 0 ? prog(t, st.pEv[pi].t, st.pEv[pi].t + 12 * I) : 1;
+      PANELS.forEach((key) => {
+        const n = st.pg[key];
+        if (key === ck) { dsp(n, true); tr(n, (1 - E.out3(pp)) * 940, 0, 0); st.pu[key](t - st.pEv[pi].t); }
+        else if (key === pk && pp < 1) { dsp(n, true); tr(n, -E.out3(pp) * 940, 0, 0); st.pu[key](t - st.pEv[pi - 1].t); }
+        else dsp(n, false);
+      });
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/jackpot-screen.js ==== */
 // Composant « jackpot-screen » (épisode 2) : l'écran de Katrina Bookman, Queens, 23 août 2016. Voir EP2-COMPONENTS.md.
 // Fonction pure du temps du plan ; aplats seulement. Le téléphone ne montre aucun portrait (viseur + barres de texte).
@@ -5674,6 +8945,340 @@
           }
         }
       } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/jet-invite.js ==== */
+// Composant `jet-invite` (épisode 7) : le dossier que le casino connaît, l'invitation, le jet, l'argent « porte-bonheur ». Voir EP7-COMPONENTS.md.
+// Scène 1 (fond paper) : la chemise cartonnée, quatre lignes qui s'écrivent, le tampon, la carte d'invitation à côté.
+// Scène 2 (fond ink) : l'arc pointillé entre « chez lui » et la ville, l'hôte, le jet, les cadeaux, la boîte, le circuit jusqu'au guichet.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter, aucun marquage. Cues : file, flag-1..4, ban, anyway, host, jet, gifts, box, circuit.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, put, shakeAt } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : v != null && typeof v !== 'object' && String(v).length ? String(v) : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => n.setAttribute('visibility', on ? 'visible' : 'hidden');   // non mis en cache : ZV.put pose aussi cet attribut
+  const disp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');        // pour les groupes dont les enfants posent leur propre visibility
+  const WT = {};
+  '0:.67 1:.36 2:.61 3:.61 4:.64 5:.62 6:.66 7:.52 8:.66 9:.66 A:.71 B:.69 C:.69 D:.71 E:.63 F:.6 G:.73 H:.73 I:.3 J:.38 K:.7 L:.51 M:.96 N:.79 O:.73 P:.65 Q:.73 R:.69 S:.66 T:.58 U:.73 V:.68 W:1 X:.72 Y:.66 Z:.58 À:.71 Â:.71 É:.63 È:.63 Ê:.63 Î:.3 Ô:.73 Û:.73 Ç:.69 €:.75 %:.99 +:.53 ×:.53 −:.53 -:.36 .:.25 ,:.21 ::.26 ;:.24 \':.19 ’:.22 !:.3 ?:.43 |:.28 (:.33 ):.33 $:.65 ¢:.57 ≈:.55 →:1 ·:.25 /:.37 «:.48 »:.48 –:.55'.split(' ').forEach((p) => { WT[p[0]] = parseFloat(p.slice(2)); });
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += WT[ch] !== undefined ? WT[ch] : /\s/.test(ch) ? 0.22 : 0.6; return a * size; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const fitSize = (s, size, maxW, minS, mono) => Math.max(minS, Math.min(size, Math.floor(maxW / Math.max(0.01, mono ? mw(s, 1) : bw(s, 1)))));
+  function layout(words, sz, maxW, maxL) {
+    if (maxL <= 1) { const s = words.join(' '); return bw(s, sz) <= maxW ? [s] : null; }
+    const lines = []; let cur = '';
+    for (const w of words) { const nx = cur ? cur + ' ' + w : w; if (!cur || bw(nx, sz) <= maxW) cur = nx; else { lines.push(cur); cur = w; } }
+    lines.push(cur);
+    if (lines.length > maxL || lines.some((l) => bw(l, sz) > maxW)) return null;
+    if (lines.length === 2 && maxL === 2) {
+      let best = lines, bm = Math.max(bw(lines[0], sz), bw(lines[1], sz));
+      for (let k = 1; k < words.length; k++) { const a = words.slice(0, k).join(' '), b = words.slice(k).join(' '), m = Math.max(bw(a, sz), bw(b, sz)); if (m < bm && m <= maxW) { bm = m; best = [a, b]; } }
+      return best;
+    }
+    return lines;
+  }
+  function wrap(s, size, maxW, maxL, minS) {
+    const words = String(s).split(/\s+/).filter(Boolean); if (!words.length) words.push('');
+    for (let sz = size; sz >= minS; sz -= 2) { const L = layout(words, sz, maxW, maxL); if (L) return { lines: L, size: sz }; }
+    return { lines: layout(words, minS, 1e9, maxL) || [words.join(' ')], size: minS };
+  }
+  function typed(parent, defs, id, s, x, y, size, fill, o) {
+    o = o || {};
+    const w = o.mono ? mw(s, size) : bw(s, size), W = Math.min(w, o.maxW || 1e9);
+    const x0 = o.anchor === 'middle' ? x - W / 2 : x;
+    const cp = sv('clipPath', { id }, defs), cr = rect(cp, x0 - 6, y - size * 1.1, 0, size * 1.5, 0, '#000');
+    const t = text(parent, s, x0, y, size, fill, { mono: o.mono, len: f2(W) });
+    t.setAttribute('clip-path', `url(#${id})`);
+    const chars = Array.from(s), cum = [0]; let acc = 0;
+    for (const ch of chars) { acc += o.mono ? 0.6 : (WT[ch] !== undefined ? WT[ch] : 0.4); cum.push(acc); }
+    return { t, W, n: chars.length, set(k) { k = Math.max(0, Math.min(chars.length, Math.floor(k))); setA(cr, 'width', f2(k <= 0 ? 0 : k >= chars.length ? W + 12 : (cum[k] / acc) * W + 6)); vis(t, k > 0); } };
+  }
+
+  /* ---- l'arc du voyage : courbe quadratique entre « chez lui » et la ville ---- */
+  const A0 = [260, 640], AC = [960, -180], A1 = [1660, 640];
+  const arcX = (s) => (1 - s) * (1 - s) * A0[0] + 2 * s * (1 - s) * AC[0] + s * s * A1[0];
+  const arcY = (s) => (1 - s) * (1 - s) * A0[1] + 2 * s * (1 - s) * AC[1] + s * s * A1[1];
+  const arcAng = (s) => Math.atan2(2 * (1 - s) * (AC[1] - A0[1]) + 2 * s * (A1[1] - AC[1]), 2 * (1 - s) * (AC[0] - A0[0]) + 2 * s * (A1[0] - AC[0])) / ZV.D2R;
+  const GY = 662;                                                              // sol de la scène 2
+  const BOXX = 1440, BOXY = 652;                                              // pied de la boîte cadeau
+  const GUI = [1736, 598];                                                     // bord du guichet
+
+  ZV.define('jet-invite', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 20;
+      const first = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r === null || b.t < r)) r = b.t; return r; };
+      const NAMES = ['file', 'flag-1', 'flag-2', 'flag-3', 'flag-4', 'ban', 'anyway', 'host', 'jet', 'gifts', 'box', 'circuit'];
+      const T = {}; NAMES.forEach((n) => { T[n] = first(n); });
+      if (NAMES.every((n) => T[n] == null)) {
+        const k = Math.min(1, dur / 20), d = { file: 0.3, 'flag-1': 1.2, 'flag-2': 2.1, 'flag-3': 3.0, 'flag-4': 4.2, ban: 5.8, anyway: 6.8, host: 8.2, jet: 10.4, gifts: 13.2, box: 14.4, circuit: 16.0 };
+        NAMES.forEach((n) => { T[n] = d[n] * k; });
+      }
+      const name = str(P.name, 'HARRY KAKAVAS'), role = str(P.role, 'JOUEUR · AUSTRALIE');
+      const dflags = ['JOUEUR PATHOLOGIQUE', 'EXCLU DU CASINO DE SYDNEY', 'CONDAMNÉ POUR UNE FRAUDE (POUR FINANCER SON JEU)', 'A DEMANDÉ LUI-MÊME À ÊTRE INTERDIT AU CASINO DE MELBOURNE'];
+      const flags = [0, 1, 2, 3].map((i) => str(Array.isArray(P.flags) ? P.flags[i] : null, dflags[i]));
+      const ban = str(P.ban, 'INTERDIT À SA DEMANDE'), invite = str(P.invite, 'INVITATION');
+      const gifts = (Array.isArray(P.gifts) ? P.gifts : ['DES SUITES', 'DES CADEAUX']).slice(0, 3).map((x) => str(x, '')).filter((x) => x);
+      const box = str(P.box, '50 000 $'), boxLabel = str(P.box_label, 'ARGENT PORTE-BONHEUR'), circuit = str(P.circuit, 'IL FINIT TOUJOURS AU MÊME GUICHET');
+      // la scène 2 s'ouvre sur `host` (ou 0,5 s avant son premier cue)
+      let tS = T.host;
+      if (tS == null) { const o = [T.jet, T.gifts, T.box, T.circuit].filter((x) => x != null); if (o.length) tS = Math.max(0, Math.min(...o) - 0.5); }
+      const uid = 'ji' + (++UID);
+      const st = { T, tS, uid, dur };
+      const defs = sv('defs', null, root);
+      const pt = sv('pattern', { id: uid + 'h', width: 30, height: 30, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+      sv('rect', { x: 0, y: 0, width: 30, height: 30, fill: C.paper }, pt);
+      sv('rect', { x: 0, y: 0, width: 7, height: 30, fill: C.ink, 'fill-opacity': 0.08 }, pt);
+
+      /* =================== scène 1 : le dossier =================== */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      st.s1 = g(root);
+      const S1 = st.s1;
+      st.ghostCh = rect(S1, 260, 90, 1200, 710, 14, 'none', '#CFCABB', 6, { 'stroke-dasharray': '16 12' });
+      st.ch = g(S1);
+      const CH = st.ch;
+      rect(CH, -600 + 16, -355 + 16, 1200, 710, 14, C.ink);
+      rect(CH, -600, -355, 1200, 710, 14, `url(#${uid}h)`, C.ink, 8);
+      rect(CH, -590, -355 - 46, 290, 56, 12, `url(#${uid}h)`, C.ink, 8);
+      text(CH, 'DOSSIER', -445, -355 - 8, 28, C.ink, { mono: true, anchor: 'middle', spacing: 5, len: f2(mw('DOSSIER', 28) + 6 * 5) });
+      rect(CH, -566, -322, 1132, 644, 6, C.white, C.ink, 4);
+      const ns = fitSize(name, 84, 900, 40);
+      text(CH, name, -536, -236, ns, C.ink, { len: f2(Math.min(bw(name, ns), 900)) });
+      const rs = fitSize(role, 30, 1000, 16, true);
+      text(CH, role, -536, -190, rs, C.grey, { mono: true, len: f2(Math.min(mw(role, rs), 1000)) });
+      line(CH, -536, -166, 536, -166, C.ink, 4);
+      // quatre lignes : taille commune, retour à la ligne mesuré (2 lignes au plus)
+      let fs = 40, wr;
+      for (; fs >= 30; fs -= 2) { wr = flags.map((f) => layout(String(f).split(/\s+/).filter(Boolean), fs, 670, 2)); if (wr.every((x) => x)) break; }
+      if (!wr || !wr.every((x) => x)) { fs = 30; wr = flags.map((f) => layout(String(f).split(/\s+/).filter(Boolean), fs, 1e9, 2) || [String(f)]); }
+      st.flags = [];
+      const rowC = [-91, 23, 136, 250];
+      flags.forEach((f, i) => {
+        const o = { pen: g(CH), lines: [], n: 0 }, c = rowC[i], L = wr[i];
+        line(o.pen, -536, c - 26, -536, c + 26, C.ink, 5);
+        sv('polygon', { points: `-536,${c - 26} -494,${c - 11} -536,${c + 4}`, fill: C.red, stroke: C.ink, 'stroke-width': 3, 'stroke-linejoin': 'round' }, o.pen);
+        o.cx = -536; o.cy = c;
+        L.forEach((l, k) => {
+          const y = c + (k - (L.length - 1) / 2) * fs * 1.08 + fs * 0.35;
+          const ty = typed(CH, defs, `${uid}f${i}_${k}`, l, -470, y, fs, C.ink, { maxW: 676 });
+          o.lines.push(ty); o.n += ty.n;
+        });
+        st.flags.push(o);
+      });
+      // tampon (marge droite)
+      st.stamp = g(CH);
+      {
+        const w = 340, h = 190, W = wrap(ban, 52, 290, 2, 26), n = W.lines.length;
+        rect(st.stamp, -w / 2, -h / 2, w, h, 6, C.white, C.red, 8);
+        rect(st.stamp, -w / 2 + 16, -h / 2 + 16, w - 32, h - 32, 3, 'none', C.red, 3);
+        W.lines.forEach((l, i) => text(st.stamp, l, 0, (i - (n - 1) / 2) * W.size * 1.1 + W.size * 0.35, W.size, C.red, { anchor: 'middle', len: f2(Math.min(bw(l, W.size), w - 56)) }));
+      }
+      // carte d'invitation, à côté de la chemise
+      st.card = g(S1);
+      {
+        const w = 340, h = 230;
+        rect(st.card, -w / 2 + 14, -h / 2 + 14, w, h, 12, C.ink);
+        rect(st.card, -w / 2, -h / 2, w, h, 12, C.paper, C.red, 8);
+        const sz = fitSize(invite, 40, w - 50, 20, true);
+        text(st.card, invite, 0, -22, sz, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(invite, sz), w - 50)) });
+        rect(st.card, -110, 8, 220, 10, 0, C.ink); rect(st.card, -110, 36, 150, 10, 0, '#B9B5A8');
+        circle(st.card, 100, 70, 26, C.red, C.ink, 5);
+      }
+      st.quand = g(S1);
+      {
+        const lab = 'QUAND MÊME', w = 320, h = 70, sz = fitSize(lab, 42, w - 40, 24);
+        rect(st.quand, -w / 2 + 9, -h / 2 + 9, w, h, 12, '#8A8578');
+        rect(st.quand, -w / 2, -h / 2, w, h, 12, C.ink, C.ink, 6);
+        text(st.quand, lab, 0, sz * 0.35, sz, C.paper, { anchor: 'middle', len: f2(Math.min(bw(lab, sz), w - 40)) });
+      }
+
+      /* =================== scène 2 : le voyage =================== */
+      st.s2 = g(root);
+      const S2 = st.s2;
+      rect(S2, 0, 0, 1920, 1080, 0, C.ink);
+      line(S2, 100, GY, 1900, GY, C.paper, 6);
+      // maison « chez lui »
+      path(S2, 'M138 654 L138 604 L184 566 L230 604 L230 654 Z', C.ink, C.paper, 5);
+      rect(S2, 170, 622, 28, 32, 0, 'none', C.paper, 4);
+      // l'arc pointillé (tracé par un clip qui s'ouvre de gauche à droite)
+      const cpArc = sv('clipPath', { id: uid + 'a' }, defs);
+      st.arcClip = rect(cpArc, 200, 0, 0, 1080, 0, '#000');
+      const arcG = g(S2, { 'clip-path': `url(#${uid}a)` });
+      path(arcG, `M${A0[0]} ${A0[1]} Q${AC[0]} ${AC[1]} ${A1[0]} ${A1[1]}`, 'none', C.paper, 8, { 'stroke-dasharray': '24 18', 'stroke-linecap': 'butt' });
+      circle(S2, A0[0], A0[1], 18, C.lime, C.paper, 5);
+      circle(S2, A1[0], A1[1], 18, C.lime, C.paper, 5);
+      text(S2, 'CHEZ LUI', A0[0], 712, 30, C.paper, { mono: true, anchor: 'middle', len: f2(mw('CHEZ LUI', 30)) });
+      text(S2, 'MELBOURNE', A1[0], 712, 30, C.paper, { mono: true, anchor: 'middle', len: f2(mw('MELBOURNE', 30)) });
+      // flèche du circuit
+      st.arrow = g(S2);
+      st.arrowL = line(st.arrow, BOXX + 80, GUI[1], BOXX + 80, GUI[1], C.lime, 20, { 'stroke-linecap': 'butt' });
+      st.arrowH = sv('polygon', { points: '0,0 0,0 0,0', fill: C.lime }, st.arrow);
+      // liasses du circuit (sous le bâtiment : elles disparaissent derrière lui)
+      st.bills = [];
+      for (let i = 0; i < 3; i++) {
+        const b = g(S2);
+        rect(b, -33 + 5, -19 + 5, 66, 38, 5, '#5A5A5A'); rect(b, -33, -19, 66, 38, 5, C.paper, C.ink, 4); rect(b, -8, -19, 16, 38, 0, C.lime, C.ink, 3);
+        st.bills.push(b);
+      }
+      // bâtiment au guichet (blocs ink bordés paper, aucune enseigne)
+      st.bld = g(S2);
+      {
+        const B = st.bld;
+        line(B, 1840, 330, 1840, 384, C.paper, 5);
+        rect(B, 1800, 384, 80, 60, 0, C.ink, C.paper, 5);
+        rect(B, 1770, 440, 120, 66, 0, C.ink, C.paper, 5);
+        rect(B, 1740, 500, 160, 160, 0, C.ink, C.paper, 5);
+        for (let r = 0; r < 2; r++) for (let k = 0; k < 3; k++) rect(B, 1784 + k * 34, 456 + r * 24 - (r ? 0 : 0), 16, 12, 0, C.paper);
+        rect(B, 1760, 548, 120, 84, 0, C.paper, C.paper, 4);
+        for (let k = 0; k < 5; k++) rect(B, 1770 + k * 26, 548, 8, 84, 0, C.ink);
+        rect(B, 1752, 630, 136, 12, 0, C.paper, C.ink, 4);
+        text(B, 'LE GUICHET', 1820, 534, 22, C.paper, { mono: true, anchor: 'middle', len: f2(mw('LE GUICHET', 22)) });
+      }
+      // hôte (buste plat sans visage)
+      st.host = g(S2);
+      {
+        const H = st.host;
+        path(H, 'M-34 0 L-30 -26 Q0 -40 30 -26 L34 0 Z', C.ink, C.paper, 5);
+        circle(H, 0, -52, 19, C.ink, C.paper, 5);
+        path(H, 'M0 -26 L-14 -36 L-14 -18 Z', C.lime, C.ink, 3); path(H, 'M0 -26 L14 -36 L14 -18 Z', C.lime, C.ink, 3); rect(H, -4, -30, 8, 8, 2, C.lime, C.ink, 3);
+      }
+      st.hostLab = typed(S2, defs, uid + 'hl', 'UN HÔTE FAIT LE VOYAGE', 960, 470, 30, C.paper, { mono: true, anchor: 'middle', maxW: 800 });
+      // jet privé plat (aucun marquage)
+      st.jet = g(S2);
+      {
+        const J = st.jet;
+        path(J, 'M-132 -20 L-136 -62 L-108 -62 L-76 -20 Z', C.ink, C.paper, 5); rect(J, -132, -64, 26, 8, 0, C.red);
+        path(J, 'M-20 14 L-62 56 L-34 56 L28 14 Z', C.ink, C.paper, 5);
+        rect(J, -104, -22, 214, 44, 22, C.ink, C.paper, 5);
+        rect(J, -92, 4, 190, 9, 0, C.red);
+        for (let k = 0; k < 6; k++) circle(J, -58 + k * 24, -8, 5.5, C.paper);
+        path(J, 'M76 -18 Q92 -18 100 -6 L76 -6 Z', C.paper);
+      }
+      // étiquettes des cadeaux
+      st.gifts = gifts.map((lab, i) => {
+        const o = g(S2), w = 290, h = 64, sz = fitSize(lab, 40, w - 36, 22);
+        rect(o, -w / 2 + 8, -h / 2 + 8, w, h, 12, '#5A5A5A'); rect(o, -w / 2, -h / 2, w, h, 12, C.paper, C.ink, 6);
+        text(o, lab, 0, sz * 0.35, sz, C.ink, { anchor: 'middle', len: f2(Math.min(bw(lab, sz), w - 36)) });
+        return o;
+      });
+      // boîte cadeau (red, ruban lime) + montant
+      st.box = g(S2);
+      {
+        const B = st.box;
+        rect(B, -65, -75, 130, 75, 4, C.red, C.paper, 5);
+        rect(B, -13, -75, 26, 75, 0, C.lime, C.ink, 4);
+        st.slot = rect(B, -58, -75, 116, 14, 0, C.ink);
+        st.lid = g(B);
+        rect(st.lid, -72, -38, 144, 38, 4, C.red, C.paper, 5); rect(st.lid, -13, -38, 26, 38, 0, C.lime, C.ink, 4);
+      }
+      {
+        const sz = fitSize(box, 80, 340, 40);
+        st.boxT = typed(S2, defs, uid + 'bx', box, 1360 - Math.min(bw(box, sz), 340), 574, sz, C.paper, { maxW: 340 });
+        const ls = fitSize(boxLabel, 28, 340, 16, true);
+        st.boxL = typed(S2, defs, uid + 'bl', boxLabel, 1360 - Math.min(mw(boxLabel, ls), 340), 614, ls, C.lime, { mono: true, maxW: 340 });
+      }
+      st.offert = g(S2);
+      {
+        const w = 190, h = 60;
+        rect(st.offert, -w / 2 + 8, -h / 2 + 8, w, h, 12, '#5A5A5A'); rect(st.offert, -w / 2, -h / 2, w, h, 12, C.paper, C.ink, 6);
+        text(st.offert, 'OFFERT', 0, 13, 38, C.ink, { anchor: 'middle', len: f2(bw('OFFERT', 38)) });
+      }
+      {
+        const sz = fitSize(circuit, 56, 1700, 30);
+        st.circT = typed(S2, defs, uid + 'ci', circuit, 960, 810, sz, C.paper, { anchor: 'middle', maxW: 1700 });
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const T = st.T, tS = st.tS;
+      const U = (k) => (T[k] == null ? -1 : t - T[k]);
+
+      /* ---- bascule scène 1 → scène 2 (poussée en 12 images, un seul événement) ---- */
+      const e = tS == null ? 0 : E.io3(prog(t - tS, 0, 0.4));
+      disp(st.s1, e < 1); disp(st.s2, e > 0);
+      if (e < 1) setA(st.s1, 'transform', `translate(${f2(-1920 * e)} 0)`);
+      if (e > 0) setA(st.s2, 'transform', `translate(${f2(1920 * (1 - e))} 0)`);
+
+      /* ---- scène 1 ---- */
+      if (e < 1) {
+        const uf = U('file');
+        vis(st.ghostCh, uf < 0);
+        if (uf < 0) disp(st.ch, false); else {
+          disp(st.ch, true);
+          let sx = 0, sy = 0;
+          if (T.ban != null) { const s = shakeAt(t, T.ban + 0.14, 7, 0.4); sx = s[0]; sy = s[1]; }
+          const slide = 900 * (1 - E.out3(prog(uf, 0, 0.55)));
+          setA(st.ch, 'transform', `translate(${f2(860 + sx)} ${f2(445 + sy + slide)}) rotate(-1.5)`);
+        }
+        st.flags.forEach((o, i) => {
+          const u = U('flag-' + (i + 1));
+          if (u < 0) { vis(o.pen, false); o.lines.forEach((l) => l.set(0)); return; }
+          const p = E.back(prog(u, 0, 0.2)); setA(o.pen, 'transform', `translate(${f2(o.cx)} ${f2(o.cy)}) scale(${f2(Math.max(0.001, p))}) translate(${f2(-o.cx)} ${f2(-o.cy)})`);
+          vis(o.pen, true);
+          let k = u * 30; o.lines.forEach((l) => { l.set(k); k -= l.n; });
+        });
+        const ub = U('ban');
+        if (ub < 0) vis(st.stamp, false); else put(st.stamp, 402, 52, -10, 1 + 1.4 * (1 - E.out3(prog(ub, 0, 0.16))), undefined, 1);
+        const ua = U('anyway');
+        if (ua < 0) { vis(st.card, false); vis(st.quand, false); } else {
+          put(st.card, 1670 + 520 * (1 - E.out3(prog(ua, 0, 0.5))), 400, 2, 1, 1, 1);
+          const q = E.back(prog(ua, 0.55, 0.8)); put(st.quand, 1670, 590, 5, q, undefined, 1);
+        }
+      }
+
+      /* ---- scène 2 ---- */
+      if (e > 0) {
+        const us = tS == null ? 0 : t - tS;
+        setA(st.arcClip, 'width', f2(1500 * E.out2(prog(us, 0.35, 1.1))));
+        // hôte : de la ville vers « chez lui », puis embarque dans le jet
+        const uh = U('host'), uj = U('jet');
+        const hostOn = uh >= 0.4 && (uj < 0);
+        if (!hostOn) { vis(st.host, false); } else {
+          const p = E.io2(prog(uh, 0.4, 2.8)), s = 1 - p, bob = p > 0 && p < 1 ? Math.abs(Math.sin(uh * 9)) * 7 : 0;
+          put(st.host, arcX(s), arcY(s) - 24 - bob, 0, 1.35, undefined, 1);
+        }
+        st.hostLab.set(uh < 0.9 || uj >= 0 ? 0 : (uh - 0.9) * 30);
+        // jet : décolle de « chez lui », suit l'arc, se pose
+        if (uj < 0) vis(st.jet, false); else {
+          const p = E.io2(prog(uj, 0, 2.5)), k = 1 - E.in2(prog(uj, 3.1, 3.4));
+          put(st.jet, arcX(p), arcY(p) - 4, arcAng(p), 0.9 * k, undefined, 1);
+        }
+        // cadeaux : tombent l'un après l'autre au-dessus de la ville
+        st.gifts.forEach((o, i) => {
+          const ug = T.gifts == null ? -1 : t - T.gifts - i * 0.55;
+          if (ug < 0) { vis(o, false); return; }
+          const fall = E.bounce(prog(ug, 0, 0.5)), ty = 350 - i * 86;
+          put(o, 1600, ty - 460 * (1 - fall), (i % 2 ? 3 : -3), 1, 1, 1);
+        });
+        // boîte cadeau
+        const ux = U('box');
+        if (ux < 0) { vis(st.box, false); vis(st.offert, false); st.boxT.set(0); st.boxL.set(0); } else {
+          put(st.box, BOXX, BOXY, 0, E.back(prog(ux, 0, 0.3)), undefined, 1);
+          { const lp = E.out3(prog(ux, 0.35, 0.8)); setA(st.lid, 'transform', `translate(${f2(10 * lp)} ${f2(-75 - 62 * lp)}) rotate(${f2(9 * lp)})`); vis(st.slot, lp > 0.02); }
+          st.boxT.set((ux - 0.6) * 30); st.boxL.set((ux - 1.1) * 30);
+          put(st.offert, 1230, 478, -6, E.back(prog(ux, 1.3, 1.55)), undefined, 1);
+        }
+        // circuit : flèche de la boîte au guichet, liasses
+        const uc = U('circuit');
+        if (uc < 0) { vis(st.arrow, false); st.bills.forEach((b) => vis(b, false)); st.circT.set(0); } else {
+          const x0 = BOXX + 80, x1 = GUI[0], p = E.out2(prog(uc, 0, 0.5)), xe = x0 + (x1 - x0) * p, hl = Math.min(44, xe - x0);
+          vis(st.arrow, true);
+          setA(st.arrowL, 'x2', f2(Math.max(x0, xe - hl + 4))); setA(st.arrowL, 'x1', x0); setA(st.arrowL, 'y1', GUI[1]); setA(st.arrowL, 'y2', GUI[1]);
+          setA(st.arrowH, 'points', `${f2(xe)},${GUI[1]} ${f2(xe - hl)},${GUI[1] - 26} ${f2(xe - hl)},${GUI[1] + 26}`);
+          st.bills.forEach((b, i) => {
+            const u = uc - 0.6 - i * 0.55, q = prog(u, 0, 0.7);
+            if (u < 0 || q >= 1) { vis(b, false); return; }
+            put(b, x0 + 20 + (x1 + 40 - x0 - 20) * q, GUI[1], 0, 1, 1, 1);
+          });
+          st.circT.set((uc - 0.4) * 40);
+        }
+      }
     }
   });
 })();
@@ -6579,6 +10184,536 @@
       const tp = th == null ? 0 : prog(t, th + 0.3, th + 0.6);
       setA(st.title, 'visibility', tp > 0 ? 'visible' : 'hidden'); setA(st.title, 'opacity', f2(tp));
       setA(st.frameIn, 'opacity', f2(k));
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/live-bets.js ==== */
+// Composant `live-bets` (épisode 8) : « l'appli ne finit jamais » — le pari en direct. Voir EP8-COMPONENTS.md. Fond ink. Trois modes (un par plan).
+//  match   : terrain schématique, horloge de match, frise 0'–90' et une bulle de pari toutes les 10 minutes ; `never` (un 2e match commence), `weekend` (grille de 200 pastilles), `half` (barre « LES MISES »).
+//  bet     : carte de pari, barres « ce que dit la cote » / « en réalité » (l'écart = la marge), puis 10 jetons misés → 8,84 € en moyenne, la différence part vers la maison.
+//  cashout : carte « TON PARI », bouton SÉCURISER (pulsation, pression, barré → REVENDRE MOINS CHER), deux barres dont l'écart est « LA MAISON ». Aucun montant chiffré.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+// Cues : kickoff, whistle, never, weekend, half | card, implied, real, stake, average | button, press, value, relabel.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');          // display (et non visibility : un enfant « visible » réapparaîtrait)
+  const mw = (s, size) => String(s).length * size * 0.6;                     // Mono : 0,6 em par caractère
+  const measCache = {};
+  function meas(root, s, size) {                                              // mesure réelle d'un texte Bricolage 800 (repli : estimation)
+    const key = s + '|' + size;
+    if (measCache[key] != null) return measCache[key];
+    let w = String(s).length * size * 0.6;
+    try { const n = text(root, s, 0, 0, size, '#000'); const b = n.getComputedTextLength(); root.removeChild(n); if (b > 0) w = b; } catch (e) { /* estimation */ }
+    measCache[key] = w;
+    return w;
+  }
+  function fit(parent, root, s, x, y, size, fill, max, o) {                   // Bricolage dont la largeur ne dépasse jamais `max`
+    const n = text(parent, s, x, y, size, fill, o || {});
+    if (meas(root, s, size) > max) { n.setAttribute('textLength', f2(max)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+    return n;
+  }
+  const mono = (parent, s, x, y, size, fill, o) => text(parent, s, x, y, size, fill, Object.assign({ mono: true, len: f2(mw(s, size)) }, o || {}));
+  // échelle / rotation / opacité autour d'un point absolu
+  const xf = (n, cx, cy, s, o, rot, dx, dy) => {
+    s = Math.max(s, 0.0001);
+    setA(n, 'transform', `translate(${f2(cx + (dx || 0))} ${f2(cy + (dy || 0))}) rotate(${f2(rot || 0)}) scale(${f2(s)}) translate(${f2(-cx)} ${f2(-cy)})`);
+    setA(n, 'opacity', f2(o)); vis(n, o > 0.001);
+  };
+  const clipWipe = (defs, id, x, y, w, h) => { const cp = sv('clipPath', { id }, defs); return rect(cp, x, y, w, h, 0, '#000'); };
+  let UID = 0;
+
+  /* ================= match ================= */
+  const FX0 = 160, FW = 1600, FLY = 462, SCROLL = 1900;
+  const GCOLS = 20, GROWS = 10;
+
+  function initMatch(st, root, P, c, dur) {
+    const minutes = Math.max(10, num(P.minutes, 90)), every = Math.max(1, num(P.every, 10));
+    const nb = Math.max(1, Math.min(12, Math.floor(minutes / every)));
+    const perMatch = Math.round(num(P.per_match, nb)), perWeek = Math.round(num(P.per_weekend, 200));
+    Object.assign(st, { minutes, every, nb, perMatch, perWeek });
+    // repères déduits
+    let tK = c.kickoff, tE = c.whistle;
+    const none = ['kickoff', 'whistle', 'never', 'weekend', 'half'].every((n) => c[n] == null);
+    if (none) { tK = 0.4; tE = tK + Math.min(9, Math.max(2, dur - 1.2)); st.autoEnd = false; }
+    else if (tK == null && tE != null) tK = Math.max(0.2, tE - 9);
+    const tEnd = tE != null ? tE : tK != null ? tK + 9 : null;
+    st.tK = tK; st.tEnd = tEnd; st.tWhistle = c.whistle != null ? c.whistle : none ? tEnd : null;
+    st.tNv = c.never != null && tEnd != null ? Math.max(c.never, tEnd + 0.2) : null;
+    st.tK2 = st.tNv != null ? st.tNv + 0.9 + 0.3 : null;
+    st.tW = c.weekend != null ? c.weekend : c.half != null ? -50 : null;           // « half » sans « weekend » : la grille est déjà là
+    st.tHalf = c.half;
+    st.leave = c.weekend != null ? c.weekend : c.half != null ? c.half : null;
+    const rate = tK != null && tEnd != null ? minutes / (tEnd - tK) : 10;           // minutes de match par seconde
+    let step = every;
+    for (const s of [1, 2, 5, 10, every]) if (every % s === 0 && s >= rate / 5) { step = s; break; }   // l'horloge change ≤ 5 fois par seconde
+    st.step = step;
+    const defs = sv('defs', null, root);
+    st.defs = defs;
+
+    // décor : bandes pocket calmes
+    const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+    for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+
+    /* ---- couche « match » ---- */
+    st.ml = g(root);
+    const M = st.ml;
+    st.pitch = g(M);
+    {
+      const pg = st.pitch;
+      rect(pg, 220 + 10, 90 + 10, 1160, 240, 0, C.ink);
+      rect(pg, 220, 90, 1160, 240, 0, C.pocket, C.paper, 4);
+      line(pg, 800, 90, 800, 330, C.paper, 4, { 'stroke-linecap': 'butt' });
+      circle(pg, 800, 210, 52, 'none', C.paper, 4);
+      rect(pg, 220, 150, 120, 120, 0, 'none', C.paper, 4); rect(pg, 220, 187, 46, 46, 0, 'none', C.paper, 4);
+      rect(pg, 1260, 150, 120, 120, 0, 'none', C.paper, 4); rect(pg, 1334, 187, 46, 46, 0, 'none', C.paper, 4);
+    }
+    // horloge
+    st.clock = g(M);
+    rect(st.clock, 800 - 110 + 8, 210 - 62 + 8, 220, 124, 14, C.ink);
+    rect(st.clock, 800 - 110, 210 - 62, 220, 124, 14, C.ink, C.paper, 5);
+    st.clockT = text(st.clock, "00'", 800, 244, 96, C.paper, { mono: true, anchor: 'middle', len: f2(mw("00'", 96)) });
+    // compteur
+    st.cnt = g(M);
+    {
+      const s = `${perMatch}${NB}/${NB}MATCH`;
+      st.cntMax = Math.min(460, meas(root, s, 64));
+      st.cntT = text(st.cnt, '', 1860, 190, 64, C.lime, { anchor: 'end' });
+      st.cntBig = meas(root, s, 64) > 460;
+    }
+    // étiquettes de fin
+    st.end = g(M); st.nvr = g(M);
+    {
+      const l = 'FIN DU MATCH', w = Math.min(meas(root, l, 44), 400) + 60;
+      rect(st.end, 800 - w / 2 + 8, 372 - 29 + 8, w, 58, 12, C.ink);
+      rect(st.end, 800 - w / 2, 372 - 29, w, 58, 12, C.lime, C.ink, 5);
+      fit(st.end, root, l, 800, 372 + 15, 44, C.ink, w - 36, { anchor: 'middle' });
+      const l2 = "L'APPLI" + NB + ':' + NB + 'JAMAIS', w2 = Math.min(meas(root, l2, 44), 520) + 60;
+      rect(st.nvr, 800 - w2 / 2 + 8, 372 - 29 + 8, w2, 58, 12, C.ink);
+      rect(st.nvr, 800 - w2 / 2, 372 - 29, w2, 58, 12, C.red, C.ink, 5);
+      fit(st.nvr, root, l2, 800, 372 + 15, 44, C.ink, w2 - 36, { anchor: 'middle' });
+    }
+    // frise + bulles (2 jeux : match 1 et match 2 décalé)
+    st.fr = g(M);
+    st.curs = g(M);
+    rect(st.curs, -6, 438, 12, 48, 3, C.lime, C.ink, 3);
+    st.sets = [];
+    for (let s = 0; s < 2; s++) {
+      const ox = s * SCROLL, S = { g: g(st.fr, { transform: `translate(${ox} 0)` }), b: [] };
+      line(S.g, FX0, FLY, FX0 + FW, FLY, C.paper, 8, { 'stroke-linecap': 'butt' });
+      for (let m = 0; m <= minutes + 0.001; m += every) {
+        const x = FX0 + FW * m / minutes;
+        line(S.g, x, FLY - 12, x, FLY + 12, C.paper, 4, { 'stroke-linecap': 'butt' });
+        const lb = m + "'";
+        text(S.g, lb, x, 436, 22, C.paper, { mono: true, anchor: 'middle', len: f2(mw(lb, 22)) });
+      }
+      for (let i = 1; i <= nb; i++) {
+        const x = FX0 + FW * (i * every) / minutes, top = i % 2 ? 510 : 625, B = { g: g(S.g), x, cy: top + 45 };
+        line(B.g, x, FLY + 12, x, top, C.paper, 3, { 'stroke-linecap': 'butt' });
+        rect(B.g, x - 75 + 6, top + 6, 150, 90, 12, C.lime);
+        rect(B.g, x - 75, top, 150, 90, 12, C.paper, C.ink, 4);
+        mono(B.g, 'BUT DANS', x, top + 25, 22, C.ink, { anchor: 'middle' });
+        const l2 = `${every}${NB}MIN${NB}?`;
+        mono(B.g, l2, x, top + 49, 22, C.ink, { anchor: 'middle' });
+        mono(B.g, str(P.odd, '3,40'), x, top + 82, 30, C.ink, { anchor: 'middle' });
+        S.b.push(B);
+      }
+      st.sets.push(S);
+    }
+
+    /* ---- couche « week-end » : grille de 200 pastilles + barre « les mises » ---- */
+    st.wl = g(root);
+    st.cells = [];
+    {
+      const n = GCOLS * GROWS, x0 = (1920 - ((GCOLS - 1) * 70 + 44)) / 2, y0 = 232;
+      st.gridG = g(st.wl);
+      for (let k = 0; k < n; k++) {
+        const cx = x0 + (k % GCOLS) * 70 + 22, cy = y0 + Math.floor(k / GCOLS) * 56 + 22;
+        st.cells.push({ n: rect(st.gridG, cx - 22, cy - 22, 44, 44, 4, C.lime), cx, cy });
+      }
+      st.wcnt = g(st.wl);
+      const s = `${perWeek}${NB}/${NB}WEEK-END`;
+      const mx = Math.min(620, meas(root, s, 64));
+      st.wcntMax = mx;
+      st.wcntT = text(st.wcnt, '', 1660, 190, 64, C.lime, { anchor: 'end' });
+      st.wcntBig = meas(root, s, 64) > 620;
+      // barre « les mises »
+      st.half = g(st.wl);
+      const h = st.half;
+      mono(h, 'LES MISES', 260, 124, 26, C.paper, { anchor: 'start' });
+      rect(h, 260, 136, 1400, 60, 0, C.pocket, C.paper, 6);
+      st.halfFill = rect(h, 263, 139, 0, 54, 0, C.lime);
+      st.halfFull = Math.round(1394 * 0.62);
+      const cp = clipWipe(defs, st.uid + 'h', 280, 136, 0, 60);
+      st.halfClip = cp;
+      const lg = g(h, { 'clip-path': `url(#${st.uid}h)` });
+      fit(lg, root, 'LE DIRECT' + NB + ': PLUS DE LA MOITIÉ', 282, 178, 38, C.ink, 640, { anchor: 'start' });
+      line(h, 960, 128, 960, 204, C.ink, 8, { 'stroke-linecap': 'butt' });
+      mono(h, '50' + NB + '%', 960, 120, 24, C.paper, { anchor: 'middle' });
+    }
+  }
+
+  function updateMatch(st, t) {
+    const { c, minutes, every, nb } = st;
+    const leave = st.leave;
+    const lp = leave != null ? E.io2(prog(t, leave, leave + 0.45)) : 0;           // la scène « match » rétrécit vers la 1re ligne de la grille
+    const mOn = leave == null || t < leave + 0.55;
+    vis(st.ml, mOn);
+    if (mOn) {
+      // temps de match
+      const tK = st.tK, tE = st.tEnd;
+      let m = 0, round = 0;
+      if (tK != null && tE != null) {
+        if (st.tNv != null && t >= st.tNv + 0.9) { round = 1; m = t >= st.tK2 ? clamp((t - st.tK2) / (tE - tK)) * minutes : 0; }
+        else m = clamp((t - tK) / (tE - tK)) * minutes;
+      }
+      // horloge (quantifiée : jamais plus de ~5 changements/s)
+      {
+        const done = m >= minutes - 1e-6;
+        const v = done ? minutes : Math.floor(m / st.step + 1e-6) * st.step;
+        const s = String(Math.round(v)).padStart(2, '0') + "'";
+        if (st.clockT.__s !== s) { st.clockT.__s = s; st.clockT.textContent = s; st.clockT.setAttribute('textLength', f2(mw(s, 96))); }
+      }
+      // bulles
+      let n0 = 0, n1 = 0;
+      for (let s = 0; s < 2; s++) {
+        const S = st.sets[s], t0 = s ? st.tK2 : st.tK;
+        for (let i = 1; i <= nb; i++) {
+          const B = S.b[i - 1];
+          const tb = t0 != null && st.tEnd != null ? t0 + (i * every / minutes) * (st.tEnd - st.tK) : null;
+          const p = tb != null ? E.back(prog(t, tb, tb + 0.28)) : 0;
+          xf(B.g, B.x, B.cy, p, p > 0.001 ? 1 : 0, 0);
+          if (tb != null && t >= tb) { if (s) n1++; else n0++; }
+        }
+      }
+      // compteur
+      {
+        const cnt = round ? n1 : n0;
+        const s = cnt > 0 ? `${Math.min(cnt, st.perMatch)}${NB}/${NB}MATCH` : '';
+        if (st.cntT.__s !== s) {
+          st.cntT.__s = s; st.cntT.textContent = s;
+          if (s && st.cntBig) { st.cntT.setAttribute('textLength', f2(st.cntMax)); st.cntT.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+        }
+        vis(st.cnt, !!s);
+      }
+      // défilement vers le 2e match
+      const sx = st.tNv != null ? SCROLL * E.io2(prog(t, st.tNv, st.tNv + 0.9)) : 0;
+      // frise (rétrécit vers la 1re ligne de la grille à `weekend`)
+      {
+        const sy = 1 - 0.94 * lp, ty = FLY + (232 - FLY) * lp;
+        setA(st.fr, 'transform', `translate(${f2(-sx)} ${f2(ty)}) scale(1 ${f2(Math.max(sy, 0.0001))}) translate(0 ${-FLY})`);
+        setA(st.fr, 'opacity', f2(1 - prog(t, (leave != null ? leave : 1e9) + 0.3, (leave != null ? leave : 1e9) + 0.5)));
+      }
+      // curseur (écran) : suit l'horloge ; masqué pendant le défilement vers le 2e match
+      {
+        const x = FX0 + FW * m / minutes;
+        let o = 1;
+        if (st.tNv != null && t >= st.tNv && t < st.tK2) o = 0;
+        o *= 1 - lp;
+        setA(st.curs, 'transform', `translate(${f2(x)} 0)`);
+        setA(st.curs, 'opacity', f2(o)); vis(st.curs, o > 0.001);
+      }
+      // coup de sifflet / jamais
+      const fade = 1 - clamp(lp * 1.6);
+      {
+        const tw = st.tWhistle;
+        const showEnd = tw != null && t >= tw && !(st.tNv != null && t >= st.tNv);
+        const ep = tw != null ? E.back(prog(t, tw, tw + 0.3)) : 0;
+        xf(st.end, 800, 372, ep, showEnd ? fade : 0, -1);
+        const np = st.tNv != null ? E.back(prog(t, st.tNv, st.tNv + 0.3)) : 0;
+        xf(st.nvr, 800, 372, np, st.tNv != null && t >= st.tNv ? fade : 0, 1.5);
+      }
+      for (const n of [st.pitch, st.clock, st.cnt]) setA(n, 'opacity', f2(fade));
+    }
+
+    /* ---- week-end ---- */
+    const tW = st.tW;
+    const wOn = tW != null && leave != null && t >= leave + 0.3;
+    vis(st.wl, wOn);
+    if (wOn) {
+      const t0 = tW < 0 ? -100 : tW + 0.4, T = 2.5;
+      const pf = clamp((t - t0) / T);
+      for (let k = 0; k < st.cells.length; k++) {
+        const tc = t0 + T * Math.pow((k + 1) / st.cells.length, 1 / 1.8);
+        const p = E.out3(prog(t, tc - 0.12, tc));
+        xf(st.cells[k].n, st.cells[k].cx, st.cells[k].cy, p, p > 0.001 ? 1 : 0, 0);
+      }
+      // compteur quantifié (≤ 6 changements/s)
+      {
+        const tq = pf >= 1 ? 1e9 : Math.floor(t * 6) / 6;
+        const v = pf >= 1 ? st.perWeek : Math.floor(st.perWeek * Math.pow(clamp((tq - t0) / T), 1.8));
+        const s = v > 0 ? `${v}${NB}/${NB}WEEK-END` : '';
+        if (st.wcntT.__s !== s) {
+          st.wcntT.__s = s; st.wcntT.textContent = s;
+          if (s && st.wcntBig) { st.wcntT.setAttribute('textLength', f2(st.wcntMax)); st.wcntT.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+        }
+        const half = st.tHalf != null ? 1 - E.out2(prog(t, st.tHalf, st.tHalf + 0.25)) : 1;
+        setA(st.wcnt, 'opacity', f2(half)); vis(st.wcnt, !!s && half > 0.001);
+      }
+      // « half » : la grille s'estompe, la barre des mises se remplit
+      {
+        const th = st.tHalf;
+        const dim = th != null ? E.out2(prog(t, th, th + 0.4)) : 0;
+        setA(st.gridG, 'opacity', f2(1 - 0.55 * dim));
+        const bp = th != null ? E.out3(prog(t, th + 0.15, th + 1.0)) : 0;
+        vis(st.half, th != null && t >= th);
+        setA(st.halfFill, 'width', f2(st.halfFull * bp));
+        const lw = th != null ? E.out2(prog(t, th + 0.9, th + 1.5)) : 0;
+        setA(st.halfClip, 'width', f2(660 * lw));
+      }
+    }
+  }
+
+  /* ================= bet ================= */
+  const BX0 = 360, BW = 1200;
+  function house(parent, cx, cy) {                                           // petite maison plate (picto `house` redessiné localement)
+    const h = g(parent);
+    path(h, `M ${cx - 112} ${cy - 62} L ${cx} ${cy - 150} L ${cx + 112} ${cy - 62} Z`, C.red, C.paper, 6);
+    rect(h, cx - 90, cy - 62, 180, 124, 0, C.pocket, C.paper, 6);
+    rect(h, cx - 24, cy - 8, 48, 70, 0, C.paper, C.ink, 4);
+    rect(h, cx + 38, cy - 40, 34, 34, 0, C.paper, C.ink, 4);
+    return h;
+  }
+  function arrowH(parent, x1, y, x2, col, sw, hs) {
+    line(parent, x1, y, x2 - hs * 0.6, y, col, sw, { 'stroke-linecap': 'butt' });
+    sv('path', { d: `M ${x2} ${y} L ${x2 - hs} ${y - hs * 0.6} L ${x2 - hs} ${y + hs * 0.6} Z`, fill: col }, parent);
+  }
+
+  function initBet(st, root, P, c, dur) {
+    const question = str(P.question, 'BUT DANS LES 10 PROCHAINES MINUTES ?'), odd = str(P.odd, '3,40');
+    const oddNum = parseFloat(odd.replace(',', '.')) || 3.4;
+    const implied = num(P.implied, 29), real = num(P.real, 26);
+    const stake = str(P.stake, '10' + NB + '€'), avg = str(P.avg, '8,84' + NB + '€');
+    const none = ['card', 'implied', 'real', 'stake', 'average'].every((n) => c[n] == null);
+    if (none) Object.assign(c, { card: +(0.03 * dur).toFixed(2), implied: +(0.17 * dur).toFixed(2), real: +(0.3 * dur).toFixed(2), stake: +(0.48 * dur).toFixed(2), average: +(0.64 * dur).toFixed(2) });
+    st.tCard = c.card != null ? c.card : 0.2;
+    st.tStake = c.stake != null ? c.stake : c.average != null ? Math.max(0, c.average - 1.0) : null;
+    st.w1 = BW / oddNum; st.w2 = BW * real / 100;
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+    for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+
+    /* carte + barres */
+    st.top = g(root);
+    const T = st.top;
+    st.card = g(T);
+    rect(st.card, BX0 + 14, 90 + 14, BW, 240, 28, C.lime);
+    rect(st.card, BX0, 90, BW, 240, 28, C.paper, C.ink, 8);
+    fit(st.card, root, question, 960, 165, 52, C.ink, 1090, { anchor: 'middle' });
+    mono(st.card, 'COTE', BX0 + 50, 285, 28, C.ink, { anchor: 'start' });
+    text(st.card, odd, 960, 295, 110, C.ink, { mono: true, anchor: 'middle', len: f2(mw(odd, 110)) });
+    // pistes
+    st.bars = g(T);
+    rect(st.bars, BX0, 410, BW, 60, 0, C.pocket, C.paper, 3); rect(st.bars, BX0, 510, BW, 60, 0, C.pocket, C.paper, 3);
+    mono(st.bars, '100' + NB + '%', BX0 + BW - 10, 396, 22, '#B9B5A8', { anchor: 'end' });
+    st.b1 = rect(st.bars, BX0, 410, 0, 60, 0, C.paper, C.ink, 4);
+    st.b2 = rect(st.bars, BX0, 510, 0, 60, 0, C.white, C.ink, 4);
+    st.b1g = g(T); st.b2g = g(T); st.gapG = g(T);
+    mono(st.b1g, '1' + NB + '÷' + NB + odd, BX0 + 18, 450, 30, C.ink, { anchor: 'start' });
+    const l1 = `CE QUE DIT LA COTE${NB}·${NB}≈${NB}${implied}${NB}%`, l2 = `EN RÉALITÉ${NB}·${NB}≈${NB}${real}${NB}%`;
+    mono(st.b1g, l1, BX0 + st.w1 + 24, 450, 28, C.paper, { anchor: 'start' });
+    mono(st.b2g, l2, BX0 + st.w1 + 24, 550, 28, C.white, { anchor: 'start' });
+    line(st.gapG, BX0 + st.w1, 410, BX0 + st.w1, 590, C.lime, 3, { 'stroke-dasharray': '8 7', 'stroke-linecap': 'butt' });
+    st.gap = rect(st.gapG, BX0 + st.w2, 510, Math.max(0, st.w1 - st.w2), 60, 0, C.lime, C.ink, 4);
+    fit(st.gapG, root, 'LA MARGE', BX0 + (st.w1 + st.w2) / 2, 640, 48, C.lime, 300, { anchor: 'middle' });
+    sv('path', { d: `M ${f2(BX0 + (st.w1 + st.w2) / 2)} 578 l -11 18 l 22 0 Z`, fill: C.lime }, st.gapG);
+
+    /* calcul de la moyenne */
+    st.calc = g(root);
+    const K = st.calc;
+    st.chips = [];
+    for (let k = 0; k < 10; k++) {
+      const cg = g(K);
+      const r = rect(cg, 330 - 115, 640 - 24 * (k + 1) + 1, 230, 22, 11, k % 2 ? C.paper : C.red, C.ink, 4);
+      st.chips.push({ g: cg, r, y: 640 - 24 * (k + 1) + 12 });
+    }
+    st.stakeT = g(K);
+    fit(st.stakeT, root, stake + NB + 'MISÉS', 330, 712, 56, C.paper, 400, { anchor: 'middle' });
+    st.arrow = g(K);
+    arrowH(st.arrow, 505, 446, 765, C.paper, 10, 38);
+    st.res = g(K);
+    fit(st.res, root, avg + NB + 'EN MOYENNE', 800, 482, 96, C.paper, 1020, { anchor: 'start' });
+    st.house = g(K);
+    house(st.house, 1500, 700);
+    mono(st.house, 'LA MAISON', 1500, 812, 28, C.paper, { anchor: 'middle' });
+    st.fly = g(K);
+    rect(st.fly, -115, -11, 230, 22, 11, C.lime, C.ink, 4);
+  }
+
+  function updateBet(st, t) {
+    const { c } = st;
+    // carte
+    { const p = E.back(prog(t, st.tCard, st.tCard + 0.35)); xf(st.card, 960, 210, p, p > 0.001 ? 1 : 0, 0); }
+    // barres
+    {
+      const pi = c.implied != null ? E.out3(prog(t, c.implied, c.implied + 0.7)) : 0;
+      const pr = c.real != null ? E.out3(prog(t, c.real, c.real + 0.7)) : 0;
+      vis(st.bars, c.implied != null || c.real != null);
+      setA(st.b1, 'width', f2(Math.max(0, st.w1 * pi))); vis(st.b1, pi > 0.001);
+      setA(st.b2, 'width', f2(Math.max(0, st.w2 * pr))); vis(st.b2, pr > 0.001);
+      const l1 = c.implied != null ? E.out2(prog(t, c.implied + 0.55, c.implied + 0.85)) : 0;
+      setA(st.b1g, 'opacity', f2(l1)); vis(st.b1g, l1 > 0.001);
+      const l2 = c.real != null ? E.out2(prog(t, c.real + 0.55, c.real + 0.85)) : 0;
+      setA(st.b2g, 'opacity', f2(l2)); vis(st.b2g, l2 > 0.001);
+      const gp = c.real != null ? E.back(prog(t, c.real + 0.7, c.real + 1.1)) : 0;
+      xf(st.gapG, BX0 + (st.w1 + st.w2) / 2, 540, gp, gp > 0.001 && c.implied != null ? 1 : 0, 0);
+    }
+    // la scène du dessus s'efface quand le calcul commence
+    {
+      const ts = st.tStake;
+      const ex = ts != null ? E.in3(prog(t, ts, ts + 0.4)) : 0;
+      setA(st.top, 'transform', `translate(0 ${f2(-420 * ex)})`);
+      vis(st.top, ex < 0.999);
+    }
+    // calcul : pile de 10 jetons, flèche, moyenne, maison
+    {
+      const ts = st.tStake, ta = c.average;
+      const on = ts != null && t >= ts;
+      vis(st.calc, on);
+      if (on) {
+        const t0 = ts + 0.35;                                                  // les jetons arrivent après la sortie de la scène du dessus
+        const tFly = ta != null ? ta + 0.7 : null, FD = 0.9;
+        for (let k = 0; k < 10; k++) {
+          const ch = st.chips[k], a = t0 + k * 0.1;
+          const p = E.out3(prog(t, a, a + 0.22));
+          setA(ch.g, 'transform', `translate(0 ${f2((1 - p) * -60)})`);
+          setA(ch.g, 'opacity', f2(p)); vis(ch.g, p > 0.001 && !(k === 9 && tFly != null && t >= tFly));
+          setA(ch.r, 'fill', k === 9 && ta != null && t >= ta + 0.4 ? C.lime : k % 2 ? C.paper : C.red);
+        }
+        const sp = E.back(prog(t, t0 + 0.9, t0 + 1.2));
+        xf(st.stakeT, 330, 690, sp, sp > 0.001 ? 1 : 0, 0);
+        const ap = ta != null ? E.out3(prog(t, ta - 0.25, ta + 0.1)) : 0;
+        setA(st.arrow, 'opacity', f2(ap)); vis(st.arrow, ap > 0.001);
+        const rp = ta != null ? E.back(prog(t, ta, ta + 0.3)) : 0;
+        xf(st.res, 800, 440, rp, rp > 0.001 ? 1 : 0, 0);
+        const hp = ta != null ? E.back(prog(t, ta + 0.5, ta + 0.85)) : 0;
+        xf(st.house, 1500, 700, hp, hp > 0.001 ? 1 : 0, 0);
+        // le jeton lime part vers la maison (courbe de Bézier quadratique)
+        if (tFly != null && t >= tFly) {
+          const q = E.io2(prog(t, tFly, tFly + FD)), u = 1 - q;
+          const x = u * u * 330 + 2 * u * q * 900 + q * q * 1500, y = u * u * 413 + 2 * u * q * 250 + q * q * 722;
+          const s = 1 - 0.4 * q;
+          setA(st.fly, 'transform', `translate(${f2(x)} ${f2(y)}) rotate(${f2(-14 * Math.sin(Math.PI * q))}) scale(${f2(s)})`);
+          vis(st.fly, true);
+        } else vis(st.fly, false);
+      }
+    }
+  }
+
+  /* ================= cashout ================= */
+  function initCash(st, root, P, c, dur) {
+    const none = ['button', 'press', 'value', 'relabel'].every((n) => c[n] == null);
+    if (none) Object.assign(c, { button: +(0.06 * dur).toFixed(2), value: +(0.3 * dur).toFixed(2), press: +(0.55 * dur).toFixed(2), relabel: +(0.7 * dur).toFixed(2) });
+    const bt = str(P.button, 'SÉCURISER'), rl = str(P.relabel, 'REVENDRE MOINS CHER');
+    rect(root, 0, 0, 1920, 1080, 0, C.ink);
+    const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+    for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+    const defs = sv('defs', null, root);
+    st.defs = defs;
+    // carte « TON PARI »
+    st.card = g(root);
+    rect(st.card, 360 + 14, 90 + 14, 1200, 160, 28, C.lime);
+    rect(st.card, 360, 90, 1200, 160, 28, C.paper, C.ink, 8);
+    text(st.card, 'TON PARI', 410, 195, 72, C.ink, { anchor: 'start' });
+    rect(st.card, 880, 124, 560, 14, 7, C.ink); rect(st.card, 880, 156, 420, 14, 7, C.ink); rect(st.card, 880, 188, 500, 14, 7, C.ink);
+    // bouton
+    st.btn = g(root);
+    st.btnSh = rect(st.btn, 0, 0, 760, 130, 40, C.red);
+    st.btnBody = rect(st.btn, 0, 0, 760, 130, 40, C.lime, C.ink, 8);
+    st.btnT = text(st.btn, bt, 960, 462, 64, C.ink, { anchor: 'middle' });
+    st.btnW = meas(root, bt, 64);
+    st.strike = line(st.btn, 960, 440, 960, 440, C.red, 14, { 'stroke-linecap': 'butt' });
+    const cp = clipWipe(defs, st.uid + 'r', 700, 470, 0, 80);
+    st.relClip = cp;
+    const rg = g(st.btn, { 'clip-path': `url(#${st.uid}r)` });
+    st.relT = fit(rg, root, rl, 960, 526, 48, C.red, 860, { anchor: 'middle' });
+    st.relW = Math.min(meas(root, rl, 48), 860);
+    // barres
+    st.val = g(root);
+    rect(st.val, 360, 640, 1200, 60, 0, C.pocket); rect(st.val, 360, 730, 1200, 60, 0, C.pocket);
+    st.v1 = rect(st.val, 360, 640, 0, 60, 0, C.paper, C.ink, 4);
+    st.v2 = rect(st.val, 360, 730, 0, 60, 0, C.paper, C.ink, 4);
+    st.w2 = 1020;
+    st.v1t = g(st.val); st.v2t = g(st.val);
+    mono(st.v1t, 'CE QUE VAUT TON PARI', 384, 679, 28, C.ink, { anchor: 'start' });
+    mono(st.v2t, "CE QU'ON T'EN PROPOSE", 384, 769, 28, C.ink, { anchor: 'start' });
+    st.gapG = g(st.val);
+    rect(st.gapG, 360 + st.w2, 730, 1200 - st.w2, 60, 0, C.lime, C.ink, 4);
+    mono(st.gapG, 'LA MAISON', 360 + st.w2 + (1200 - st.w2) / 2, 768, 26, C.ink, { anchor: 'middle' });
+  }
+
+  function updateCash(st, t) {
+    const { c } = st;
+    { const p = E.back(prog(t, 0.1, 0.45)); xf(st.card, 960, 170, p, p > 0.001 ? 1 : 0, 0); }
+    // bouton
+    {
+      const tb = c.button, tp = c.press, tr = c.relabel;
+      const pop = tb != null ? E.back(prog(t, tb, tb + 0.35)) : 1;
+      const u = tb != null ? clamp((t - (tb + 0.4)) / 0.4) : 1;
+      const pulse = tb != null && u > 0 && u < 1 ? 1 + 0.05 * Math.sin(Math.PI * u) : 1;
+      const rp = tr != null ? E.out3(prog(t, tr, tr + 8 / 30)) : 0;                 // le bouton s'agrandit en 8 i
+      const w = 760 + 220 * rp, h = 130 + 100 * rp, cx = 960, cy = 440;
+      const pressed = tp != null && t >= tp || tr != null && t >= tr;
+      const dy = tp != null && t >= tp ? 6 : 0;
+      setA(st.btnBody, 'x', f2(cx - w / 2)); setA(st.btnBody, 'y', f2(cy - h / 2 + dy)); setA(st.btnBody, 'width', f2(w)); setA(st.btnBody, 'height', f2(h)); setA(st.btnBody, 'rx', f2(40 + 10 * rp));
+      const so = pressed && tp != null && t >= tp ? 4 : 10;
+      setA(st.btnSh, 'x', f2(cx - w / 2 + so)); setA(st.btnSh, 'y', f2(cy - h / 2 + so)); setA(st.btnSh, 'width', f2(w)); setA(st.btnSh, 'height', f2(h)); setA(st.btnSh, 'rx', f2(40 + 10 * rp));
+      setA(st.btnBody, 'fill', pressed ? C.paper : C.lime);
+      // libellé : monte quand le nouveau mot arrive
+      const ty = 462 + dy - 36 * rp;
+      setA(st.btnT, 'y', f2(ty));
+      const sp = tr != null ? E.out3(prog(t, tr + 0.05, tr + 0.05 + 6 / 30)) : 0;      // trait red 14 px en 6 i
+      const half = st.btnW / 2 + 22;
+      setA(st.strike, 'x1', f2(cx - half)); setA(st.strike, 'y1', f2(ty - 20)); setA(st.strike, 'x2', f2(cx - half + 2 * half * sp)); setA(st.strike, 'y2', f2(ty - 20 - 6 * sp));
+      vis(st.strike, sp > 0.001);
+      setA(st.relT, 'y', f2(526 + dy - 0));
+      const wp = tr != null ? E.out2(prog(t, tr + 0.3, tr + 0.75)) : 0;
+      setA(st.relClip, 'x', f2(cx - st.relW / 2 - 8)); setA(st.relClip, 'y', f2(cy - h / 2 + 30)); setA(st.relClip, 'width', f2((st.relW + 16) * wp)); setA(st.relClip, 'height', f2(h));
+      setA(st.relT, 'opacity', f2(wp > 0 ? 1 : 0));
+      xf(st.btn, cx, cy, pop * pulse, pop > 0.001 ? 1 : 0, 0);
+    }
+    // barres : ce que vaut ton pari / ce qu'on t'en propose
+    {
+      const tv = c.value;
+      const p1 = tv != null ? E.out3(prog(t, tv, tv + 0.6)) : 0, p2 = tv != null ? E.out3(prog(t, tv + 0.25, tv + 0.85)) : 0;
+      vis(st.val, tv != null && t >= tv);
+      setA(st.v1, 'width', f2(1200 * p1)); vis(st.v1, p1 > 0.001);
+      setA(st.v2, 'width', f2(st.w2 * p2)); vis(st.v2, p2 > 0.001);
+      setA(st.v1t, 'opacity', f2(E.out2(prog(t, (tv || 0) + 0.4, (tv || 0) + 0.7)))); setA(st.v2t, 'opacity', f2(E.out2(prog(t, (tv || 0) + 0.65, (tv || 0) + 0.95))));
+      const gp = tv != null ? E.back(prog(t, tv + 0.9, tv + 1.25)) : 0;
+      xf(st.gapG, 360 + st.w2 + (1200 - st.w2) / 2, 760, gp, gp > 0.001 ? 1 : 0, 0);
+    }
+  }
+
+  /* ================= composant ================= */
+  const NAMES = ['kickoff', 'whistle', 'never', 'weekend', 'half', 'card', 'implied', 'real', 'stake', 'average', 'button', 'press', 'value', 'relabel'];
+  ZV.define('live-bets', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const c = {};
+      for (const n of NAMES) { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r == null || b.t < r)) r = b.t; c[n] = r; }
+      const mode = P.mode === 'bet' || P.mode === 'cashout' ? P.mode : 'match';
+      const st = { dur, c, mode, uid: 'lb' + (++UID) };
+      if (mode === 'match') { rect(root, 0, 0, 1920, 1080, 0, C.ink); initMatch(st, root, P, c, dur); }
+      else if (mode === 'bet') initBet(st, root, P, c, dur);
+      else initCash(st, root, P, c, dur);
+      return st;
+    },
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        if (st.mode === 'match') updateMatch(st, t);
+        else if (st.mode === 'bet') updateBet(st, t);
+        else updateCash(st, t);
+      } catch (e) { /* jamais d'exception */ }
     }
   });
 })();
@@ -7940,6 +12075,499 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/odds-overround.js ==== */
+// Composant `odds-overround` (épisode 8) : « une cote, c'est un prix » et trois chances qui font 105,6 %. Voir EP8-COMPONENTS.md.
+// Carte de match (3 tuiles de cote) → étiquettes de prix → tuiles retournées (1 ÷ cote) → cadre « 100 % » où s'empilent les trois chances (total qui défile
+// puis se pose une seule fois) → dépassement lime = la marge → règle 5 → 12 % → sifflet. Mode `dutch` : piles de mises, flèches, « TU TOUCHES : 100 € », « −5,57 € ».
+// `comma` : retour sur la carte, zoom sur la virgule de « 1,55 » (le zéro vert). Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+// Cues : odds, price, p1, p2, p3, flip-all, stack, overflow, range, kickoff, dutch, stakes, staked, payout, loss, comma.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, F } = ZV;
+  let UID = 0;
+  const NB = '\u00A0';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const arr3 = (v, d) => (Array.isArray(v) && v.length >= 3 ? [0, 1, 2].map((i) => (v[i] != null ? String(v[i]) : d[i])) : d.slice());
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');          // display (et non visibility : un enfant « visible » réapparaîtrait)
+  const fmt1 = (v) => v.toFixed(1).replace('.', ',');
+  const fmt2 = (v) => v.toFixed(2).replace('.', ',');
+  const mw = (s, size) => String(s).length * size * 0.6;                     // Mono : 0,6 em par caractère
+  // mesure réelle d'un texte Bricolage 800 (repli : estimation)
+  const measCache = {};
+  function meas(root, s, size, mono) {
+    const key = s + '|' + size + '|' + (mono ? 1 : 0);
+    if (measCache[key] != null) return measCache[key];
+    let w = mono ? mw(s, size) : String(s).length * size * 0.6;
+    try {
+      const n = text(root, s, 0, 0, size, '#000', { mono, weight: 800 });
+      const b = n.getComputedTextLength();
+      root.removeChild(n);
+      if (b > 0) w = b;
+    } catch (e) { /* estimation */ }
+    measCache[key] = w;
+    return w;
+  }
+  // texte Bricolage dont la largeur ne dépasse jamais `max` (compression plutôt que débordement)
+  function fit(parent, root, s, x, y, size, fill, max, o) {
+    const n = text(parent, s, x, y, size, fill, o || {});
+    const w = meas(root, s, size, false);
+    if (w > max) { n.setAttribute('textLength', f2(max)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+    return n;
+  }
+  // transformation autour d'un point absolu (échelle / rotation / décalage) + opacité
+  const xf = (n, cx, cy, s, o, rot, dx, dy) => {
+    s = Math.max(s, 0.0001);
+    setA(n, 'transform', `translate(${f2(cx + (dx || 0))} ${f2(cy + (dy || 0))}) rotate(${f2(rot || 0)}) scale(${f2(s)}) translate(${f2(-cx)} ${f2(-cy)})`);
+    setA(n, 'opacity', f2(o)); vis(n, o > 0.001);
+  };
+  // flèche pleine (trait + pointe) dont on peut déplacer l'extrémité : setArrow(A, x2, y2, k) k = taille de la pointe (0..1)
+  const arrow = (parent, x1, y1, x2, y2, col, sw, hs) => {
+    const A = { x1, y1, x2, y2, hs, ln: line(parent, x1, y1, x2, y2, col, sw), hd: sv('path', { d: '', fill: col }, parent) };
+    setArrow(A, x1, y1, x2, y2, 1);
+    return A;
+  };
+  function setArrow(A, x1, y1, x2, y2, k) {
+    const a = Math.atan2(y2 - y1, x2 - x1), ca = Math.cos(a), sa = Math.sin(a), h = A.hs * Math.max(k, 0.0001);
+    setA(A.ln, 'x1', f2(x1)); setA(A.ln, 'y1', f2(y1)); setA(A.ln, 'x2', f2(x2 - ca * h * 0.6)); setA(A.ln, 'y2', f2(y2 - sa * h * 0.6));
+    setA(A.hd, 'd', `M ${f2(x2)} ${f2(y2)} L ${f2(x2 - ca * h + sa * h * 0.55)} ${f2(y2 - sa * h - ca * h * 0.55)} L ${f2(x2 - ca * h - sa * h * 0.55)} ${f2(y2 - sa * h + ca * h * 0.55)} Z`);
+  }
+
+  const CX = [510, 960, 1410], CY = 273, TW = 380, TH = 170;
+  const TAGD = 'M -130 -85 L 172 -85 Q 190 -85 190 -67 L 190 67 Q 190 85 172 85 L -130 85 L -190 0 Z';
+  const FX0 = 210, FW = 1500, FY = 470, FH = 170;                              // cadre « 100 % »
+  const NAMES = ['odds', 'price', 'p1', 'p2', 'p3', 'flip-all', 'stack', 'overflow', 'range', 'kickoff', 'dutch', 'stakes', 'staked', 'payout', 'loss', 'comma'];
+
+  ZV.define('odds-overround', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cu = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r == null || b.t < r)) r = b.t; return r; };
+      const c = {};
+      for (const n of NAMES) c[n] = cu(n);
+      const mode0 = P.mode === 'dutch' ? 'dutch' : 'overround';
+      if (!NAMES.some((n) => c[n] != null)) {                                  // aucun repère : le plan se joue seul, réparti sur sa durée
+        const D = dur, at = (f) => Math.round(f * D * 100) / 100;
+        if (mode0 === 'dutch') Object.assign(c, { stakes: at(0.12), staked: at(0.36), payout: at(0.55), loss: at(0.74) });
+        else Object.assign(c, { odds: at(0.03), price: at(0.16), p1: at(0.27), stack: at(0.4), overflow: at(0.6), range: at(0.74), kickoff: at(0.86) });
+      }
+      const uid = 'oo' + (++UID);
+
+      /* ---- données ---- */
+      const DEF = [1.55, 4.2, 5.8];
+      const odds = Array.isArray(P.odds) && P.odds.length >= 3 ? [0, 1, 2].map((i) => Math.max(1.01, num(P.odds[i], DEF[i]))) : DEF.slice();
+      const inv = odds.map((o) => 1 / o);
+      const sum = inv[0] + inv[1] + inv[2];
+      const labels = arr3(P.labels, ['A GAGNE', 'NUL', 'B GAGNE']);
+      const teams = str(P.teams, 'ÉQUIPE A — ÉQUIPE B');
+      const oddTxt = odds.map(fmt2);
+      const probs = arr3(P.probs, inv.map((v) => '≈' + NB + fmt1(v * 100) + NB + '%'));
+      const total = str(P.total, fmt1(sum * 100) + NB + '%');
+      const margin = str(P.margin, fmt1((sum - 1) * 100) + NB + '%');
+      const range = str(P.range, 'EN GÉNÉRAL' + NB + ': 5 À 12' + NB + '%');
+      const stakes = arr3(P.stakes, inv.map((v) => fmt2(v * 100) + NB + '€'));
+      const staked = str(P.staked, fmt2(sum * 100) + NB + '€');
+      const payout = str(P.payout, '100' + NB + '€');
+      const loss = str(P.loss, '−' + fmt2(sum * 100 - 100) + NB + '€');
+      const derived = P.show_derived !== false;
+      const totalNum = parseFloat(String(total).replace(',', '.')) || sum * 100;
+      const st = { dur, c, mode0, odds, inv, sum, derived, total, totalNum, uid, margin };
+
+      /* ---- repères déduits ---- */
+      st.tDutch = mode0 === 'dutch' ? -10 : c.dutch != null ? c.dutch : c.stakes != null ? Math.max(0, c.stakes - 0.45) : null;
+      const first = [c.overflow, c.kickoff].filter((x) => x != null);
+      st.tStack = c.stack != null ? c.stack : first.length ? Math.max(0.1, Math.min(...first) - 2.0) : null;
+      st.tFrame = st.tStack != null ? Math.max(0, Math.min(st.tStack, ...first) - 0.5) : null;
+      st.tOdds = c.odds != null ? c.odds : 0.2;
+      st.tSeg = [0, 1, 2].map((i) => (st.tStack != null ? st.tStack + i * 0.55 : null));
+      st.tSettle = st.tStack != null ? st.tStack + 2 * 0.55 + 0.45 + 0.2 : null;
+      st.tFlip = [0, 1, 2].map((i) => {
+        const a = c['p' + (i + 1)], b = c['flip-all'] != null ? c['flip-all'] + i * (4 / 30) : null;
+        return a != null && b != null ? Math.min(a, b) : a != null ? a : b;
+      });
+
+      /* ---- fond ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+      const mkClip = (x, y, h) => { const cp = sv('clipPath', { id: uid + 'c' + (mkClip.n = (mkClip.n || 0) + 1) }, defs); const r = rect(cp, x, y, 0, h, 0, '#000'); return { id: cp.getAttribute('id'), r }; };
+
+      /* ---- carte de match + tuiles ---- */
+      st.card = g(root);
+      rect(st.card, 274, 84, 1400, 302, 28, C.ink);
+      rect(st.card, 260, 70, 1400, 302, 28, C.white, C.ink, 8);
+      st.title = fit(st.card, root, teams, 960, 128, 54, C.ink, 1260, { anchor: 'middle' });
+      st.tiles = [];
+      for (let i = 0; i < 3; i++) {
+        const T = { g: g(st.card) };
+        T.lab = text(T.g, labels[i], 0, -99, 26, C.ink, { mono: true, anchor: 'middle', len: f2(mw(labels[i], 26)) });
+        // ficelle de l'étiquette de prix (ne se retourne pas avec la tuile)
+        T.str = g(T.g);
+        path(T.str, 'M -148 0 C -172 4 -196 22 -198 64', 'none', C.ink, 4);
+        circle(T.str, -198, 64, 6, C.ink);
+        T.prix = text(T.str, 'PRIX', -218, 42, 20, C.ink, { mono: true, anchor: 'middle', len: f2(mw('PRIX', 20)) });
+        T.prix.setAttribute('transform', 'rotate(-90 -218 42)');
+        T.flip = g(T.g);
+        // face avant
+        T.front = g(T.flip);
+        T.rectF = rect(T.front, -190, -85, TW, TH, 18, C.ink);
+        T.tagF = path(T.front, TAGD, C.ink);
+        T.eyeF = g(T.front);
+        circle(T.eyeF, -148, 0, 15, C.paper); circle(T.eyeF, -148, 0, 7, C.white);
+        T.oddG = g(T.front);
+        const s = oddTxt[i], k = s.indexOf(',');
+        const pre = k >= 0 ? s.slice(0, k) : s, post = k >= 0 ? s.slice(k + 1) : '';
+        const cell = 66, x0 = -s.length * cell / 2;
+        text(T.oddG, pre, x0, 40, 110, C.paper, { mono: true, anchor: 'start', len: f2(pre.length * cell) });
+        T.comma = k >= 0 ? text(T.oddG, ',', x0 + pre.length * cell, 40, 110, C.paper, { mono: true, anchor: 'start', len: cell }) : null;
+        if (post) text(T.oddG, post, x0 + (pre.length + 1) * cell, 40, 110, C.paper, { mono: true, anchor: 'start', len: f2(post.length * cell) });
+        T.cx = x0 + pre.length * cell + cell / 2;                                // centre de la case de la virgule (repère local de oddG)
+        T.disk = circle(T.oddG, T.cx, 32, 16, C.lime, C.ink, 4);
+        vis(T.disk, false);
+        // face arrière : 1 ÷ cote et pourcentage
+        T.back = g(T.flip);
+        T.rectB = rect(T.back, -190, -85, TW, TH, 18, C.lime, C.ink, 6);
+        T.tagB = path(T.back, TAGD, C.lime, C.ink, 6);
+        T.eyeB = g(T.back);
+        circle(T.eyeB, -148, 0, 15, C.paper, C.ink, 4); circle(T.eyeB, -148, 0, 6, C.white, C.ink, 3);
+        T.bkG = g(T.back);
+        const l1 = '1 ÷ ' + oddTxt[i];
+        const showP = derived || i === 0;
+        text(T.bkG, showP ? l1 : l1, 0, showP ? -26 : 12, showP ? 34 : 50, C.ink, { mono: true, weight: 700, anchor: 'middle', len: f2(mw(l1, showP ? 34 : 50)) });
+        if (showP) {
+          const ps = probs[i];
+          text(T.bkG, ps, 0, 46, 58, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(ps, 58), 290)) });
+        }
+        T.cxScreen = CX[i];
+        st.tiles.push(T);
+      }
+
+      /* ---- calque « 100 % » (cadre, segments, total, marge, règle, sifflet) ---- */
+      st.over = g(root);
+      const O = st.over;
+      st.frame = g(O);
+      text(st.frame, '3 ISSUES POSSIBLES = 100' + NB + '%', FX0, 452, 28, C.ink, { mono: true, anchor: 'start', len: f2(mw('3 ISSUES POSSIBLES = 100 %', 28)) });
+      rect(st.frame, FX0, FY, FW, FH, 0, 'none', C.ink, 8);
+      st.segs = [];
+      {
+        let x = FX0;
+        for (let i = 0; i < 3; i++) {
+          const w = FW * inv[i], S = { g: g(O), x0: x, w };
+          rect(S.g, x, FY, w, FH, 0, i === 1 ? C.white : C.paper, C.ink, 6);
+          const lab = labels[i];
+          text(S.g, lab, x + 16, 506, 22, C.ink, { mono: true, anchor: 'start', len: f2(mw(lab, 22)) });
+          const inner = Math.min(x + w, FX0 + FW) - x;                           // partie visible dans le cadre
+          const mid = x + Math.min(w, inner) / 2 - (i === 2 ? 0 : 0);
+          let pt = probs[i].replace(/^≈\s*/, ''), sz = 40;
+          if (!derived && i > 0) { pt = '1 ÷ ' + oddTxt[i]; sz = 32; }
+          text(S.g, pt, mid, 596, sz, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(pt, sz), inner - 36)) });
+          st.segs.push(S);
+          x += w;
+        }
+      }
+      const exX = FX0 + FW, exW = Math.max(0, FW * (sum - 1));
+      st.bump = rect(O, exX + 6, FY + 3, Math.max(0, exW - 9), FH - 6, 0, C.lime);
+      st.limit = line(O, exX, FY - 20, exX, FY + FH + 22, C.ink, 12, { 'stroke-linecap': 'butt' });
+      st.limitR = line(O, exX, FY - 20, exX, FY + FH + 22, C.red, 12, { 'stroke-linecap': 'butt' });
+      // total
+      st.tot = g(O);
+      {
+        const w = meas(root, 'TOTAL' + NB + ':' + NB + total, 96, false);
+        st.totT = text(st.tot, '', 1710, 790, f2(Math.min(96, 96 * 860 / Math.max(w, 1))), C.ink, { anchor: 'end' });
+      }
+      // contexte (gauche)
+      st.ctx = text(O, '', FX0, 704, 28, C.ink, { mono: true, anchor: 'start' });
+      // marge : étiquette + flèche
+      st.mar = g(O);
+      {
+        const lab = '+' + NB + margin + NB + ': LA MARGE', sz = 52;
+        const w = Math.min(meas(root, lab, sz, false), 560) + 52, x1 = 1690, h = 62;
+        rect(st.mar, x1 - w + 8, 396 + 8, w, h, 14, C.ink);
+        rect(st.mar, x1 - w, 396, w, h, 14, C.lime, C.ink, 6);
+        fit(st.mar, root, lab, x1 - w / 2, 396 + 46, sz, C.ink, w - 40, { anchor: 'middle' });
+        arrow(st.mar, x1 + 6, 428, 1752, 466, C.ink, 6, 20);
+      }
+      // règle 5 → 12
+      st.rng = g(O);
+      {
+        const cl = mkClip(FX0 - 12, 716, 120);
+        st.clipRange = cl;
+        const rg = g(st.rng, { 'clip-path': `url(#${cl.id})` });
+        text(rg, range, FX0, 744, 28, C.ink, { mono: true, anchor: 'start', len: f2(mw(range, 28)) });
+        const k = 440 / 9, X = (v) => FX0 + k * (v - 4);
+        for (let v = 4; v <= 13; v++) line(rg, X(v), 772, X(v), 800, C.ink, 3, { 'stroke-linecap': 'butt' });
+        line(rg, X(5), 786, X(12), 786, C.ink, 10, { 'stroke-linecap': 'butt' });
+        text(rg, '5', X(5), 826, 22, C.ink, { mono: true, anchor: 'middle', len: f2(mw('5', 22)) });
+        text(rg, '12', X(12), 826, 22, C.ink, { mono: true, anchor: 'middle', len: f2(mw('12', 22)) });
+        sv('path', { d: `M ${f2(X(5.6))} 773 l -9 -15 l 18 0 Z`, fill: C.red, stroke: C.ink, 'stroke-width': 2 }, rg);
+      }
+      // sifflet + étiquette
+      st.kick = g(O);
+      {
+        const wh = g(st.kick);
+        st.whistle = wh;
+        rect(wh, 1318, 676, 28, 18, 4, C.ink);
+        circle(wh, 1358, 684, 17, C.ink);
+        circle(wh, 1358, 684, 6, C.paper);
+        rect(wh, 1348, 662, 16, 8, 2, C.ink);
+        const lab = 'PRÉLEVÉE AVANT LE COUP D\'ENVOI';
+        const cl = mkClip(1380, 666, 44);
+        st.clipKick = cl;
+        const kg = g(st.kick, { 'clip-path': `url(#${cl.id})` });
+        text(kg, lab, 1860, 698, 26, C.ink, { mono: true, anchor: 'end', len: f2(mw(lab, 26)) });
+        line(st.kick, 1754, 640, 1754, 664, C.ink, 4);
+        sv('path', { d: 'M 1754 636 l -8 12 l 16 0 Z', fill: C.ink }, st.kick);
+        st.kickW = 1860 - 1380;
+      }
+
+      /* ---- calque « dutch » ---- */
+      st.dg = g(root);
+      {
+        const D = st.dg;
+        st.cols = [];
+        for (let i = 0; i < 3; i++) {
+          const K = { g: g(D), n: Math.max(1, Math.min(10, Math.round(100 * inv[i] / 8))), chips: [] };
+          for (let k = 0; k < K.n; k++) {
+            const cg = g(K.g);
+            rect(cg, CX[i] - 75, 560 - 17 * (k + 1) - 1, 150, 18, 8, k % 2 ? C.white : C.red, C.ink, 4);
+            K.chips.push(cg);
+          }
+          if (derived) {
+            K.val = text(K.g, stakes[i], CX[i], 622, 52, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(stakes[i], 52), 300)) });
+          }
+          st.cols.push(K);
+        }
+        // total misé
+        st.sk = g(D);
+        fit(st.sk, root, 'MISÉ' + NB + ': ' + staked, 150, 764, 54, C.ink, 520, { anchor: 'start' });
+        // bloc « tu touches »
+        st.pay = g(D);
+        const BX = 700, BY = 692, BW = 520, BH = 112;
+        st.arrows = [];
+        const tx = [BX + 120, BX + BW / 2, BX + BW - 120];
+        for (let i = 0; i < 3; i++) {
+          st.arrows.push(arrow(st.pay, CX[i], 642, tx[i], BY - 6, C.ink, 6, 18));
+        }
+        st.blk = g(st.pay);
+        rect(st.blk, BX + 10, BY + 10, BW, BH, 14, C.ink);
+        rect(st.blk, BX, BY, BW, BH, 14, C.paper, C.ink, 7);
+        fit(st.blk, root, 'TU TOUCHES' + NB + ': ' + payout, BX + BW / 2, BY + 54, 48, C.ink, BW - 44, { anchor: 'middle' });
+        text(st.blk, 'QUOI QU\'IL ARRIVE', BX + BW / 2, BY + 92, 24, C.red, { mono: true, anchor: 'middle', len: f2(mw('QUOI QU\'IL ARRIVE', 24)) });
+        // perte
+        st.ls = g(D);
+        fit(st.ls, root, loss, 1830, 800, 108, C.red, 470, { anchor: 'end' });
+        {
+          const lab = 'GAGNÉ À COUP SÛR… ET PERDU';
+          const cl = mkClip(1380, 670, 50);
+          st.clipLoss = cl;
+          const lg = g(st.ls, { 'clip-path': `url(#${cl.id})` });
+          text(lg, lab, 1830, 704, 24, C.ink, { mono: true, anchor: 'end', len: f2(mw(lab, 24)) });
+          st.lossW = 450;
+        }
+      }
+
+      /* ---- légende « le zéro vert » (comma) ---- */
+      st.cm = g(root);
+      {
+        const lab = 'LE ZÉRO VERT';
+        text(st.cm, lab, 960, 806, 44, C.ink, { mono: true, anchor: 'middle', len: f2(mw(lab, 44)) });
+        st.cmArrow = arrow(st.cm, 952, 766, 940, 646, C.red, 8, 26);
+      }
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { c } = st;
+        const tC = c.comma;
+        const cp = tC != null ? prog(t, tC, tC + 0.2) : 0;                       // fondu des autres éléments au retour sur la carte
+        const zoom = tC != null ? E.io3(prog(t, tC, tC + 16 / 30)) : 0;
+
+        /* carte : zoom sur la tuile 1 */
+        {
+          const S = 1 + 0.9 * zoom, ex = 510 + (960 - 510) * zoom, ey = CY + (540 - CY) * zoom;
+          setA(st.card, 'transform', `translate(${f2(ex)} ${f2(ey)}) scale(${f2(S)}) translate(-510 ${-CY})`);
+        }
+        setA(st.title, 'opacity', f2(1 - cp));
+
+        /* tuiles */
+        for (let i = 0; i < 3; i++) {
+          const T = st.tiles[i];
+          const tp = st.tOdds + i * 0.2;
+          const pop = E.back(prog(t, tp, tp + 0.3));
+          const tPr = c.price != null ? c.price + i * 0.1 : null;
+          const priced = tPr != null && t >= tPr;
+          const u = priced ? t - tPr : 0;
+          const pp = priced ? E.out3(prog(t, tPr, tPr + 0.25)) : 0;
+          const wob = priced ? 5 * Math.exp(-4 * u) * Math.sin(16 * u) : 0;
+          const pulse = priced ? 1 + 0.08 * Math.sin(Math.PI * clamp(u / 0.25)) : 1;
+          // retournement (le comma continue le geste si la tuile était déjà retournée)
+          let th = 0;
+          const tf = st.tFlip[i];
+          if (tf != null) th = Math.PI * E.io2(prog(t, tf, tf + 10 / 30));
+          if (i === 0 && tC != null && tf != null && tf + 10 / 30 <= tC) th += Math.PI * E.io2(prog(t, tC, tC + 10 / 30));
+          const cs = Math.cos(th);
+          const backFace = (th % (2 * Math.PI)) > Math.PI / 2 && (th % (2 * Math.PI)) < 3 * Math.PI / 2;
+          const sc = Math.max(0, pop) * pulse;
+          const o = i === 0 ? 1 : 1 - cp;
+          setA(T.g, 'transform', `translate(${CX[i]} ${CY}) rotate(${f2(wob)}) scale(${f2(Math.max(sc, 0.0001))})`);
+          setA(T.g, 'opacity', f2(o)); vis(T.g, o > 0.001 && pop > 0.001);
+          setA(T.lab, 'opacity', f2(i === 0 ? 1 : 1));
+          vis(T.rectF, !priced); vis(T.tagF, priced); vis(T.eyeF, priced);
+          vis(T.rectB, !priced); vis(T.tagB, priced); vis(T.eyeB, priced);
+          vis(T.str, priced); setA(T.str, 'opacity', f2(pp));
+          const ox = 22 * pp;
+          setA(T.oddG, 'transform', `translate(${f2(ox)} 0)`);
+          setA(T.bkG, 'transform', `translate(${f2(ox)} 0)`);
+          setA(T.flip, 'transform', `scale(1 ${f2(Math.max(Math.abs(cs), 0.0001))})`);
+          vis(T.front, !backFace); vis(T.back, backFace);
+          // virgule → disque lime (tuile 1)
+          if (i === 0) {
+            const dp = tC != null ? E.back(prog(t, tC + 0.4, tC + 0.7)) : 0;
+            vis(T.disk, dp > 0.01);
+            if (T.comma) vis(T.comma, dp < 0.2);
+            setA(T.disk, 'transform', `translate(${f2(T.cx)} 32) scale(${f2(Math.max(dp, 0.0001))}) translate(${f2(-T.cx)} -32)`);
+          }
+        }
+
+        /* calque 100 % */
+        const dutchP = st.tDutch != null ? prog(t, st.tDutch, st.tDutch + 0.4) : 0;
+        const overOn = st.mode0 !== 'dutch' && (1 - cp) > 0.001 && dutchP < 0.999;
+        vis(st.over, overOn);
+        if (overOn) {
+          const tO = c.overflow;
+          const sh = tO != null ? ZV.shakeAt(t, tO, 6, 0.35) : [0, 0];
+          setA(st.over, 'transform', `translate(${f2(sh[0])} ${f2(sh[1] + 520 * E.in3(dutchP))})`);
+          setA(st.over, 'opacity', f2(1 - cp));
+          // cadre
+          const fp = st.tFrame != null ? E.out3(prog(t, st.tFrame, st.tFrame + 0.35)) : 0;
+          setA(st.frame, 'opacity', f2(fp)); vis(st.frame, fp > 0.001);
+          setA(st.frame, 'transform', `translate(0 ${f2((1 - fp) * 24)})`);
+          // segments
+          for (let i = 0; i < 3; i++) {
+            const S = st.segs[i], ts = st.tSeg[i];
+            const p = ts != null ? E.out3(prog(t, ts, ts + 0.45)) : 0;
+            setA(S.g, 'transform', `translate(${f2((1 - p) * 260)} 0)`);
+            setA(S.g, 'opacity', f2(p)); vis(S.g, p > 0.001);
+          }
+          // limite + dépassement
+          const ovP = tO != null ? prog(t, tO, tO + 0.25) : 0;
+          const limOn = st.tFrame != null && fp > 0.001;
+          vis(st.limit, limOn); setA(st.limit, 'opacity', f2(fp));
+          vis(st.bump, tO != null && t >= tO);
+          const y2 = FY - 20 + (FH + 42) * E.out3(ovP);
+          vis(st.limitR, ovP > 0.001); setA(st.limitR, 'y2', f2(y2));
+          { const mp = tO != null ? E.back(prog(t, tO + 0.15, tO + 0.45)) : 0; xf(st.mar, 1690, 427, mp, mp > 0.001 ? 1 : 0, 0); }
+          // total
+          {
+            let txt = '', on = false, scl = 1;
+            if (st.tStack != null && t >= st.tSeg[0]) {
+              on = true;
+              if (t >= st.tSettle) {
+                txt = 'TOTAL' + NB + ':' + NB + st.total;
+                const q = t - st.tSettle;
+                scl = 1 + 0.07 * Math.sin(Math.PI * clamp(q / 0.3));
+              } else {
+                const tq = Math.floor(t * 6) / 6;                                // ≤ 6 changements par seconde
+                let v = 0;
+                for (let i = 0; i < 3; i++) v += 100 * st.inv[i] * E.out2(prog(tq, st.tSeg[i], st.tSeg[i] + 0.45));
+                v = Math.min(v, st.totalNum - 0.4);                              // ne montre jamais 105,5 en route
+                txt = 'TOTAL' + NB + ':' + NB + fmt1(Math.max(0, v)) + NB + '%';
+              }
+            }
+            if (st.totT.__s !== txt) { st.totT.__s = txt; st.totT.textContent = txt; }
+            setA(st.totT, 'fill', tO != null && t >= tO ? C.red : C.ink);
+            setA(st.tot, 'transform', `translate(1710 790) scale(${f2(scl)}) translate(-1710 -790)`);
+            vis(st.tot, on);
+          }
+          // contexte
+          {
+            let s = '';
+            if (c.overflow != null && t >= c.overflow + 0.3) s = '= 100' + NB + '% + ' + st.margin;
+            else if (st.tStack != null && t >= st.tSeg[0]) s = 'SOMME DES 1 ÷ COTE';
+            if (st.ctx.__s !== s) { st.ctx.__s = s; st.ctx.textContent = s; setA(st.ctx, 'textLength', f2(Math.max(1, mw(s, 28)))); }
+          }
+          // règle
+          {
+            const rp = c.range != null ? E.out2(prog(t, c.range, c.range + 0.7)) : 0;
+            vis(st.rng, rp > 0.001);
+            setA(st.clipRange.r, 'width', f2(500 * rp));
+          }
+          // sifflet
+          {
+            const kp = c.kickoff != null ? E.back(prog(t, c.kickoff, c.kickoff + 0.3)) : 0;
+            vis(st.kick, kp > 0.001);
+            xf(st.whistle, 1340, 684, kp, kp > 0.001 ? 1 : 0, (1 - kp) * -20);
+            const lp = c.kickoff != null ? E.out2(prog(t, c.kickoff + 0.15, c.kickoff + 0.8)) : 0;
+            setA(st.clipKick.r, 'x', f2(1860 - st.kickW * lp)); setA(st.clipKick.r, 'width', f2(st.kickW * lp + 4));
+          }
+        }
+
+        /* calque dutch */
+        {
+          const ds = st.tDutch;
+          const on = ds != null && t >= ds && (1 - cp) > 0.001;
+          vis(st.dg, on);
+          if (on) {
+            setA(st.dg, 'opacity', f2(1 - cp));
+            for (let i = 0; i < 3; i++) {
+              const K = st.cols[i];
+              const t0 = c.stakes != null ? c.stakes + i * 0.3 : null;
+              for (let k = 0; k < K.n; k++) {
+                const a = t0 != null ? t0 + k * 0.06 : null;
+                const p = a != null ? E.out3(prog(t, a, a + 0.2)) : 0;
+                setA(K.chips[k], 'transform', `translate(0 ${f2((1 - p) * -36)})`);
+                setA(K.chips[k], 'opacity', f2(p)); vis(K.chips[k], p > 0.001);
+              }
+              if (K.val) {
+                const a = t0 != null ? t0 + K.n * 0.06 : null;
+                const p = a != null ? E.back(prog(t, a, a + 0.25)) : 0;
+                xf(K.val, CX[i], 604, p, p > 0.001 ? 1 : 0, 0);
+              }
+            }
+            { const p = c.staked != null ? E.back(prog(t, c.staked, c.staked + 0.3)) : 0; xf(st.sk, 150, 750, p, p > 0.001 ? 1 : 0, 0); vis(st.sk, p > 0.001); }
+            {
+              const tp = c.payout;
+              for (let i = 0; i < 3; i++) {
+                const a = tp != null ? tp + i * 0.1 : null;
+                const p = a != null ? E.out3(prog(t, a, a + 0.4)) : 0;
+                const A = st.arrows[i];
+                vis(A.ln, p > 0.001); vis(A.hd, p > 0.001);
+                setArrow(A, A.x1, A.y1, A.x1 + (A.x2 - A.x1) * p, A.y1 + (A.y2 - A.y1) * p, E.out2(clamp(p * 2)));
+              }
+              const bp = tp != null ? E.back(prog(t, tp + 0.35, tp + 0.65)) : 0;
+              xf(st.blk, 960, 748, bp, bp > 0.001 ? 1 : 0, 0);
+              vis(st.pay, tp != null && t >= tp);
+            }
+            {
+              const tl = c.loss;
+              const fall = tl != null ? prog(t, tl, tl + 0.5) : 0;
+              const dy = (1 - E.bounce(fall)) * -240;
+              setA(st.ls, 'transform', `translate(0 ${f2(dy)})`);
+              setA(st.ls, 'opacity', f2(fall > 0 ? 1 : 0)); vis(st.ls, fall > 0);
+              const lp = tl != null ? E.out2(prog(t, tl + 0.45, tl + 1.0)) : 0;
+              setA(st.clipLoss.r, 'x', f2(1830 - st.lossW * lp)); setA(st.clipLoss.r, 'width', f2(st.lossW * lp + 4));
+            }
+          }
+        }
+
+        /* comma : légende « le zéro vert » + flèche vers la virgule */
+        {
+          const T = st.tiles[0];
+          const ox = 22 * (c.price != null && t >= c.price ? E.out3(prog(t, c.price, c.price + 0.25)) : 0);
+          const p = tC != null ? E.back(prog(t, tC + 0.7, tC + 1.0)) : 0;
+          const dx = 960 + 1.9 * (ox + T.cx);
+          xf(st.cm, 960, 790, p, p > 0.001 ? 1 : 0, 0);
+          setArrow(st.cmArrow, 952, 766, dx, 642, E.out2(clamp(p)));
+        }
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/paths.js ==== */
 // Composant « paths » : les 70 trajectoires de joueurs (+1 si le rouge sort, −1 sinon, p = 18/37), 1920×1080.
 // Graine FIXE (6901, un flux par joueur) cherchée hors ligne : à 100 / 1 000 / 10 000 tours, 25 / 13 / 0 joueurs sur 70
@@ -8568,6 +13196,634 @@
       }
     }
   });
+})();
+;
+/* ==== tools/video/composition/components/phone-night.js ==== */
+// Composant `phone-night` (épisode 8) : « trois heures du matin, ton lit, ta couette, ton téléphone ». Voir EP8-COMPONENTS.md.
+// Fond ink stable (jamais d'écran qui s'allume/s'éteint), couette + oreiller + réveil, smartphone plat (5 écrans : slots, stream, site, notifs, odds),
+// main plate (aplat, aucun ongle ni pli), étiquettes latérales, roue du zéro. Fonction pure du temps ; aplats seulement ; aucun dégradé, flou, lueur, filter.
+// Cues : screen(to), hands-off, zoom-out, label-1..4, strike-label-1..4, link, no-id, no-age, no-limit, deposit, pizza, crypto, euros, notif, hook, zero-move, hide-in-odds.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt, rng } = ZV;
+  let UID = 0;
+  const NB = ' ';
+  const SCREENS = ['slots', 'stream', 'site', 'notifs', 'odds'];
+  const SW = 344, SH = 704;                        // écran (repère local de l'écran)
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' || ch === NB ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ◆▸●]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  // mesure réelle si possible (dans le DOM, polices chargées), sinon estimation ; impose textLength seulement si ça déborde
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+  const mono = (parent, s, x, y, size, fill, o) => text(parent, s, x, y, size, fill, Object.assign({ mono: true }, o || {}));
+  // coupe en au plus 2 lignes de largeur maxW ; renvoie [lignes, taille]
+  function wrap2(s, size, maxW) {
+    for (let sz = size; sz >= 14; sz -= 1) {
+      const cw = sz * 0.6, per = Math.floor(maxW / cw);
+      if (s.length <= per) return [[s], sz];
+      const words = s.split(' '); let l1 = '';
+      for (const w of words) { if ((l1 ? l1 + ' ' + w : w).length <= per) l1 = l1 ? l1 + ' ' + w : w; else break; }
+      const l2 = s.slice(l1.length).trim();
+      if (l1 && l2.length <= per) return [[l1, l2], sz];
+    }
+    return [[s], 14];
+  }
+
+  /* ---- symboles plats de la machine (comme `slot-machine`), cellule 192×140 centrée ---- */
+  const SYMS = ['cherry', 'seven', 'bar', 'lemon', 'bell', 'zero'];
+  function drawSym(gg, name) {
+    if (name === 'cherry') {
+      path(gg, 'M-22 12 Q-18 -30 8 -48', 'none', C.ink, 7);
+      path(gg, 'M26 20 Q24 -26 8 -48', 'none', C.ink, 7);
+      path(gg, 'M8 -48 Q34 -70 56 -42 Q30 -30 8 -48Z', C.lime, C.ink, 5);
+      circle(gg, -24, 24, 25, C.red, C.ink, 6);
+      circle(gg, 28, 32, 25, C.red, C.ink, 6);
+      circle(gg, -33, 15, 6, C.paper);
+      circle(gg, 19, 23, 6, C.paper);
+    } else if (name === 'seven') {
+      const sh = text(gg, '7', 6, 58, 150, C.ink, { anchor: 'middle' });
+      sh.setAttribute('stroke', C.ink); sh.setAttribute('stroke-width', 9); sh.setAttribute('stroke-linejoin', 'round');
+      const t7 = text(gg, '7', 0, 52, 150, C.red, { anchor: 'middle' });
+      t7.setAttribute('stroke', C.ink); t7.setAttribute('stroke-width', 9); t7.setAttribute('stroke-linejoin', 'round'); t7.setAttribute('paint-order', 'stroke');
+    } else if (name === 'bar') {
+      rect(gg, -68 + 6, -27 + 7, 136, 54, 8, C.red);
+      rect(gg, -68, -27, 136, 54, 8, C.ink, C.ink, 6);
+      rect(gg, -60, -19, 120, 38, 4, 'none', C.paper, 3);
+      text(gg, 'BAR', 0, 12, 34, C.paper, { anchor: 'middle', len: 92 });
+    } else if (name === 'lemon') {
+      const lg = g(gg, { transform: 'rotate(-14)' });
+      path(lg, 'M-64 0 Q-44 -44 0 -42 Q44 -44 64 0 Q44 44 0 42 Q-44 44 -64 0Z', C.lime, C.ink, 6);
+      path(lg, 'M-30 -14 Q-10 -28 16 -26', 'none', C.paper, 6);
+      circle(lg, -62, 0, 6, C.ink); circle(lg, 62, 0, 6, C.ink);
+    } else if (name === 'bell') {
+      path(gg, 'M-48 40 L48 40 C42 22 38 -4 32 -22 C26 -38 12 -44 0 -44 C-12 -44 -26 -38 -32 -22 C-38 -4 -42 22 -48 40Z', C.paper, C.ink, 6);
+      path(gg, 'M14 -42 C26 -37 29 -30 32 -22 C38 -4 42 22 48 40 L24 40 C23 10 21 -20 14 -42Z', C.ink);
+      path(gg, 'M-48 40 L48 40 C42 22 38 -4 32 -22 C26 -38 12 -44 0 -44 C-12 -44 -26 -38 -32 -22 C-38 -4 -42 22 -48 40Z', 'none', C.ink, 6);
+      path(gg, 'M-40 22 L42 22', 'none', C.red, 8);
+      circle(gg, 0, -50, 9, C.paper, C.ink, 5);
+      circle(gg, 0, 50, 11, C.ink);
+    } else {
+      circle(gg, 0, 0, 48, C.lime, C.ink, 7);
+      text(gg, '0', 0, 26, 78, C.ink, { anchor: 'middle' });
+    }
+    return gg;
+  }
+  function drawHook(parent, s) {   // petit hameçon plat lime bordé ink, centré sur (0,0)
+    const d = 'M0 -16 V6 A12 12 0 0 0 24 6 V-4 M24 -4 L16 4';
+    const h = g(parent, { transform: `translate(-12 0) scale(${s || 1})` });
+    path(h, d, 'none', C.ink, 15);
+    path(h, d, 'none', C.lime, 7);
+    circle(h, 0, -21, 6, C.lime, C.ink, 4);
+    return h;
+  }
+
+  ZV.define('phone-night', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const uid = 'pn' + (++UID);
+      const st = { uid, dur: Math.max(0.1, shot.dur || 1) };
+      st.side = ['left', 'center', 'right'].includes(P.side) ? P.side : 'center';
+      st.cx = st.side === 'right' ? 1380 : st.side === 'left' ? 560 : 960;
+      st.dir = st.side === 'left' ? -1 : 1;                         // sens de la main (miroir si le téléphone est à gauche)
+      st.x0 = st.cx - 190; st.y0 = 70;
+      st.screen0 = SCREENS.includes(P.screen) ? P.screen : 'slots';
+      st.clock = str(P.clock, '03:00');
+      st.hand = P.hand !== false;
+      st.bed = P.bed !== false;
+      st.steps = clamp(Math.round(isNum(P.credit_steps) ? P.credit_steps : 40), 4, 400);
+      const labels = Array.isArray(P.side_labels) ? P.side_labels.filter((s) => typeof s === 'string' && s.trim()).slice(0, 4) : null;
+      st.labels = (labels && labels.length ? labels : ['PAS D’ADRESSE', 'PAS DE VIGILE', 'JAMAIS FERMÉ', 'DANS TA MAIN']).map((s) => s.toUpperCase());
+      const notifs = Array.isArray(P.notifs) ? P.notifs.filter((s) => typeof s === 'string' && s.trim()).slice(0, 4) : null;
+      st.notifs = (notifs && notifs.length ? notifs : ['TU NOUS MANQUES', 'UN BONUS T’ATTEND', 'TON SOLDE T’ATTEND', 'ENCORE UN TOUR ?']).map((s) => s.toUpperCase());
+      st.deposit = str(P.deposit, '10' + NB + '€').replace(/ /g, NB);
+      st.crypto = str(P.crypto, '0,02' + NB + '◆').replace(/ /g, NB);
+      st.euros = str(P.euros, '800' + NB + '€').replace(/ /g, NB);
+
+      const cu = (n) => ZV.cue(shot, n);
+      st.c = { off: cu('hands-off'), zoom: cu('zoom-out'), link: cu('link'), noId: cu('no-id'), noAge: cu('no-age'), noLimit: cu('no-limit'), deposit: cu('deposit'), pizza: cu('pizza'), crypto: cu('crypto'), euros: cu('euros'), hook: cu('hook'), zero: cu('zero-move'), hide: cu('hide-in-odds') };
+      st.labelC = [1, 2, 3, 4].map((i) => cu('label-' + i));
+      st.strikeC = [1, 2, 3, 4].map((i) => cu('strike-label-' + i));
+      st.notifC = ZV.cues(shot, 'notif').map((b) => b.t).sort((a, b) => a - b).slice(0, 4);
+      st.screenC = ZV.cues(shot, 'screen').filter((b) => SCREENS.includes(b.to)).map((b) => ({ t: b.t, to: b.to })).sort((a, b) => a.t - b.t);
+
+      const { cx, x0, y0, dir } = st;
+      const R = rng(80808);
+
+      /* ---- fond ink stable, puis le « monde » (zoom-out) ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      st.world = g(root);
+      const W = st.world;
+      const defs = sv('defs', null, W);
+      const clip = sv('clipPath', { id: uid + 'c' }, defs); sv('rect', { x: 0, y: 0, width: SW, height: SH, rx: 40 }, clip);
+      const clipR = sv('clipPath', { id: uid + 'r' }, defs); sv('rect', { x: 0, y: 0, width: 300, height: 130 }, clipR);
+      const symDefs = {};
+      SYMS.forEach((s) => { const gg = g(defs, { id: `${uid}-${s}` }); drawSym(gg, s); symDefs[s] = `#${uid}-${s}`; });
+
+      /* ---- décor : oreiller, réveil, couette ---- */
+      const mir = st.side === 'left';
+      const MX = (x, w) => (mir ? 1920 - x - w : x);
+      st.bedG = g(W);
+      if (st.bed) {
+        const B = st.bedG;
+        rect(B, MX(80, 340) + 8, 700 + 8, 340, 120, 40, C.pocket);
+        rect(B, MX(80, 340), 700, 340, 120, 40, C.paper, C.ink, 6);
+        path(B, `M${MX(80, 340) + 60} 760 Q${MX(80, 340) + 170} 735 ${MX(80, 340) + 280} 760`, 'none', C.ink, 4);
+        // réveil
+        const kx = MX(150, 320);
+        rect(B, kx + 14, 150 + 14, 320, 150, 18, C.pocket);
+        circle(B, kx + 56, 138, 26, C.paper, C.paper, 6); circle(B, kx + 264, 138, 26, C.paper, C.paper, 6);
+        rect(B, kx, 150, 320, 150, 18, C.ink, C.paper, 6);
+        rect(B, kx + 40, 296, 36, 22, 6, C.paper); rect(B, kx + 244, 296, 36, 22, 6, C.paper);
+        const ct = mono(B, st.clock, kx + 160, 150 + 99, 92, C.red, { anchor: 'middle', weight: 800 });
+        fit(ct, 280);
+        // couette : vague plate à 2 bosses
+        const pts = [];
+        for (let x = -100; x <= 2020; x += 40) pts.push(`${x} ${f2(805 - 22 * Math.cos(((x - 640) / 640) * 2 * Math.PI))}`);
+        const duvet = path(B, `M-100 1500 L${pts.join(' L')} L2020 1500Z`, C.pocket, C.paper, 6);
+        for (let k = 0; k < 4; k++) path(B, `M-100 ${900 + k * 70} Q${400 + k * 60} ${870 + k * 70} 960 ${900 + k * 70} T2020 ${900 + k * 70}`, 'none', C.ink, 4, { 'stroke-dasharray': '18 26' });
+        st.stand = g(B);
+        path(st.stand, `M${cx - 90} 836 L${cx - 60} 800 L${cx + 60} 800 L${cx + 90} 836Z`, C.pocket, C.paper, 6);
+      }
+
+      /* ---- roue du zéro (zero-move) ---- */
+      st.wx = Math.min(300, x0 - 170); st.wy = st.bed ? 470 : 260;
+      st.wheel = g(W);
+      {
+        const wg = st.wheel;
+        circle(wg, 0, 0, 120, C.ink, C.paper, 7);
+        st.wedges = [];
+        const N = 37, a = (Math.PI * 2) / N, r0 = 46, r1 = 108;
+        for (let i = 0; i < N; i++) {
+          const num = ZV.ORDER[i], col = ZV.colorOf(num);
+          const a0 = -Math.PI / 2 + (i - 0.5) * a, a1 = a0 + a;
+          const P0 = [Math.cos(a0) * r0, Math.sin(a0) * r0], P1 = [Math.cos(a0) * r1, Math.sin(a0) * r1], P2 = [Math.cos(a1) * r1, Math.sin(a1) * r1], P3 = [Math.cos(a1) * r0, Math.sin(a1) * r0];
+          const d = `M${f2(P0[0])} ${f2(P0[1])} L${f2(P1[0])} ${f2(P1[1])} A${r1} ${r1} 0 0 1 ${f2(P2[0])} ${f2(P2[1])} L${f2(P3[0])} ${f2(P3[1])} A${r0} ${r0} 0 0 0 ${f2(P0[0])} ${f2(P0[1])}Z`;
+          const w = path(wg, d, col === 'lime' ? C.lime : col === 'red' ? C.red : C.pocket, C.ink, 2);
+          st.wedges.push(w);
+        }
+        circle(wg, 0, 0, 40, C.ink, C.paper, 5);
+      }
+      st.disc = g(W);
+      circle(st.disc, 0, 0, 40, C.lime, C.ink, 7);
+      st.discTxt = text(st.disc, '0', 0, 19, 56, C.ink, { anchor: 'middle' });
+
+      /* ---- main (derrière : doigts ; devant : avant-bras + pouce) ---- */
+      st.handBack = g(W); st.handFront = g(W);
+      st.B = { x: x0 + 404, y: y0 + 672 };                          // base du pouce (repère non miroir)
+      st.idleTip = { x: x0 + 378, y: y0 + 536 };
+      if (st.hand) {
+        for (let k = 0; k < 4; k++) rect(st.handBack, x0 - 30, y0 + 470 + k * 58, 56, 50, 25, C.paper, C.ink, 6);
+        // l'avant-bras vient de la droite, légèrement penché, bombé contre le bord du téléphone
+        const A = (dx, dy) => `${x0 + dx} ${y0 + dy}`;
+        path(st.handFront, `M${A(372, 592)} L${A(560, 596)} Q${A(620, 632)} ${A(700, 652)} L${A(1250, 704)} L${A(1250, 856)} L${A(700, 786)} Q${A(600, 772)} ${A(540, 794)} L${A(372, 772)} Q${A(326, 682)} ${A(372, 592)}Z`, C.paper, C.ink, 6);
+      }
+
+      /* ---- le téléphone ---- */
+      st.ph = g(W);
+      const ph = st.ph;
+      rect(ph, 14, 14, 380, 740, 56, C.ink);
+      rect(ph, 0, 0, 380, 740, 56, C.pocket, C.paper, 8);
+      const scrG = g(ph, { transform: 'translate(18 18)' });
+      rect(scrG, 0, 0, SW, SH, 40, C.ink);
+      const clipG = g(scrG, { 'clip-path': `url(#${uid}c)` });
+      st.sc = {};
+      SCREENS.forEach((n) => { st.sc[n] = g(clipG); });
+
+      /* -- slots -- */
+      {
+        const S = st.sc.slots;
+        rect(S, 20, 110, 304, 130, 14, C.paper);
+        const reelsG = g(S, { transform: 'translate(22 110)', 'clip-path': `url(#${uid}r)` });
+        st.reels = [];
+        const ini = ['seven', 'bar', 'cherry'];
+        for (let i = 0; i < 3; i++) {
+          const strip = SYMS.slice();
+          for (let k = strip.length - 1; k > 0; k--) { const j = Math.floor(R() * (k + 1)); const tmp = strip[k]; strip[k] = strip[j]; strip[j] = tmp; }
+          const rg = g(reelsG, { transform: `translate(${i * 100} 0)` });
+          const uses = [0, 1, 2].map(() => sv('use', { href: symDefs.cherry }, rg));
+          // résultats de chaque tour (perdants : jamais trois identiques), positions cumulées sur la bande
+          st.reels.push({ strip, uses, F: [strip.indexOf(ini[i])], ini: strip.indexOf(ini[i]) });
+        }
+        const K = Math.ceil(st.dur / 2.5) + 3;
+        for (let k = 0; k < K; k++) {
+          let res; do { res = [0, 1, 2].map(() => SYMS[Math.floor(R() * 6) % 6]); } while (res[0] === res[1] && res[1] === res[2]);
+          for (let i = 0; i < 3; i++) {
+            const r = st.reels[i], prev = r.F[r.F.length - 1], idx = r.strip.indexOf(res[i]);
+            r.F.push(prev + 4 + ((((idx - prev - 4) % 6) + 6) % 6));
+          }
+        }
+        for (let i = 1; i < 3; i++) line(S, 22 + i * 100, 110, 22 + i * 100, 240, C.ink, 4, { 'stroke-linecap': 'butt' });
+        rect(S, 20, 110, 304, 130, 14, 'none', C.lime, 5);
+        rect(S, 20, 270, 92, 40, 20, C.lime, C.ink, 4);
+        mono(S, 'AUTO', 66, 298, 24, C.ink, { anchor: 'middle' });
+        mono(S, 'AUTO-SPIN', 128, 298, 22, C.paper);
+        mono(S, 'SOLDE', 20, 392, 24, C.paper);
+        rect(S, 20, 404, 304, 44, 10, C.pocket, C.paper, 4);
+        st.gauge = rect(S, 22, 406, 300, 40, 8, C.paper);
+        st.gaugeG = S;
+        if (st.steps <= 16) for (let k = 1; k < st.steps; k++) line(S, f2(22 + (300 * k) / st.steps), 406, f2(22 + (300 * k) / st.steps), 446, C.ink, 2, { 'stroke-linecap': 'butt', opacity: 0.55 });
+        rect(S, 20, 404, 304, 44, 10, 'none', C.ink, 4);
+      }
+
+      /* -- stream -- */
+      {
+        const S = st.sc.stream;
+        rect(S, 16, 76, 312, 176, 8, C.ink, C.paper, 4);
+        // table de cartes vue de dessus
+        const cardsX = [48, 112, 176];
+        ['7', '2', '9'].forEach((d, i) => { const cg = g(S, { transform: `translate(${cardsX[i] + 28} 172) rotate(${[-8, 3, -4][i]})` }); rect(cg, -28, -40, 56, 80, 6, C.paper, C.ink, 3); mono(cg, d, 0, 14, 44, C.ink, { anchor: 'middle' }); });
+        // incrustation : silhouette générique (aucun trait), casque
+        rect(S, 240, 160, 80, 84, 6, C.pocket, C.paper, 3);
+        path(S, 'M246 244 Q246 214 280 214 Q314 214 314 244Z', C.pocket, C.paper, 3);
+        circle(S, 280, 190, 18, C.pocket, C.paper, 3);
+        path(S, 'M259 190 A21 21 0 0 1 301 190', 'none', C.paper, 5);
+        rect(S, 253, 186, 8, 16, 4, C.paper); rect(S, 299, 186, 8, 16, 4, C.paper);
+        rect(S, 24, 84, 124, 28, 14, C.red, C.ink, 3);
+        mono(S, '● EN DIRECT', 86, 105, 17, C.paper, { anchor: 'middle', weight: 800 });
+        // titre figuré
+        rect(S, 16, 272, 296, 16, 8, C.paper); rect(S, 16, 298, 214, 16, 8, C.paper); rect(S, 16, 324, 130, 16, 8, C.paper);
+        mono(S, 'DESCRIPTION', 16, 378, 22, C.paper);
+        rect(S, 16, 392, 312, 4, 2, C.paper);
+        rect(S, 16, 410, 250, 12, 6, C.pocket, C.paper, 2); rect(S, 16, 432, 180, 12, 6, C.pocket, C.paper, 2);
+        st.linkC = { x: 94, y: 492 };
+        st.linkPill = g(S);
+        rect(st.linkPill, -78, -24, 156, 48, 24, C.lime, C.ink, 4);
+        const lt = mono(st.linkPill, '▸ LE LIEN', 0, 8, 22, C.ink, { anchor: 'middle', weight: 800 }); fit(lt, 130);
+        rect(st.linkPill, -56, 14, 112, 4, 2, C.ink);
+        st.linkPill.setAttribute('transform', `translate(${st.linkC.x} ${st.linkC.y})`);
+      }
+
+      /* -- site -- */
+      {
+        const S = st.sc.site;
+        rect(S, 0, 56, SW, 60, 0, C.pocket);
+        circle(S, 34, 86, 15, C.lime, C.ink, 4);
+        const ct = text(S, 'CASINO', 60, 101, 40, C.paper); fit(ct, 130);
+        rect(S, 16, 128, 188, 30, 15, 'none', C.red, 3);
+        mono(S, 'HORS DE FRANCE', 110, 149, 17, C.red, { anchor: 'middle', weight: 800 });
+        const ROWS = [['PIÈCE D’IDENTITÉ', 'NON DEMANDÉE'], ['ÂGE', 'NON VÉRIFIÉ'], ['LIMITE DE DÉPÔT', 'AUCUNE']];
+        st.rows = ROWS.map((r, i) => {
+          const rg = g(S), y = 172 + i * 92;
+          rect(rg, 16, y, 312, 80, 12, C.pocket, C.paper, 3);
+          mono(rg, r[0], 32, y + 30, 22, C.paper);
+          const ans = mono(rg, r[1], 32, y + 64, 24, C.red, { weight: 800 });
+          circle(rg, 292, y + 40, 20, C.red, C.ink, 4);
+          path(rg, `M283 ${y + 31} L301 ${y + 49} M301 ${y + 31} L283 ${y + 49}`, 'none', C.ink, 6);
+          return rg;
+        });
+        st.btn = g(S);
+        rect(st.btn, 16, 452, 312, 70, 18, C.lime, C.ink, 6);
+        st.btnT = text(st.btn, 'DÉPOSER' + NB + st.deposit, 172, 499, 38, C.ink, { anchor: 'middle' });
+        fit(st.btnT, 270);
+        st.btnTxt = ['DÉPOSER' + NB + st.deposit, st.deposit + NB + 'DÉPOSÉS'];
+        st.btnR = rect(st.btn, 16, 452, 312, 70, 18, C.paper, C.ink, 6); st.btnR.setAttribute('display', 'none');
+        st.btnT2 = text(st.btn, st.btnTxt[1], 172, 499, 38, C.ink, { anchor: 'middle' }); fit(st.btnT2, 270); st.btnT2.setAttribute('display', 'none');
+        st.btnT2.parentNode.appendChild(st.btnT2);
+        mono(S, 'SOLDE', 16, 560, 22, C.paper).setAttribute('display', 'none');
+        st.soldeLab = S.lastChild;
+        st.cry = text(S, st.crypto, 16, 620, 72, C.lime, { weight: 800 }); fit(st.cry, 312);
+        st.eur = text(S, '=' + NB + st.euros, 16, 692, 72, C.red, { weight: 800 }); fit(st.eur, 312);
+      }
+
+      /* -- notifs (écran verrouillé) -- */
+      {
+        const S = st.sc.notifs;
+        const clk = text(S, st.clock, SW / 2, 214, 110, C.paper, { anchor: 'middle' }); fit(clk, 300);
+        mono(S, 'NUIT', SW / 2, 106, 22, C.paper, { anchor: 'middle' });
+        st.nc = [];
+        for (let i = 0; i < st.notifs.length; i++) {
+          const y = 262 + i * 106, ng = g(S);
+          rect(ng, 16, y, 312, 94, 22, C.paper, C.ink, 4);
+          st.nc.push({ g: ng, y, ic: circle(ng, 54, y + 47, 20, C.lime, C.ink, 5), dot: circle(ng, 54, y + 47, 7, C.ink), hook: null });
+          const [lines, sz] = wrap2(st.notifs[i], 22, 232);
+          lines.forEach((ln, li) => { const tn = mono(ng, ln, 88, y + (lines.length === 1 ? 54 : 41 + li * 28), sz, C.ink, { weight: 800 }); fit(tn, 232); });
+          const hk = g(ng, { transform: `translate(54 ${y + 47})` });
+          drawHook(hk, 1.1);
+          st.nc[i].hook = hk;
+        }
+      }
+
+      /* -- odds -- */
+      {
+        const S = st.sc.odds;
+        const tt = text(S, 'ÉQUIPE A — ÉQUIPE B', SW / 2, 126, 30, C.paper, { anchor: 'middle' }); fit(tt, 312);
+        st.tiles = [];
+        const OD = ['1,55', '4,20', '5,80'];
+        OD.forEach((o, i) => {
+          const y = 222 + i * 118, tg = g(S);
+          rect(tg, 16, y, 312, 104, 18, C.ink, C.paper, 4);
+          if (i === 0) {
+            const lx = SW / 2 - 64.8;
+            mono(tg, '1', lx + 16.2, y + 70, 54, C.paper, { anchor: 'middle', weight: 800 });
+            st.comma = mono(tg, ',', lx + 48.6, y + 70, 54, C.paper, { anchor: 'middle', weight: 800 });
+            mono(tg, '55', lx + 97.2, y + 70, 54, C.paper, { anchor: 'middle', weight: 800, len: 64.8 });
+            st.commaPos = { x: lx + 48.6, y: y + 70 + 2 };
+            st.tile1y = y;
+          } else mono(tg, o, SW / 2, y + 70, 54, C.paper, { anchor: 'middle', weight: 800 });
+          st.tiles.push(tg);
+        });
+        st.ici = g(S);
+        mono(st.ici, 'ICI', st.commaPos.x, st.tile1y - 30, 28, C.lime, { anchor: 'middle', weight: 800 });
+        path(st.ici, `M${st.commaPos.x - 11} ${st.tile1y - 18} L${st.commaPos.x + 11} ${st.tile1y - 18} L${st.commaPos.x} ${st.tile1y - 4}Z`, C.lime, C.ink, 3);
+      }
+
+      // barre d'état (fixe) : heure, notch, soleil (luminosité au minimum)
+      st.status = g(clipG);
+      mono(st.status, st.clock, 28, 42, 22, C.paper, { weight: 800 });
+      rect(st.status, 112, 12, 120, 30, 15, C.ink, C.paper, 3);
+      {
+        const sx = 262, sy = 30;
+        circle(st.status, sx, sy, 6, C.paper);
+        for (let k = 0; k < 8; k++) { const a = (k * Math.PI) / 4; line(st.status, f2(sx + Math.cos(a) * 9), f2(sy + Math.sin(a) * 9), f2(sx + Math.cos(a) * 13), f2(sy + Math.sin(a) * 13), C.paper, 3); }
+        line(st.status, 282, sy, 326, sy, C.paper, 3); circle(st.status, 285, sy, 5, C.paper, C.ink, 2);
+      }
+
+      // pouce (devant le téléphone) + anneau de tape
+      if (st.hand) {
+        const hf = st.handFront;
+        st.thumbO = line(hf, st.B.x, st.B.y, st.idleTip.x, st.idleTip.y, C.ink, 62);
+        st.thumbP = line(hf, st.B.x, st.B.y, st.idleTip.x, st.idleTip.y, C.paper, 50);
+        circle(hf, st.B.x, st.B.y, 40, C.paper);
+      }
+      W.appendChild(st.handFront);                                 // la main passe devant le téléphone
+      W.appendChild(st.disc);                                      // le disque lime passe devant l'écran
+      st.tapG = g(W);
+      st.tapA = circle(st.tapG, 0, 0, 15, 'none', C.paper, 10);
+      st.tapB = circle(st.tapG, 0, 0, 15, 'none', C.ink, 5);
+
+      /* ---- pizza, étiquettes ---- */
+      st.pizza = g(W);
+      {
+        const pz = st.pizza;
+        // hors de la colonne d'étiquettes : sous elles (center), ou à l'autre bout du lit (left / right)
+        st.pzBase = st.side === 'center' ? { x: 570, y: 630 } : st.side === 'right' ? { x: 330, y: 520 } : { x: 1590, y: 520 };
+        path(pz, 'M-84 -60 L84 -60 L0 88Z', C.paper, C.ink, 7);
+        rect(pz, -92, -82, 184, 28, 12, C.paper, C.ink, 7);
+        [[-30, -20], [30, -20], [0, 36]].forEach((p) => circle(pz, p[0], p[1], 14, C.red, C.ink, 4));
+        const lb = mono(pz, '10' + NB + '€ = UNE PIZZA', 0, 150, 28, C.paper, { anchor: 'middle', weight: 800 }); fit(lb, 300);
+      }
+      st.lab = [];
+      {
+        const n = st.labels.length;
+        let size = 84;
+        st.labels.forEach((s) => { size = Math.min(size, 560 / (bw(s, 1) || 1)); });
+        size = clamp(Math.floor(size), 64, 84);
+        const base = st.side === 'center' ? [[-1, 380], [1, 300], [-1, 520], [1, 480]] : [[0, 250], [0, 410], [0, 570], [0, 730]];
+        for (let i = 0; i < n; i++) {
+          const [sd, by] = base[i];
+          let anchor, x;
+          if (st.side === 'center') { anchor = sd < 0 ? 'end' : 'start'; x = sd < 0 ? x0 - 30 : x0 + 380 + 30; }
+          else if (st.side === 'right') { anchor = 'end'; x = x0 - 30; }
+          else { anchor = 'start'; x = x0 + 380 + 30; }
+          const lg = g(W);
+          const tn = text(lg, st.labels[i], 0, 0, size, C.paper, { anchor });
+          fit(tn, 556);
+          let w = 0; try { w = tn.getComputedTextLength(); } catch (e) { w = 0; }
+          if (!(w > 0)) w = Math.min(556, bw(st.labels[i], size));
+          const x1 = anchor === 'end' ? -w : 0, x2 = anchor === 'end' ? 0 : w;
+          const sk = line(lg, x1 - 8, -size * 0.32, x2 + 8, -size * 0.32, C.red, 10);
+          st.lab.push({ g: lg, x, y: by, sk, x1: x1 - 8, x2: x2 + 8, anchor });
+        }
+      }
+      st.ring = null;
+      return st;
+    },
+
+    update(st, t, shot) {
+      try { draw(st, t); } catch (e) { /* jamais d'exception */ }
+    }
+  });
+
+  /* ---- positions du pouce : approche, contact, retrait ---- */
+  function thumbTargets(st) {
+    const L = [];
+    const ax = st.x0 + 18, ay = 88;
+    if (st.c.link !== null) L.push({ tc: st.c.link + 1.0, x: ax + st.linkC.x, y: ay + st.linkC.y });
+    if (st.c.deposit !== null) L.push({ tc: st.c.deposit, x: ax + 172, y: ay + 487 });
+    L.sort((a, b) => a.tc - b.tc);
+    return L;
+  }
+
+  function draw(st, t) {
+    const { cx, x0, y0, dir } = st, c = st.c;
+    const NBSP = NB;
+    /* zoom-out : tout le décor recule autour du téléphone */
+    const zs = c.zoom === null ? 1 : lerp(1, 0.62, E.io2(prog(t, c.zoom, c.zoom + 16 / 30)));
+    const zy = y0 + 370;
+    setA(st.world, 'transform', zs === 1 ? '' : `translate(${f2(cx)} ${f2(zy)}) scale(${f2(zs * 1000) / 1000}) translate(${f2(-cx)} ${f2(-zy)})`);
+
+    /* vibration du téléphone (notif) */
+    let sx = 0, sy = 0;
+    for (const tn of st.notifC) { const s = shakeAt(t, tn, 3, 0.25); sx += s[0]; sy += s[1]; }
+    sx = f2(sx); sy = f2(sy);
+    setA(st.ph, 'transform', `translate(${f2(x0 + sx)} ${f2(y0 + sy)})`);
+
+    /* hands-off */
+    const h = c.off === null ? 0 : E.io2(prog(t, c.off, c.off + 0.6));
+    if (st.bed && st.stand) setA(st.stand, 'display', c.off !== null && t >= c.off ? 'inline' : 'none');
+    const hx = 80 * h, hy = 190 * h;
+    const mirror = dir < 0 ? `translate(${2 * cx} 0) scale(-1 1) ` : '';
+    const htr = `translate(${sx} ${sy}) ${mirror}translate(${f2(hx)} ${f2(hy)})`;
+    if (st.hand) {
+      setA(st.handFront, 'transform', htr);
+      setA(st.handBack, 'transform', `translate(${sx} ${sy}) ${mirror}`);
+      const fo = c.off === null ? 1 : 1 - prog(t, c.off, c.off + 0.25);
+      setA(st.handBack, 'opacity', f2(fo)); setA(st.handBack, 'display', fo <= 0.01 ? 'none' : 'inline');
+    }
+
+    /* écrans : glissement de droite à gauche en 10 i */
+    let cur = st.screen0, prev = null, t0 = -1;
+    for (const s of st.screenC) if (t >= s.t && s.to !== cur) { prev = cur; cur = s.to; t0 = s.t; }
+    const sp = t0 < 0 ? 1 : prog(t, t0, t0 + 10 / 30);
+    if (sp >= 1) prev = null;
+    const se = E.io3(sp);
+    for (const n of SCREENS) {
+      const g0 = st.sc[n];
+      if (n === cur) { setA(g0, 'display', 'inline'); setA(g0, 'transform', prev ? `translate(${f2((1 - se) * SW)} 0)` : ''); }
+      else if (n === prev) { setA(g0, 'display', 'inline'); setA(g0, 'transform', `translate(${f2(-se * SW)} 0)`); }
+      else setA(g0, 'display', 'none');
+    }
+    st.cur = cur;
+
+    /* ---- slots : rouleaux et jauge ---- */
+    if (cur === 'slots' || prev === 'slots') {
+      const T0 = 0.6, PERIOD = 2.5, CELL = 130;
+      const k = t < T0 ? -1 : Math.floor((t - T0) / PERIOD);
+      for (let i = 0; i < 3; i++) {
+        const r = st.reels[i];
+        let pos;
+        if (k < 0) pos = r.F[0];
+        else {
+          const kk = Math.min(k, r.F.length - 2), ts = T0 + PERIOD * k, dur = 0.9 + 0.2 * i, p = prog(t, ts, ts + dur);
+          const e = 0.3 * p + 0.7 * (1 - (1 - p) * (1 - p));
+          pos = r.F[kk] + (r.F[kk + 1] - r.F[kk]) * e;
+          const u = (t - (ts + dur)) / (4 / 30);
+          if (u > 0 && u < 1) pos += 0.1 * Math.sin(Math.PI * u);
+        }
+        const cn = Math.round(pos);
+        for (let j = 0; j < 3; j++) {
+          const n = cn - 1 + j, sym = r.strip[((n % 6) + 6) % 6];
+          setA(r.uses[j], 'href', '#' + st.uid + '-' + sym);
+          setA(r.uses[j], 'transform', `translate(50 ${f2(65 + (pos - n) * CELL)}) scale(0.52)`);
+        }
+      }
+      // jauge SOLDE : un cran de moins à chaque tour, jamais de remontée
+      const e0 = T0 + 1.3;
+      let used = 0;
+      if (t >= e0) { const m = Math.floor((t - e0) / PERIOD); used = m + prog(t - e0 - PERIOD * m, 0, 0.25); }
+      const lvl = clamp(1 - used / st.steps, 0.02, 1);
+      setA(st.gauge, 'width', f2(300 * lvl));
+    }
+
+    /* ---- stream : pastille « LE LIEN » ---- */
+    if (cur === 'stream' || prev === 'stream') {
+      let s = 1, press = 0;
+      if (c.link !== null) {
+        const p = prog(t, c.link, c.link + 1.0);
+        s = p >= 1 ? 1 : 1 + 0.08 * Math.sin(Math.PI * ((p * 2) % 1));
+        press = prog(t, c.link + 1.0, c.link + 1.08) * (1 - prog(t, c.link + 1.25, c.link + 1.4));
+      }
+      s = s - 0.05 * press;
+      setA(st.linkPill, 'transform', `translate(${st.linkC.x} ${st.linkC.y}) scale(${f2(s * 1000) / 1000})`);
+    }
+
+    /* ---- site : contrôles, bouton, solde ---- */
+    if (cur === 'site' || prev === 'site') {
+      const rc = [c.noId, c.noAge, c.noLimit];
+      st.rows.forEach((rg, i) => {
+        const tc = rc[i];
+        if (tc === null || t < tc) { setA(rg, 'display', 'none'); return; }
+        const p = prog(t, tc, tc + 0.2);
+        setA(rg, 'display', 'inline'); setA(rg, 'opacity', f2(E.out2(p)));
+        setA(rg, 'transform', `translate(${f2((1 - E.out3(p)) * 40)} 0)`);
+      });
+      const dep = c.deposit !== null && t >= c.deposit;
+      const dp = c.deposit === null ? 0 : prog(t, c.deposit, c.deposit + 0.1);
+      setA(st.btn, 'transform', `translate(0 ${f2(4 * dp)})`);
+      setA(st.btnR, 'display', dep ? 'inline' : 'none');
+      setA(st.btnT, 'display', dep ? 'none' : 'inline');
+      setA(st.btnT2, 'display', dep ? 'inline' : 'none');
+      const popIn = (n, tc) => {
+        if (tc === null || t < tc) { setA(n, 'display', 'none'); return; }
+        const p = prog(t, tc, tc + 0.18);
+        setA(n, 'display', 'inline'); setA(n, 'opacity', f2(p));
+        setA(n, 'transform', `translate(0 ${f2((1 - E.out3(p)) * 24)})`);
+      };
+      popIn(st.cry, c.crypto); popIn(st.eur, c.euros);
+      setA(st.soldeLab, 'display', c.crypto !== null && t >= c.crypto ? 'inline' : 'none');
+    }
+
+    /* ---- notifs ---- */
+    if (cur === 'notifs' || prev === 'notifs') {
+      st.nc.forEach((n, i) => {
+        const tc = st.notifC[i] === undefined ? null : st.notifC[i];
+        if (tc === null || t < tc) { setA(n.g, 'display', 'none'); return; }
+        const p = prog(t, tc, tc + 8 / 30);
+        setA(n.g, 'display', 'inline'); setA(n.g, 'opacity', f2(Math.min(1, p * 2)));
+        setA(n.g, 'transform', `translate(0 ${f2(-(1 - E.out3(p)) * 70)})`);
+        const hp = c.hook === null ? 0 : E.back(prog(t, c.hook + i * 0.08, c.hook + i * 0.08 + 0.25));
+        setA(n.ic, 'display', hp > 0.02 ? 'none' : 'inline'); setA(n.dot, 'display', hp > 0.02 ? 'none' : 'inline');
+        setA(n.hook, 'display', hp > 0.02 ? 'inline' : 'none');
+        setA(n.hook, 'transform', `translate(54 ${n.y + 47}) scale(${f2(Math.max(0.01, hp) * 100) / 100})`);
+      });
+    }
+
+    /* ---- odds + roue du zéro ---- */
+    const zf = c.zero === null ? null : c.zero;         // pose de la roue
+    const L = { x: cx, y: y0 + 18 + 630 };              // point de pose sur l'écran
+    if (st.cur === 'odds' || prev === 'odds') {
+      const hp = c.hide === null ? 0 : prog(t, c.hide + 0.4, c.hide + 0.7);
+      setA(st.ici, 'display', hp > 0 ? 'inline' : 'none'); setA(st.ici, 'opacity', f2(hp));
+    }
+    const sc = x0 + 18;                                 // origine écran en x
+    const comma = { x: sc + st.commaPos.x, y: y0 + 18 + st.commaPos.y };
+    // roue
+    if (zf === null) { setA(st.wheel, 'display', 'none'); setA(st.disc, 'display', 'none'); }
+    else {
+      const flyA = zf + 0.3, flyB = flyA + 1.2, fadeA = flyB, fadeB = fadeA + 10 / 30;
+      const wi = E.back(prog(t, zf, zf + 0.3)), wo = 1 - prog(t, fadeA, fadeB);
+      const S0 = { x: st.wx, y: st.wy - 78 };
+      if (t < zf || wo <= 0.001) setA(st.wheel, 'display', 'none');
+      else { setA(st.wheel, 'display', 'inline'); put(st.wheel, st.wx, st.wy, 0, Math.max(0.01, wi), Math.max(0.01, wi), wo); setA(st.wheel, 'opacity', f2(wo)); }
+      st.wedges[0].setAttribute('fill', t >= flyA ? C.ink : C.lime);
+      if (t < flyA) setA(st.disc, 'display', 'none');
+      else {
+        let x, y, s = 1;
+        const hide0 = c.hide === null ? null : c.hide;
+        const fp = prog(t, flyA, flyB);
+        if (fp < 1) {
+          const e = E.io2(fp);
+          x = lerp(S0.x, L.x, e); y = lerp(S0.y, L.y, e) - 170 * 4 * fp * (1 - fp);
+          s = lerp(0.3, 1, E.out2(prog(t, flyA, flyA + 0.3)));
+        } else { x = L.x; y = L.y; s = 1 + 0.12 * Math.sin(Math.PI * clamp((t - flyB) / 0.2)); }
+        let txtO = 1;
+        if (hide0 !== null && t >= hide0) {
+          const hp = E.io2(prog(t, hide0, hide0 + 0.8));
+          x = lerp(L.x, comma.x, hp); y = lerp(L.y, comma.y, hp); s = lerp(1, 0.17, hp); txtO = 1 - prog(hp, 0, 0.45);
+          if (cur === 'odds' && hp >= 1) setA(st.comma, 'display', 'none'); else setA(st.comma, 'display', 'inline');
+        } else if (st.comma) setA(st.comma, 'display', 'inline');
+        setA(st.disc, 'display', 'inline'); put(st.disc, x, y, 0, s, s, 1);
+        setA(st.discTxt, 'display', txtO > 0.05 ? 'inline' : 'none');
+      }
+    }
+
+    /* ---- pouce ---- */
+    const tg = thumbTargets(st);
+    if (st.hand) {
+      const R = st.B;
+      let tipX, tipY, w = 0, tapAt = null, ev = null;
+      for (const e of tg) if (t >= e.tc - 0.35 && (c.off === null || e.tc < c.off)) ev = e;
+      if (ev) {
+        const a = E.out2(prog(t, ev.tc - 0.35, ev.tc)), b = 1 - E.io2(prog(t, ev.tc + 0.25, ev.tc + 0.55));
+        w = Math.min(a, b);
+        if (t >= ev.tc && t <= ev.tc + 8 / 30) tapAt = { dt: t - ev.tc, x: ev.x, y: ev.y };
+      }
+      const idle = st.idleTip;
+      const tx = ev ? (dir > 0 ? ev.x : 2 * cx - ev.x) : idle.x, ty = ev ? ev.y : idle.y;   // cible dans le repère non miroir
+      tipX = lerp(idle.x, tx, w); tipY = lerp(idle.y, ty, w);
+      // main à plat : le pouce se replie le long de la paume
+      const lx = lerp(tipX, R.x - 86, h), ly = lerp(tipY, R.y - 6, h);
+      setA(st.thumbO, 'x2', f2(lx)); setA(st.thumbO, 'y2', f2(ly));
+      setA(st.thumbP, 'x2', f2(lx)); setA(st.thumbP, 'y2', f2(ly));
+      if (tapAt) {
+        const p = tapAt.dt / (8 / 30), r = lerp(15, 48, E.out2(p));
+        setA(st.tapG, 'display', 'inline'); setA(st.tapG, 'transform', `translate(${f2(tapAt.x)} ${f2(tapAt.y)})`);
+        setA(st.tapA, 'r', f2(r)); setA(st.tapB, 'r', f2(r)); setA(st.tapG, 'opacity', f2(1 - p * 0.9));
+      } else setA(st.tapG, 'display', 'none');
+    } else setA(st.tapG, 'display', 'none');
+
+    /* ---- pizza ---- */
+    {
+      const tc = c.pizza;
+      if (tc === null || t < tc) setA(st.pizza, 'display', 'none');
+      else {
+        const p = E.back(prog(t, tc, tc + 0.35)), o = prog(t, tc, tc + 0.12);
+        const off = (1 - Math.min(1, p)) * 90 * (st.pzBase.x < cx ? -1 : 1);
+        setA(st.pizza, 'display', 'inline'); put(st.pizza, st.pzBase.x + off, st.pzBase.y, -6 * (1 - Math.min(1, p)), Math.max(0.01, 0.6 + 0.4 * p), Math.max(0.01, 0.6 + 0.4 * p), o);
+      }
+    }
+
+    /* ---- étiquettes latérales ---- */
+    st.lab.forEach((l, i) => {
+      const tc = st.labelC[i];
+      if (tc === null || t < tc) { setA(l.g, 'display', 'none'); return; }
+      const p = prog(t, tc, tc + 0.25), s = Math.max(0.01, 0.55 + 0.45 * E.back(p));
+      setA(l.g, 'display', 'inline'); setA(l.g, 'opacity', f2(Math.min(1, p * 3)));
+      setA(l.g, 'transform', `translate(${l.x} ${l.y}) scale(${f2(s * 1000) / 1000})`);
+      const sc2 = st.strikeC[i];
+      const sp2 = sc2 === null ? 0 : prog(t, sc2, sc2 + 0.2);
+      if (sp2 <= 0) setA(l.sk, 'display', 'none');
+      else {
+        setA(l.sk, 'display', 'inline');
+        const a = l.anchor === 'end' ? l.x2 - (l.x2 - l.x1) * sp2 : l.x1;
+        const b = l.anchor === 'end' ? l.x2 : l.x1 + (l.x2 - l.x1) * sp2;
+        setA(l.sk, 'x1', f2(a)); setA(l.sk, 'x2', f2(b));
+      }
+    });
+  }
 })();
 ;
 /* ==== tools/video/composition/components/pictos.js ==== */
@@ -10293,6 +15549,1002 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/promise-charter.js ==== */
+// Composant `promise-charter` : « La promesse » (S3 de l'épisode 0). Une charte d'une page qui se coche clause par clause, chaque clause avec sa vignette :
+// 1 le réel (fiche + étiquette COMPOSITE agrafée), 2 le chiffre sourcé (renvoi pointillé vers la note de bas de page + loupe), 3 pas de sermon (bulle barrée), 4 pas de système (boîte vide tamponnée).
+// Cues : sheet, c1, c2, c3, c4, tag, footnote, verify, open, none, sealed. Fond ink. Aucun dégradé, flou, lueur ni filter. Aucune personne dessinée.
+// Règle des cues absents : un élément sans cue est affiché dans son état final dès t = 0 (sauf `sealed`, facultatif : visible seulement si le plan n'a AUCUN cue).
+(() => {
+  'use strict';
+  const { C, E, prog, lerp, f2, sv, g, rect, circle, path, line, text, put } = ZV;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const I = 1 / 30;
+  const len = (n, fb) => { try { const w = n.getComputedTextLength(); return w > 0 ? w : fb; } catch (e) { return fb; } };
+  // réduit la police jusqu'à `min`, puis impose la largeur : jamais de débordement
+  function fit(n, size, maxW, min) {
+    try {
+      let w = n.getComputedTextLength();
+      if (w > maxW && w > 0) {
+        const s = Math.max(min, Math.floor((size * maxW) / w));
+        n.setAttribute('font-size', s);
+        w = n.getComputedTextLength();
+        if (w > maxW) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+      }
+    } catch (e) { /* hors DOM */ }
+  }
+  let UID = 0;
+
+  const FLAP = 'M1560 50V110H1620Z';
+  const ROW_Y = [240, 380, 520, 660];
+  const DEF_CLAUSES = [
+    { text: 'DU RÉEL', sub: 'COMPOSITE OU FICTIF : JE TE LE DIS' },
+    { text: 'CHAQUE CHIFFRE SOURCÉ', sub: 'EN BAS DE LA PAGE, POUR QUE TU VÉRIFIES' },
+    { text: 'PAS DE SERMON', sub: 'TA SOIRÉE T’APPARTIENT' },
+    { text: 'PAS DE SYSTÈME POUR GAGNER', sub: 'C’EST JUSTEMENT LE SUJET' }
+  ];
+  const CUE_NAMES = ['sheet', 'c1', 'c2', 'c3', 'c4', 'tag', 'footnote', 'verify', 'open', 'none', 'sealed'];
+
+  // tampon à double bordure ink : renvoie { grp, w, h } centré sur (0,0)
+  function stampBox(parent, fill, lines, size, pitch, padX, padY, minW, maxW) {
+    const grp = g(parent);
+    const tmp = g(grp);
+    const nodes = lines.map((s) => text(tmp, s, 0, 0, size, C.ink, { anchor: 'middle' }));
+    let tw = 0;
+    nodes.forEach((n) => { tw = Math.max(tw, len(n, n.textContent.length * size * 0.62)); });
+    let fs = size;
+    if (tw + 2 * padX > maxW) { fs = Math.max(26, Math.floor((size * (maxW - 2 * padX)) / tw)); tw = tw * fs / size; nodes.forEach((n) => n.setAttribute('font-size', fs)); }
+    const w = Math.min(maxW, Math.max(minW, tw + 2 * padX));
+    const h = lines.length * pitch * (fs / size) + 2 * padY;
+    grp.removeChild(tmp);
+    rect(grp, -w / 2 + 8, -h / 2 + 8, w, h, 4, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, 4, fill, C.ink, 6);
+    rect(grp, -w / 2 + 11, -h / 2 + 11, w - 22, h - 22, 2, 'none', C.ink, 3);
+    const p = pitch * (fs / size);
+    nodes.forEach((n, i) => {
+      grp.appendChild(n);
+      n.setAttribute('x', 0);
+      n.setAttribute('y', f2(-((lines.length - 1) * p) / 2 + i * p + fs * 0.35));
+      if (len(n, 0) > w - 2 * padX) { n.setAttribute('textLength', f2(w - 2 * padX)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+    });
+    return { grp, w, h };
+  }
+
+  function build(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const cueT = (n) => { const b = beats.filter((x) => x && x.do === 'cue' && x.name === n && isNum(x.t)).sort((a, c) => a.t - c.t)[0]; return b ? b.t : null; };
+      const uid = 'pc' + (++UID);
+      const kicker = str(p.kicker, 'ZÉRO VERT · SAISON 1');
+      const title = str(p.title, 'LA PROMESSE');
+      const clauses = DEF_CLAUSES.map((d, i) => {
+        const c = Array.isArray(p.clauses) ? p.clauses[i] : null;
+        return { text: str(c && c.text, d.text), sub: str(c && c.sub, d.sub) };
+      });
+      const tagTxt = str(p.tag, 'COMPOSITE');
+      const figTxt = str(p.figure, 'CHIFFRE');
+      const footTxt = str(p.footnote, '¹ SOURCE · AUTEUR · ANNÉE');
+      const boxTxt = str(p.box, 'SYSTÈME POUR GAGNER');
+      const noneTxt = str(p.none, 'IL N’EN EXISTE PAS');
+      const totalTxt = str(p.stamp_total, 'PROMIS');
+
+      const st = {};
+      st.tS = cueT('sheet');
+      st.tC = [cueT('c1'), cueT('c2'), cueT('c3'), cueT('c4')];
+      st.tTag = cueT('tag'); st.tFoot = cueT('footnote'); st.tVer = cueT('verify'); st.tOpen = cueT('open'); st.tNone = cueT('none'); st.tSeal = cueT('sealed');
+      st.anyCue = CUE_NAMES.some((n) => cueT(n) != null);
+      st.title = title;
+
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+
+      /* ---------- clips ---------- */
+      const defs = sv('defs', null, root);
+      const clip = (id, x, y, w, h) => { const cp = sv('clipPath', { id }, defs); sv('rect', { x, y, width: w, height: h }, cp); return `url(#${id})`; };
+      const clipRows = clip(uid + 'r', 296, 226, 1332, 580);
+      const clipNone = clip(uid + 'n', 1230, 618, 360, 182);
+      const clipSeal = clip(uid + 's', 1240, 62, 330, 150);
+
+      /* ---------- feuille ---------- */
+      st.sheet = g(root);
+      const sh = st.sheet;
+      const SHEET = 'M300 50H1560L1620 110V800H300Z';
+      path(sh, SHEET, C.lime, null, 0, { transform: 'translate(16 16)' });
+      path(sh, SHEET, C.paper, C.ink, 8);
+      path(sh, FLAP, C.white, C.ink, 8);
+
+      /* en-tête */
+      const kn = text(sh, kicker, 360, 114, 24, C.ink, { mono: true, weight: 700 });
+      fit(kn, 24, 860, 18);
+      st.tn = text(sh, title, 360, 196, 92, C.ink);
+      fit(st.tn, 92, 860, 56);
+      st.tn.textContent = '';
+      line(sh, 360, 215, 1560, 215, C.ink, 6, { 'stroke-linecap': 'butt' });
+      st.titleN = -1;
+      // longueur utile du titre (lettres tapées une à une, alignées à gauche)
+      st.titleLen = title.length;
+
+      /* ---------- rangées ---------- */
+      st.clipG = g(sh, { 'clip-path': clipRows });
+      st.rows = [];
+      for (let i = 0; i < 4; i++) {
+        const y0 = ROW_Y[i], cy = y0 + 60;
+        const R = { y0, cy };
+        R.g = g(st.clipG);
+        if (i < 3) line(R.g, 350, y0 + 125, 1570, y0 + 125, C.ink, 3, { 'stroke-linecap': 'butt' });
+        // case à cocher
+        rect(R.g, 355, cy - 27, 64, 64, 0, C.ink);
+        R.box = rect(R.g, 350, cy - 32, 64, 64, 0, C.paper, C.ink, 6);
+        R.chk = path(R.g, `M362 ${cy + 1}L377 ${cy + 15}L403 ${cy - 16}`, 'none', C.ink, 12, { pathLength: 1, 'stroke-dasharray': '0 2', visibility: 'hidden' });
+        // texte
+        const tx = text(R.g, clauses[i].text, 450, y0 + 62, 50, C.ink);
+        fit(tx, 50, 760, 38);
+        const sb = text(R.g, clauses[i].sub, 450, y0 + 98, 22, C.ink, { mono: true, weight: 600 });
+        fit(sb, 22, 760, 18);
+        R.v = g(R.g);
+        st.rows.push(R);
+      }
+
+      /* ---- 1 : réel ---- */
+      {
+        const R = st.rows[0], v = R.v, cy = R.cy;
+        rect(v, 1296, cy - 42, 150, 96, 4, C.ink);
+        rect(v, 1290, cy - 48, 150, 96, 4, C.paper, C.ink, 5);
+        circle(v, 1322, cy - 14, 19, C.pocket);
+        rect(v, 1352, cy - 26, 72, 10, 0, C.ink);
+        rect(v, 1352, cy - 8, 56, 10, 0, C.ink);
+        rect(v, 1306, cy + 18, 118, 10, 0, C.ink);
+        // étiquette Dymo + agrafe
+        st.tag = g(v);
+        const lt = text(st.tag, tagTxt, 0, 8, 22, C.paper, { anchor: 'middle', mono: true, weight: 800 });
+        fit(lt, 22, 200, 18);
+        const lw = Math.min(236, Math.max(110, len(lt, tagTxt.length * 13.2) + 36));
+        const lh = 40;
+        const bg = g(st.tag);
+        st.tag.insertBefore(bg, lt);
+        rect(bg, -lw / 2 + 5, -lh / 2 + 5, lw, lh, 5, C.ink);
+        rect(bg, -lw / 2, -lh / 2, lw, lh, 5, C.red, C.ink, 4);
+        st.staple = rect(st.tag, -lw / 2 + 4, -11, 7, 22, 1, C.ink);
+        st.tagX = 1440; st.tagY = cy + 22 + 0; st.tagLeft = Math.max(1290 + lw / 2 - 0, 0);
+        // la fiche occupe 1290-1440 ; l'étiquette dépasse un peu vers la droite, bornée par la zone (≤ 1580)
+        st.tagX = Math.min(1580 - lw / 2 - 8, 1300 + lw / 2 + 18);
+      }
+
+      /* ---- 2 : sourcé ---- */
+      {
+        const R = st.rows[1], v = R.v, y0 = R.y0;
+        const fg = text(v, figTxt, 1250, y0 + 48, 48, C.ink);
+        fit(fg, 48, 215, 30);
+        const fw = len(fg, figTxt.length * 30);
+        const px = Math.round(1250 + fw + 26), py = y0 + 24;
+        circle(v, px, py, 18, C.ink);
+        text(v, '¹', px, py + 9, 26, C.lime, { anchor: 'middle', mono: true, weight: 800 });
+        st.dot = line(v, px, py + 20, px, 466, C.ink, 5, { 'stroke-linecap': 'butt', 'stroke-dasharray': '9 8', visibility: 'hidden' });
+        st.dotY0 = py + 20; st.dotY1 = 466; st.dotX = px;
+        // bande de bas de page
+        st.band = g(v, { transform: 'translate(1246 466)' });
+        rect(st.band, 0, 0, 300, 34, 0, C.pocket);
+        const bt = text(st.band, footTxt, 8, 24, 18, C.paper, { mono: true, weight: 600 });
+        fit(bt, 18, 276, 14);
+        // loupe plate (verre creux : le texte dessous reste lisible)
+        st.lens = g(v);
+        line(st.lens, 24, -24, 34, -34, C.ink, 12, { 'stroke-linecap': 'round' });
+        circle(st.lens, 0, 0, 34, 'none', C.ink, 8);
+        st.lensX = 1568; st.lensY = y0 + 92;
+        // coche lime sur pastille ink
+        st.vok = g(v);
+        circle(st.vok, 0, 0, 22, C.ink);
+        path(st.vok, 'M-11 1L-3 10L12 -9', 'none', C.lime, 10);
+        st.vokX = 1536; st.vokY = y0 + 28;
+      }
+
+      /* ---- 3 : sans sermon ---- */
+      {
+        const R = st.rows[2], v = R.v, y0 = R.y0;
+        rect(v, 1306, y0 + 12, 220, 80, 18, C.ink);
+        path(v, `M1342 ${y0 + 88}L1372 ${y0 + 88}L1336 ${y0 + 112}Z`, C.ink, C.ink, 6);
+        path(v, `M1338 ${y0 + 84}L1366 ${y0 + 84}L1332 ${y0 + 106}Z`, C.paper, C.ink, 6);
+        rect(v, 1300, y0 + 6, 220, 80, 18, C.paper, C.ink, 6);
+        rect(v, 1342, y0 + 76, 22, 14, 0, C.paper);
+        // index levé (silhouette plate)
+        const fx = 1410, fy = y0 + 50, fk = g(v, { transform: `translate(${fx} ${fy}) scale(1.2) translate(${-fx} ${-fy})` });
+        rect(fk, fx - 7, fy - 30, 14, 36, 7, C.ink);
+        rect(fk, fx - 23, fy - 6, 46, 32, 9, C.ink);
+        rect(fk, fx - 32, fy + 1, 16, 14, 6, C.ink);
+        st.x1 = line(v, 1314, y0 + 18, 1506, y0 + 74, C.red, 14, { visibility: 'hidden' });
+        st.x2 = line(v, 1506, y0 + 18, 1314, y0 + 74, C.red, 14, { visibility: 'hidden' });
+        st.xy0 = y0;
+      }
+
+      /* ---- 4 : pas de système ---- */
+      {
+        const R = st.rows[3], v = R.v, y0 = R.y0;
+        const H = y0 + 30;                   // charnière (arrière de l'ouverture)
+        // corps de la boîte : ouverture (intérieur vide) puis face avant portant l'étiquette
+        rect(v, 1250, H, 320, 90, 0, C.ink);
+        rect(v, 1258, H + 6, 304, 50, 0, C.pocket);
+        rect(v, 1266, H + 13, 288, 36, 0, 'none', C.paper, 4, { 'stroke-dasharray': '10 8', 'stroke-linejoin': 'miter' });
+        const bl = text(v, boxTxt, 1410, y0 + 111, 22, C.lime, { anchor: 'middle', mono: true, weight: 800 });
+        fit(bl, 22, 292, 18);
+        // couvercle : bascule autour de la charnière (hauteur apparente = L·cos θ)
+        st.lid = g(v);
+        st.lidR = rect(st.lid, 0, 0, 320, 60, 0, C.paper, C.ink, 6, { 'vector-effect': 'non-scaling-stroke' });
+        st.lidH = H;
+        // tampon
+        st.nclip = g(v, { 'clip-path': clipNone });
+        const sb = stampBox(st.nclip, C.red, splitStamp(noneTxt), 36, 36, 20, 8, 150, 300);
+        st.nstamp = sb.grp;
+        st.nx = 1450; st.ny = y0 + 22;
+      }
+
+      /* ---------- tampon « sealed » ---------- */
+      st.sclip = g(sh, { 'clip-path': clipSeal });
+      {
+        const sb = stampBox(st.sclip, C.lime, [totalTxt], 64, 64, 22, 14, 150, 280);
+        st.sstamp = sb.grp;
+      }
+      // bordure de la feuille par-dessus les rangées qui glissent
+      path(sh, SHEET, 'none', C.ink, 8);
+      path(sh, FLAP, C.white, C.ink, 8);
+      return st;
+  }
+
+  ZV.define('promise-charter', {
+    init(root, shot) {
+      const st = build(root, shot);
+      st.lastT = 0;
+      // les mesures de texte dépendent des polices : si elles ne sont pas encore chargées, on reconstruit une fois qu'elles le sont
+      try {
+        const ok = document.fonts.check('800 50px "Bricolage Grotesque"', 'ÉA') && document.fonts.check('800 22px "JetBrains Mono"', 'A¹');
+        if (!ok) {
+          Promise.all([document.fonts.load('800 50px "Bricolage Grotesque"', 'ÉA'), document.fonts.load('800 22px "JetBrains Mono"', 'A¹'), document.fonts.load('600 22px "JetBrains Mono"', 'A¹')]).then(() => {
+            while (root.firstChild) root.removeChild(root.firstChild);
+            const t = st.lastT;
+            for (const k in st) delete st[k];
+            Object.assign(st, build(root, shot));
+            st.lastT = t;
+            try { draw(st, t); } catch (e) { /* rien */ }
+          }).catch(() => {});
+        }
+      } catch (e) { /* hors navigateur */ }
+      return st;
+    },
+
+    update(st, t, shot) {
+      st.lastT = t;
+      try { draw(st, t); } catch (e) { /* jamais d'exception */ }
+    }
+  });
+
+  // « IL N’EN EXISTE PAS » : 2 lignes équilibrées sur les espaces
+  function splitStamp(s) {
+    const w = s.split(/\s+/);
+    if (w.length < 2) return [s];
+    let best = 1, bd = 1e9;
+    for (let j = 1; j < w.length; j++) { const d = Math.abs(w.slice(0, j).join(' ').length - w.slice(j).join(' ').length); if (d < bd) { bd = d; best = j; } }
+    return [w.slice(0, best).join(' '), w.slice(best).join(' ')];
+  }
+
+  const ph = (t, t0, d) => (t0 == null ? 1 : prog(t, t0, t0 + d));
+  const on = (t, t0) => t0 == null || t >= t0;
+
+  function draw(st, t) {
+    /* feuille */
+    const ps = ph(t, st.tS, 14 * I);
+    const es = E.out3(ps);
+    setA(st.sheet, 'display', on(t, st.tS) ? 'inline' : 'none');
+    setA(st.sheet, 'transform', `translate(0 ${f2((1 - es) * 900)}) rotate(${f2(lerp(-4, -1, es))} 960 425)`);
+    // titre lettre à lettre (2 i par lettre) après l'arrivée de la feuille
+    let n = st.titleLen;
+    if (st.tS != null) { const dt = t - (st.tS + 14 * I); n = dt < 0 ? 0 : Math.min(st.titleLen, Math.floor(dt / (2 * I)) + 1); }
+    if (n !== st.titleN) { st.titleN = n; st.tn.textContent = st.title.slice(0, n); }
+
+    /* rangées */
+    for (let i = 0; i < 4; i++) {
+      const R = st.rows[i], t0 = st.tC[i];
+      const p1 = ph(t, t0, 10 * I);
+      setA(R.g, 'display', on(t, t0) ? 'inline' : 'none');
+      setA(R.g, 'transform', `translate(${f2(-(1 - E.out3(p1)) * 340)} 0)`);
+      const pc = ph(t, t0 == null ? null : t0 + 10 * I, 6 * I);
+      setA(R.box, 'fill', pc > 0 ? C.lime : C.paper);
+      setA(R.chk, 'visibility', pc > 0 ? 'visible' : 'hidden');
+      setA(R.chk, 'stroke-dasharray', `${f2(pc)} 2`);
+    }
+
+    /* 1 : étiquette collée */
+    {
+      const p = ph(t, st.tTag, 6 * I), e = E.out3(p);
+      put(st.tag, st.tagX + (1 - e) * 44, st.rows[0].cy + 24 - (1 - e) * 70, -8 - (1 - e) * 14, 1 + (1 - e) * 0.5, 1 + (1 - e) * 0.5, on(t, st.tTag) ? 1 : 0);
+      setA(st.staple, 'visibility', p >= 1 ? 'visible' : 'hidden');
+    }
+
+    /* 2 : renvoi de source, loupe */
+    {
+      const pd = ph(t, st.tFoot, 12 * I);
+      setA(st.dot, 'visibility', pd > 0 ? 'visible' : 'hidden');
+      setA(st.dot, 'y2', f2(lerp(st.dotY0, st.dotY1, pd)));
+      const pb = ph(t, st.tFoot == null ? null : st.tFoot + 8 * I, 4 * I);
+      setA(st.band, 'visibility', pb > 0 ? 'visible' : 'hidden');
+      setA(st.band, 'transform', `translate(1246 466) scale(${f2(Math.max(pb, 0.0001))} 1)`);
+      const pv = ph(t, st.tVer, 10 * I);
+      setA(st.lens, 'visibility', on(t, st.tVer) ? 'visible' : 'hidden');
+      setA(st.lens, 'transform', `translate(${f2(st.lensX + (1 - E.out3(pv)) * 340)} ${st.lensY})`);
+      const pk = ph(t, st.tVer == null ? null : st.tVer + 10 * I, 5 * I);
+      put(st.vok, st.vokX, st.vokY, 0, E.back(pk), E.back(pk), pk > 0 ? 1 : 0);
+    }
+
+    /* 3 : croix rouge (2 traits de 3 i, 8 i après la coche) */
+    {
+      const t3 = st.tC[2];
+      const base = t3 == null ? null : t3 + 18 * I;
+      const a = ph(t, base, 3 * I), b = ph(t, base == null ? null : base + 3 * I, 3 * I);
+      const y0 = st.xy0;
+      setA(st.x1, 'visibility', a > 0 ? 'visible' : 'hidden');
+      setA(st.x1, 'x2', f2(lerp(1314, 1506, a))); setA(st.x1, 'y2', f2(lerp(y0 + 18, y0 + 74, a)));
+      setA(st.x2, 'visibility', b > 0 ? 'visible' : 'hidden');
+      setA(st.x2, 'x2', f2(lerp(1506, 1314, b))); setA(st.x2, 'y2', f2(lerp(y0 + 18, y0 + 74, b)));
+    }
+
+    /* 4 : couvercle (0 → −110°) puis tampon */
+    {
+      const po = ph(t, st.tOpen, 10 * I);
+      const th = E.io2(po) * 110 * ZV.D2R;
+      const c = Math.cos(th);
+      setA(st.lid, 'transform', `translate(1250 ${st.lidH}) scale(1 ${f2(Math.abs(c) < 0.0001 ? 0.0001 : c)})`);
+      setA(st.lidR, 'fill', c >= 0 ? C.paper : C.white);
+      const on_ = on(t, st.tNone);
+      const pn = ph(t, st.tNone, 5 * I), s = lerp(2.4, 1, E.in2(pn));
+      const sk = st.tNone == null ? [0, 0] : ZV.shakeAt(t, st.tNone + 5 * I, 10, 0.35);
+      put(st.nstamp, st.nx + sk[0], st.ny + sk[1], -8, s, s, on_ ? 1 : 0);
+    }
+
+    /* tampon « sealed » : seulement s'il est cué, ou si le plan n'a aucun cue (état final) */
+    {
+      const shown = st.tSeal != null ? t >= st.tSeal : !st.anyCue;
+      const pn = st.tSeal == null ? 1 : prog(t, st.tSeal, st.tSeal + 5 * I), s = lerp(2.4, 1, E.in2(pn));
+      const sk = st.tSeal == null ? [0, 0] : ZV.shakeAt(t, st.tSeal + 5 * I, 6, 0.3);
+      put(st.sstamp, 1405 + sk[0], 140 + sk[1], 6, s, s, shown ? 1 : 0);
+    }
+  }
+})();
+;
+/* ==== tools/video/composition/components/rebate-loop.js ==== */
+// Composant `rebate-loop` (épisode 7) : la remise sur les pertes. Voir EP7-COMPONENTS.md.
+// À gauche une étiquette de prix (la perte) qui se balance au bout de sa ficelle, un sticker de remise, des liasses qui filent,
+// un ruban cadeau qui tombe ; à droite une boucle de trois nœuds reliés par des flèches, parcourue par un jeton.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter. Cues : loss, rebate, gift, price, longer, more, spin.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, put, rng, shakeAt } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : v != null && typeof v !== 'object' && String(v).length ? String(v) : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => n.setAttribute('visibility', on ? 'visible' : 'hidden');   // non mis en cache : ZV.put pose aussi cet attribut
+  const disp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');      // pour les groupes dont les enfants posent leur propre visibility
+  // largeurs réelles de Bricolage Grotesque 800 (em), mesurées ; Mono = 0,6 em
+  const WT = {};
+  '0:.67 1:.36 2:.61 3:.61 4:.64 5:.62 6:.66 7:.52 8:.66 9:.66 A:.71 B:.69 C:.69 D:.71 E:.63 F:.6 G:.73 H:.73 I:.3 J:.38 K:.7 L:.51 M:.96 N:.79 O:.73 P:.65 Q:.73 R:.69 S:.66 T:.58 U:.73 V:.68 W:1 X:.72 Y:.66 Z:.58 À:.71 Â:.71 É:.63 È:.63 Ê:.63 Î:.3 Ô:.73 Û:.73 Ç:.69 €:.75 %:.99 +:.53 ×:.53 −:.53 -:.36 .:.25 ,:.21 ::.26 ;:.24 \':.19 ’:.22 !:.3 ?:.43 |:.28 (:.33 ):.33 $:.65 ¢:.57 ≈:.55 →:1 ·:.25 /:.37 «:.48 »:.48 –:.55'.split(' ').forEach((p) => { WT[p[0]] = parseFloat(p.slice(2)); });
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += WT[ch] !== undefined ? WT[ch] : /\s/.test(ch) ? 0.22 : 0.6; return a * size; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  // retour à la ligne mesuré, équilibré sur 2 lignes ; réduit la taille plutôt que de déborder
+  function layout(words, sz, maxW, maxL) {
+    if (maxL <= 1) { const s = words.join(' '); return bw(s, sz) <= maxW ? [s] : null; }
+    const lines = []; let cur = '';
+    for (const w of words) { const nx = cur ? cur + ' ' + w : w; if (!cur || bw(nx, sz) <= maxW) cur = nx; else { lines.push(cur); cur = w; } }
+    lines.push(cur);
+    if (lines.length > maxL || lines.some((l) => bw(l, sz) > maxW)) return null;
+    if (lines.length === 2 && maxL === 2) {
+      let best = lines, bm = Math.max(bw(lines[0], sz), bw(lines[1], sz));
+      for (let k = 1; k < words.length; k++) { const a = words.slice(0, k).join(' '), b = words.slice(k).join(' '), m = Math.max(bw(a, sz), bw(b, sz)); if (m < bm && m <= maxW) { bm = m; best = [a, b]; } }
+      return best;
+    }
+    return lines;
+  }
+  function wrap(s, size, maxW, maxL, minS) {
+    const words = String(s).split(/\s+/).filter(Boolean); if (!words.length) words.push('');
+    for (let sz = size; sz >= minS; sz -= 2) { const L = layout(words, sz, maxW, maxL); if (L) return { lines: L, size: sz }; }
+    return { lines: layout(words, minS, 1e9, maxL) || [words.join(' ')], size: minS };
+  }
+  const fitSize = (s, size, maxW, minS) => Math.max(minS, Math.min(size, Math.floor(maxW / Math.max(0.01, bw(s, 1)))));
+  // texte qui s'écrit lettre à lettre : texte plein (textLength fixe) révélé par un clip ; set(n) = nombre de lettres visibles
+  function typed(parent, defs, id, s, x, y, size, fill, o) {
+    o = o || {};
+    const w = o.mono ? mw(s, size) : bw(s, size), W = Math.min(w, o.maxW || 1e9);
+    const x0 = o.anchor === 'middle' ? x - W / 2 : x;
+    const cp = sv('clipPath', { id }, defs), cr = rect(cp, x0 - 6, y - size * 1.1, 0, size * 1.5, 0, '#000');
+    const t = text(parent, s, x0, y, size, fill, { mono: o.mono, len: f2(W) });
+    t.setAttribute('clip-path', `url(#${id})`);
+    const chars = Array.from(s), cum = [0]; let acc = 0;
+    for (const ch of chars) { acc += o.mono ? 0.6 : (WT[ch] !== undefined ? WT[ch] : 0.4); cum.push(acc); }
+    return { t, n: chars.length, set(k) { k = Math.max(0, Math.min(chars.length, Math.floor(k))); const wv = k >= chars.length ? W + 12 : (cum[k] / acc) * W; setA(cr, 'width', f2(k <= 0 ? 0 : wv + 6)); vis(t, k > 0); } };
+  }
+
+  // positions des éléments (repère 1920×1080)
+  const HX = 470, HY = 100, SL = 165;                                          // crochet, ficelle (l'œillet est à y = HY + SL)
+  const NW = 360, NH = 150;
+  const CN = [[1400, 205], [1640, 615], [1130, 615]];                          // centres des nœuds
+  const LAP = 2.4;
+  const PATHLEN = (() => { let a = 0; for (let i = 0; i < 3; i++) { const p = CN[i], q = CN[(i + 1) % 3]; a += Math.hypot(q[0] - p[0], q[1] - p[1]); } return a; })();
+  const D3 = Math.hypot(CN[1][0] - CN[0][0], CN[1][1] - CN[0][1]) + Math.hypot(CN[2][0] - CN[1][0], CN[2][1] - CN[1][1]);   // distance au 3e nœud
+
+  // flèche plate entre deux points (p = avancement du tracé) ; la pointe est toujours visible
+  function mkArrow(parent, color) {
+    const o = {};
+    o.shaft = line(parent, 0, 0, 0, 0, color, 16); o.shaft.setAttribute('stroke-linecap', 'butt');
+    o.head = sv('polygon', { points: '0,0 0,0 0,0', fill: color }, parent);
+    o.set = (p, x1, y1, x2, y2) => {
+      const dx = x2 - x1, dy = y2 - y1, L = Math.max(1, Math.hypot(dx, dy)), ux = dx / L, uy = dy / L;
+      if (p <= 0.001) { vis(o.shaft, false); vis(o.head, false); return; }
+      const len = L * p, hl = Math.min(40, len), hw = 27 * Math.min(1, len / 40);
+      const tx = x1 + ux * len, ty = y1 + uy * len, bx = tx - ux * hl, by = ty - uy * hl;
+      setA(o.shaft, 'x1', f2(x1)); setA(o.shaft, 'y1', f2(y1)); setA(o.shaft, 'x2', f2(bx + ux * 3)); setA(o.shaft, 'y2', f2(by + uy * 3)); vis(o.shaft, len > hl);
+      setA(o.head, 'points', `${f2(tx)},${f2(ty)} ${f2(bx - uy * hw)},${f2(by + ux * hw)} ${f2(bx + uy * hw)},${f2(by - ux * hw)}`); vis(o.head, true);
+    };
+    return o;
+  }
+  function mkNode(parent, label) {
+    const o = {}; const W = wrap(label, 44, NW - 50, 2, 30), n = W.lines.length;
+    o.g = g(parent);
+    rect(o.g, -NW / 2 + 10, -NH / 2 + 10, NW, NH, 18, C.ink);
+    o.bd = rect(o.g, -NW / 2, -NH / 2, NW, NH, 18, C.ink, C.ink, 6);
+    o.inn = rect(o.g, -NW / 2 + 11, -NH / 2 + 11, NW - 22, NH - 22, 11, 'none', C.paper, 3);
+    o.tx = W.lines.map((l, i) => text(o.g, l, 0, (i - (n - 1) / 2) * W.size * 1.1 + W.size * 0.35, W.size, C.paper, { anchor: 'middle', len: f2(Math.min(bw(l, W.size), NW - 40)) }));
+    o.paint = (fill, tf, inn) => { setA(o.bd, 'fill', fill); setA(o.inn, 'stroke', inn); o.tx.forEach((x) => setA(x, 'fill', tf)); };
+    return o;
+  }
+
+  ZV.define('rebate-loop', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 12;
+      const first = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r === null || b.t < r)) r = b.t; return r; };
+      const NAMES = ['loss', 'rebate', 'gift', 'price', 'longer', 'more', 'spin'];
+      const T = {}; NAMES.forEach((n) => { T[n] = first(n); });
+      if (NAMES.every((n) => T[n] == null)) { const k = Math.min(1, dur / 13); const d = { loss: 0.4, rebate: 1.8, gift: 4.0, price: 5.4, longer: 6.8, more: 8.8, spin: 10.4 }; NAMES.forEach((n) => { T[n] = d[n] * k; }); }
+      const loss = str(P.loss, '1 000 000 $'), rate = str(P.rate, '−15 %'), back = str(P.back, 'ON LUI REND 150 000 $');
+      const nodes = Array.isArray(P.nodes) ? P.nodes.slice(0, 3) : [];
+      const dn = ['LA PERTE COÛTE MOINS CHER', 'IL JOUE PLUS LONGTEMPS', 'IL PERD PLUS'];
+      while (nodes.length < 3) nodes.push(dn[nodes.length]);
+      const gift = str(P.gift, 'UN CADEAU ?'), price = str(P.price, 'LE PRIX DE LA PERTE BAISSE');
+      const uid = 'rb' + (++UID);
+      const st = { T, uid, dur };
+      const r = rng(7007);
+
+      /* ---- fond et décor ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      circle(root, 1390, 470, 360, '#ECE8DC');
+      line(root, 905, 120, 905, 800, '#CFCABB', 6, { 'stroke-dasharray': '4 18' });
+      const defs = sv('defs', null, root);
+
+      /* ---- fantômes (le plan reste beau sans cue) ---- */
+      st.ghostTag = path(root, `M${HX - 240} 150 L${HX + 240} 150 L${HX + 330} 240 L${HX + 330} 700 L${HX - 330} 700 L${HX - 330} 240 Z`, 'none', '#CFCABB', 6, { 'stroke-dasharray': '16 12' });
+      st.ghostNodes = CN.map((c) => rect(root, c[0] - NW / 2, c[1] - NH / 2, NW, NH, 18, 'none', '#CFCABB', 6, { 'stroke-dasharray': '16 12' }));
+
+      /* ---- étiquette de prix ---- */
+      st.swing = g(root);
+      st.string = path(st.swing, 'M0 0 L0 ' + SL, 'none', C.ink, 8);
+      st.eyeG = g(st.swing, { transform: `translate(0 ${SL})` });
+      st.body = g(st.eyeG);
+      const poly = '-240,-50 240,-50 330,40 330,450 -330,450 -330,40';
+      sv('polygon', { points: poly, fill: C.ink, transform: 'translate(14 14)', 'stroke-linejoin': 'round', stroke: C.ink, 'stroke-width': 8 }, st.body);
+      sv('polygon', { points: poly, fill: C.paper, stroke: C.ink, 'stroke-width': 8, 'stroke-linejoin': 'round' }, st.body);
+      circle(st.body, 0, 0, 24, C.paper, C.ink, 7);
+      text(st.body, 'LA PERTE', -292, 112, 30, C.ink, { mono: true, spacing: 4, len: f2(mw('LA PERTE', 30) + 7 * 4) });
+      const vs = fitSize(loss, 120, 600, 56);
+      st.val = text(st.body, loss, 0, 318, vs, C.ink, { anchor: 'middle', len: f2(Math.min(bw(loss, vs), 600)) });
+      rect(st.body, -296, 342, 592, 8, 0, C.ink);
+      // sticker de remise
+      st.rate = g(st.body);
+      {
+        const w = 270, h = 96, sz = fitSize(rate, 66, w - 40, 36);
+        rect(st.rate, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+        rect(st.rate, -w / 2, -h / 2, w, h, 14, C.lime, C.ink, 6);
+        text(st.rate, rate, 0, sz * 0.35, sz, C.ink, { anchor: 'middle', len: f2(Math.min(bw(rate, sz), w - 40)) });
+      }
+      // sticker cadeau
+      st.gift = g(st.body);
+      {
+        const w = 380, h = 78, sz = fitSize(gift, 46, w - 40, 30);
+        rect(st.gift, -w / 2 + 8, -h / 2 + 8, w, h, 14, C.ink);
+        rect(st.gift, -w / 2, -h / 2, w, h, 14, C.paper, C.ink, 6);
+        text(st.gift, gift, 0, sz * 0.35, sz, C.ink, { anchor: 'middle', len: f2(Math.min(bw(gift, sz), w - 40)) });
+      }
+      // ruban (nœud plat lime)
+      st.bow = g(st.body);
+      {
+        const lp = 'M0 0 C-52 -64 -102 -22 -76 26 C-56 44 -22 22 0 0 Z';
+        path(st.bow, lp, C.lime, C.ink, 6);
+        path(st.bow, lp, C.lime, C.ink, 6, { transform: 'scale(-1 1)' });
+        path(st.bow, 'M-6 14 L-52 84 L-24 92 L6 30 Z', C.lime, C.ink, 6);
+        path(st.bow, 'M6 14 L52 84 L24 92 L-6 30 Z', C.lime, C.ink, 6);
+        rect(st.bow, -17, -17, 34, 34, 8, C.lime, C.ink, 6);
+      }
+      /* ---- liasses (devant l'étiquette) ---- */
+      st.bills = [];
+      for (let i = 0; i < 7; i++) {
+        const o = { g: g(root) };
+        rect(o.g, -39 + 5, -21 + 5, 78, 42, 5, C.ink);
+        rect(o.g, -39, -21, 78, 42, 5, C.paper, C.ink, 5);
+        rect(o.g, -9, -21, 18, 42, 0, C.lime, C.ink, 4);
+        o.p0 = [300 + (r() - 0.5) * 120, 690 + (r() - 0.5) * 20];
+        o.p1 = [30 + r() * 60, 690 + r() * 40];
+        o.p2 = [190 + r() * 90, 786 + r() * 8];
+        o.spin = (r() - 0.5) * 120; o.rot0 = (r() - 0.5) * 50; o.t0 = 0.2 + i * 0.16;
+        st.bills.push(o);
+      }
+
+      /* ---- légendes sous l'étiquette ---- */
+      st.band = g(root);
+      {
+        const sz = fitSize(back, 34, 640, 22), w = Math.min(700, mw(back, sz) + 56);
+        rect(st.band, 8, 8, w, 56, 10, C.lime);
+        rect(st.band, 0, 0, w, 56, 10, C.ink, C.ink, 5);
+        st.bandT = typed(st.band, defs, uid + 'b', back, 28, 38, sz, C.paper, { mono: true, maxW: w - 50 });
+        st.bandW = w;
+      }
+      st.band.setAttribute('transform', 'translate(120 778)');
+      {
+        const W = wrap(price, 52, 700, 2, 34); st.price = [];
+        W.lines.forEach((l, i) => st.price.push(typed(root, defs, uid + 'p' + i, l, HX, 694 + i * W.size * 1.06, W.size, C.ink, { anchor: 'middle', maxW: 700 })));
+        st.priceN = st.price.reduce((a, o) => a + o.n, 0);
+      }
+
+      /* ---- boucle ---- */
+      st.arrows = [0, 1, 2].map(() => mkArrow(root, C.ink)); st.sc = [1, 1, 1];
+      st.token = g(root);
+      circle(st.token, 5, 5, 22, C.ink); circle(st.token, 0, 0, 22, C.lime, C.ink, 6);
+      st.nodes = nodes.map((n) => mkNode(root, str(n, '')));
+      st.stamp = g(root);
+      {
+        const lab = 'DONC IL PERD PLUS', sz = 46, w = Math.min(640, bw(lab, sz) + 70), h = 88;
+        rect(st.stamp, -w / 2 + 9, -h / 2 + 9, w, h, 10, C.lime);
+        rect(st.stamp, -w / 2, -h / 2, w, h, 10, C.ink, C.ink, 6);
+        rect(st.stamp, -w / 2 + 9, -h / 2 + 9, w - 18, h - 18, 5, 'none', C.paper, 3);
+        text(st.stamp, lab, 0, sz * 0.35, sz, C.paper, { anchor: 'middle', len: f2(Math.min(bw(lab, sz), w - 50)) });
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const T = st.T;
+      const has = (n) => T[n] != null && t >= T[n];
+      const U = (n) => (T[n] != null ? t - T[n] : -1);
+
+      /* ---- étiquette ---- */
+      const tagOn = T.loss != null ? t >= T.loss : (T.rebate != null || T.gift != null || T.price != null);
+      vis(st.ghostTag, !tagOn);
+      disp(st.swing, tagOn);
+      if (tagOn) {
+        const u = T.loss != null ? t - T.loss : 99;
+        const drop = u < 0.4 ? -780 * (1 - E.out3(prog(u, 0, 0.4))) : 0;
+        const th = -4 + 14 * Math.exp(-3.2 * u) * Math.cos(10.5 * u);
+        let sx = 0, sy = 0;
+        if (T.rebate != null) { const s = shakeAt(t, T.rebate + 0.16, 6, 0.4); sx = s[0]; sy = s[1]; }
+        setA(st.swing, 'transform', `translate(${f2(HX + sx)} ${f2(HY + sy + drop)}) rotate(${f2(th)})`);
+        // rétrécissement + ficelle qui se détend
+        const up = U('price');
+        const k = up < 0 ? 0 : E.io2(prog(up, 0.25, 0.75)), sc = 1 - 0.2 * k;
+        setA(st.body, 'transform', `scale(${f2(sc)})`);
+        const sk = up < 0 ? 0 : E.io2(prog(up, 0.25, 0.9));
+        const wob = up < 0.9 ? 0 : 10 * Math.exp(-4 * (up - 0.9)) * Math.sin((up - 0.9) * 14);
+        setA(st.string, 'd', sk < 0.01 ? `M0 0 L0 ${SL}` : `M0 0 C${f2(64 * sk + wob)} ${f2(SL * 0.3)} ${f2(-74 * sk - wob)} ${f2(SL * 0.72)} 0 ${SL}`);
+        // sticker de remise
+        const ur = U('rebate');
+        if (ur < 0) vis(st.rate, false); else { const p = prog(ur, 0, 0.18); put(st.rate, 170, 148, 7, 1 + 1.4 * (1 - E.out3(p)), undefined, 1); }
+        // sticker cadeau + ruban
+        const ug = U('gift');
+        if (ug < 0) { vis(st.gift, false); vis(st.bow, false); } else {
+          const p = E.back(prog(ug, 0, 0.3));
+          put(st.gift, -110, 412, -5, p, undefined, 1);
+          const fall = up < 0 ? 0 : E.in2(prog(up, 0, 0.7));
+          if (fall >= 1) vis(st.bow, false); else put(st.bow, 226 + 40 * fall, 392 + 900 * fall, 12 + 70 * fall, p, undefined, 1);
+        }
+      }
+
+      /* ---- liasses + bandeau « back » ---- */
+      const ur = U('rebate');
+      st.bills.forEach((b) => {
+        const u = ur - b.t0, p = prog(u, 0, 0.8);
+        if (ur < 0 || u < 0 || p >= 1) { vis(b.g, false); return; }
+        const e = E.in2(p) * 0.6 + p * 0.4, a = 1 - e;
+        const x = a * a * b.p0[0] + 2 * a * e * b.p1[0] + e * e * b.p2[0], y = a * a * b.p0[1] + 2 * a * e * b.p1[1] + e * e * b.p2[1];
+        put(b.g, x, y, b.rot0 + b.spin * p, E.out2(prog(p, 0, 0.18)), undefined, 1);
+      });
+      if (ur < 0.5) disp(st.band, false); else { disp(st.band, true); const p = E.out3(prog(ur, 0.5, 0.7)); setA(st.band, 'transform', `translate(120 ${f2(778 + 60 * (1 - p))})`); st.bandT.set((ur - 0.7) * 30); }
+      // légende du prix
+      const up = U('price');
+      const pn = up < 0.55 ? 0 : (up - 0.55) * 30;
+      let rest = pn; st.price.forEach((o) => { o.set(rest); rest -= o.n; });
+
+      /* ---- boucle ---- */
+      const tl = T.longer, tm = T.more, ts = T.spin;
+      const tA3 = tm != null ? tm : ts;
+      const showN = [tl != null && t >= tl, tl != null && t >= tl + 0.7, (tl != null && t >= tl + 1.4) || (tm != null && t >= tm) || (ts != null && t >= ts)];
+      const litT = [tl != null ? tl + 0.2 : null, tl != null ? tl + 0.9 : null];
+      st.nodes.forEach((nd, i) => {
+        const on = showN[i]; vis(st.ghostNodes[i], !on); vis(nd.g, on);
+        if (!on) { st.sc[i] = 1; return; }
+        const t0 = i === 0 ? tl : i === 1 ? tl + 0.7 : Math.min(...[tl != null ? tl + 1.4 : 1e9, tm != null ? tm : 1e9, ts != null ? ts : 1e9]);
+        let s = E.back(prog(t - t0, 0, 0.3)), fill = C.ink, tf = C.paper, inn = C.paper;
+        if (i < 2 && litT[i] != null && t >= litT[i]) { fill = C.lime; tf = C.ink; inn = C.ink; }
+        if (i === 2) {
+          const g0 = tm != null ? tm : ts;
+          let grow = 1;
+          if (g0 != null && t >= g0) { fill = C.red; grow = 1 + 0.2 * E.back(prog(t - g0, 0, 0.3)); }
+          if (ts != null && t >= ts) {
+            // chaque passage du jeton sur le 3e nœud le fait grossir de 4 % (plafond 1.4)
+            let m = 0; const tp0 = ts + (D3 / PATHLEN) * LAP;
+            for (let k = 0; k < 40; k++) { const q = (t - (tp0 + k * LAP)) / 0.25; if (q <= 0) break; m += E.out2(clamp(q)); }
+            grow = Math.min(1.4, grow * Math.pow(1.04, m));
+          }
+          s *= grow;
+        }
+        nd.paint(fill, tf, inn);
+        st.sc[i] = s; put(nd.g, CN[i][0], CN[i][1], 0, s, undefined, 1);
+      });
+      // flèches : de bord à bord, selon l'échelle courante des nœuds
+      const edge = (i, ux, uy) => { const sc = st.sc[i], hw = 186 * sc, hh = 81 * sc; return Math.min(Math.abs(ux) < 1e-6 ? 1e9 : hw / Math.abs(ux), Math.abs(uy) < 1e-6 ? 1e9 : hh / Math.abs(uy)) + 12; };
+      const arrow = (k, i, j, p) => {
+        const a = CN[i], b = CN[j], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+        const d0 = edge(i, ux, uy), d1 = edge(j, -ux, -uy);
+        st.arrows[k].set(L - d0 - d1 < 30 ? 0 : p, a[0] + ux * d0, a[1] + uy * d0, b[0] - ux * d1, b[1] - uy * d1);
+      };
+      arrow(0, 0, 1, tl == null ? 0 : E.out2(prog(t - tl, 0.25, 0.65)));
+      arrow(1, 1, 2, tl == null ? 0 : E.out2(prog(t - tl, 0.95, 1.35)));
+      arrow(2, 2, 0, tA3 == null ? 0 : E.out2(prog(t - tA3, 0.05, 0.5)));
+      // tampon
+      if (tm == null || t < tm + 0.35) vis(st.stamp, false); else { const p = prog(t - tm - 0.35, 0, 0.16); put(st.stamp, 1400, 792, -3, 1 + 1.3 * (1 - E.out3(p)), undefined, 1); }
+      // jeton
+      if (ts == null || t < ts) vis(st.token, false); else {
+        let d = (((t - ts) / LAP) % 1) * PATHLEN, x = CN[0][0], y = CN[0][1];
+        for (let i = 0; i < 3; i++) { const p = CN[i], q = CN[(i + 1) % 3], L = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d <= L) { x = p[0] + (q[0] - p[0]) * d / L; y = p[1] + (q[1] - p[1]) * d / L; break; } d -= L; }
+        put(st.token, x, y, 0, 1, 1, 1);
+      }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/red-carpet.js ==== */
+// Composant `red-carpet` (épisode 7) : le tapis rouge déroulé, les cadeaux posés le long, et la case verte au bout. Voir EP7-COMPONENTS.md.
+// Cues : unroll, g1…g6 (cadeaux), long (serpentin), compare (deux bandes + virgule), end (le tapis finit devant la case verte).
+// Fonction pure du temps ; aplats, aucun dégradé / flou / filter ; aucune marque.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, shakeAt } = ZV;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' ? v : v == null ? d : String(v));
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const BW = { '0': .67, '1': .36, '2': .61, '3': .61, '4': .64, '5': .62, '6': .66, '7': .52, '8': .66, '9': .66, A: .71, B: .69, C: .69, D: .71, E: .63, F: .6, G: .73, H: .73, I: .3, J: .38, K: .7, L: .51, M: .96, N: .79, O: .73, P: .65, Q: .73, R: .69, S: .66, T: .58, U: .73, V: .68, W: 1, X: .72, Y: .66, Z: .58, 'À': .71, 'Â': .71, 'É': .63, 'È': .63, 'Ê': .63, 'Ë': .63, 'Î': .3, 'Ï': .3, 'Ô': .73, 'Û': .73, 'Ù': .73, 'Ç': .69, 'Œ': 1, ' ': .22, ' ': .22, ' ': .22, ',': .21, '.': .25, ':': .26, ';': .24, "'": .19, '’': .22, '!': .3, '?': .43, '|': .28, '%': .99, '€': .75, '≈': .55, '×': .53, '−': .53, '+': .53, '→': 1, '·': .25, '(': .33, ')': .33, '-': .36, '/': .37, '"': .38, '–': .55 };
+  const bw = (s, z) => { let a = 0; for (const ch of String(s)) { const w = BW[ch]; a += z * (w !== undefined ? w : ch >= 'a' && ch <= 'z' ? 0.6 : 0.7); } return a; };
+  const mw = (s, z) => Array.from(String(s)).length * z * 0.6;
+  const fitSize = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, bw(s, z)));
+  const fitMono = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, mw(s, z)));
+  const BT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ len: f2(bw(s, z)) }, o || {}));
+  const MT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ mono: true, len: f2(mw(s, z)) }, o || {}));
+  const pop = (t, t0, d) => (t < t0 ? 0 : E.back(prog(t, t0, t0 + (d || 0.25))));
+  const sc = (s) => Math.max(0.001, s);
+  const TR = (x, y, s, r) => `translate(${f2(x)} ${f2(y)})${r ? ` rotate(${f2(r)})` : ''} scale(${f2(sc(s))})`;
+
+  /* ---- pictos plats (centrés sur 0,0, ±75) ; dernier champ : 0 = sans trait, chaîne = couleur du trait (défaut ink) ---- */
+  const PIC = {
+    glass: [['p', 'M -44 -66 L 44 -66 Q 44 2 0 12 Q -44 2 -44 -66 Z', C.white], ['p', 'M -38 -34 L 38 -34 Q 35 -5 0 5 Q -35 -5 -38 -34 Z', C.paper, 0], ['r', -8, 10, 16, 46, 0, C.paper], ['r', -40, 54, 80, 16, 8, C.paper]],
+    plate: [['c', 0, 4, 46, C.white], ['c', 0, 4, 28, C.paper], ['r', -76, -58, 22, 40, 6, C.white], ['r', -72, -22, 14, 74, 6, C.white], ['p', 'M 60 -58 Q 76 -40 72 -14 L 72 -10 L 60 -10 Z', C.white], ['r', 60, -14, 12, 66, 5, C.white]],
+    key: [['c', -34, -10, 32, C.white], ['c', -34, -10, 11, C.ink, 0], ['r', -4, -20, 76, 20, 4, C.white], ['r', 40, -4, 12, 24, 2, C.white], ['r', 22, -4, 10, 15, 2, C.white], ['r', -62, 28, 56, 40, 8, C.paper], ['c', -34, 40, 6, C.ink, 0]],
+    card: [['r', -70, -46, 140, 92, 12, C.white], ['r', -70, -28, 140, 22, 0, C.ink, 0], ['r', -56, 10, 32, 24, 5, C.paper], ['r', -12, 14, 54, 7, 3, C.ink, 0], ['r', -12, 28, 36, 7, 3, C.ink, 0]],
+    host: [['p', 'M -70 72 Q -70 14 -30 6 L 30 6 Q 70 14 70 72 Z', C.ink, C.paper], ['p', 'M -20 6 L 20 6 L 0 56 Z', C.white], ['c', 0, -34, 30, C.paper], ['p', 'M -28 -2 L 0 10 L -28 22 Z', C.lime], ['p', 'M 28 -2 L 0 10 L 28 22 Z', C.lime], ['c', 0, 10, 7, C.lime]],
+    suite: [['r', -70, -46, 16, 106, 4, C.paper], ['r', -60, 16, 130, 32, 5, C.white], ['r', -54, -10, 42, 28, 12, C.paper], ['r', -8, 0, 78, 24, 5, C.paper], ['r', -66, 60, 12, 14, 2, C.paper], ['r', 58, 60, 12, 14, 2, C.paper]],
+    jet: [['p', 'M -70 -2 L -86 -46 L -50 -16 Z', C.ink, C.paper], ['p', 'M -4 18 L 30 64 L 8 64 L -32 18 Z', C.ink, C.paper], ['p', 'M -72 6 Q -72 -14 -40 -16 L 46 -16 Q 74 -10 82 6 Q 74 22 46 22 L -50 22 Q -72 22 -72 6 Z', C.ink, C.paper], ['r', -64, 3, 134, 8, 0, C.red, 0], ['c', -34, -4, 5, C.paper, 0], ['c', -14, -4, 5, C.paper, 0], ['c', 6, -4, 5, C.paper, 0], ['c', 26, -4, 5, C.paper, 0]]
+  };
+  function picto(parent, kind, shadowCol) {
+    const grp = g(parent), spec = PIC[kind] || PIC.card, BASE = { p: 3, r: 7, c: 5 };
+    const draw = (gr, sh) => {
+      for (const s of spec) {
+        const base = BASE[s[0]], extra = s.length > base ? s[base] : undefined;
+        const fill = sh ? shadowCol : s[base - 1], stroke = sh ? shadowCol : extra === 0 ? null : typeof extra === 'string' ? extra : C.ink;
+        if (s[0] === 'p') path(gr, s[1], fill, stroke, 4);
+        else if (s[0] === 'r') rect(gr, s[1], s[2], s[3], s[4], s[5], fill, stroke, 4);
+        else circle(gr, s[1], s[2], s[3], fill, stroke, 4);
+      }
+    };
+    if (shadowCol) draw(g(grp, { transform: 'translate(10 10)' }), true);
+    draw(g(grp), false);
+    return grp;
+  }
+  // bande de tapis (parallélogramme) entre x0 et x1, bord haut yT, bord bas yB, inclinaison sk ; renvoie les nœuds à mettre à jour
+  function mkStrip(parent, yT, yB, sk, lis) {
+    const o = { yT, yB, sk };
+    o.poly = path(parent, '', C.red);
+    o.top = line(parent, 0, yT, 0, yT, C.paper, lis, { 'stroke-linecap': 'butt' });
+    o.bot = line(parent, 0, yB, 0, yB, C.paper, lis, { 'stroke-linecap': 'butt' });
+    return o;
+  }
+  function setStrip(o, x0, x1, show) {
+    vis(o.poly, show); vis(o.top, show); vis(o.bot, show);
+    if (!show) return;
+    setA(o.poly, 'd', `M ${f2(x0 + o.sk)} ${o.yT} L ${f2(x1 + o.sk)} ${o.yT} L ${f2(x1)} ${o.yB} L ${f2(x0)} ${o.yB} Z`);
+    setA(o.top, 'x1', f2(x0 + o.sk)); setA(o.top, 'x2', f2(x1 + o.sk));
+    setA(o.bot, 'x1', f2(x0)); setA(o.bot, 'x2', f2(x1));
+  }
+
+  ZV.define('red-carpet', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 12;
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((a, b) => a - b);
+      const dflt = [{ cue: 'g1', icon: 'glass', label: 'LE VERRE' }, { cue: 'g2', icon: 'plate', label: 'LE REPAS' }, { cue: 'g3', icon: 'key', label: 'LA CHAMBRE' }, { cue: 'g4', icon: 'card', label: 'LE CRÉDIT' }];
+      const icons = ['glass', 'plate', 'key', 'card', 'host', 'suite', 'jet'];
+      const gifts = (Array.isArray(P.gifts) && P.gifts.length ? P.gifts : dflt).slice(0, 6).map((x, i) => {
+        const o = x && typeof x === 'object' ? x : { label: str(x, '') };
+        return { cue: str(o.cue, 'g' + (i + 1)), icon: icons.includes(o.icon) ? o.icon : icons[i % 4], label: str(o.label, '') };
+      });
+      const length = clamp(num(P.length, 0.75), 0.2, 0.95);
+      const zero = P.zero !== false;
+      const small = str(P.small, 'TON VERRE'), big = str(P.big, 'LEUR TAPIS ROUGE'), same = str(P.same, 'MÊME CALCUL');
+      const endLabel = str(P.end_label, 'IL FINIT TOUJOURS DEVANT LA CASE VERTE');
+      const st = { dur, gifts, zero, length, xfLen: 80 + length * 1840 };
+
+      /* ---- repères ---- */
+      const c = { unroll: cl('unroll')[0], g: gifts.map((x) => cl(x.cue)[0]) };
+      const ev = [];
+      for (const k of [['long', 'B'], ['compare', 'C'], ['end', 'E']]) for (const t of cl(k[0])) ev.push({ t, kind: k[1] });
+      ev.sort((a, b) => a.t - b.t);
+      const any = c.unroll != null || c.g.some((x) => x != null) || ev.length;
+      if (!any) {
+        const k = Math.min(1, dur / 8);
+        c.unroll = 0.4 * k; c.g = gifts.map((_, i) => (2.3 + 0.65 * i) * k);
+        ev.push({ t: (2.3 + 0.65 * gifts.length + 0.6) * k, kind: 'E' });
+      } else if (c.unroll == null) c.unroll = -10;
+      st.c = c; st.ev = ev;
+
+      /* ---- fond ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+
+      /* =========== scène principale =========== */
+      st.main = g(root);
+      st.world = g(st.main);
+      line(st.world, 0, 640, 1920, 640, C.paper, 6, { 'stroke-linecap': 'butt' });
+      st.strip = mkStrip(st.world, 520, 620, 60, 6);
+      st.dia = [];
+      for (let k = 0; k < 17; k++) st.dia.push(path(st.world, 'M -15 0 L 0 -9 L 15 0 L 0 9 Z', C.paper));
+      // cadeaux sur socles, espacés entre x 200 et x 1440
+      const n = gifts.length;
+      st.gfx = gifts.map((gf, i) => {
+        const x = n === 1 ? 820 : 200 + i * (1240 / (n - 1)), o = { x, g: g(st.world) };
+        const inner = g(o.g);
+        picto(g(inner, { transform: 'translate(0 337)' }), gf.icon, C.pocket);
+        rect(inner, -98 + 10, 412 + 10, 196, 30, 4, C.pocket);
+        rect(inner, -98, 412, 196, 30, 4, C.paper, C.ink, 6);
+        o.lab = g(o.g);
+        MT(o.lab, gf.label, 0, 474, 28, C.paper, { anchor: 'middle', len: f2(Math.min(mw(gf.label, 28), 230)) });
+        o.inner = inner;
+        return o;
+      });
+      // serpentin (long)
+      st.serp = g(st.main);
+      const xL = 140, xR = 1780, xE = 1690, ys = [199.5, 325, 450, 575, 700];
+      const wp = [[0.35 * (st.xfLen + 30), ys[0]], [xR, ys[0]], [xR, ys[1]], [xL, ys[1]], [xL, ys[2]], [xR, ys[2]], [xR, ys[3]], [xL, ys[3]], [xL, ys[4]], [xE, ys[4]]];
+      const poly = [wp[0]], rc = 34;
+      for (let i = 1; i < wp.length - 1; i++) {
+        const a = wp[i - 1], b = wp[i], d = wp[i + 1];
+        const l1 = Math.hypot(b[0] - a[0], b[1] - a[1]), l2 = Math.hypot(d[0] - b[0], d[1] - b[1]);
+        const p1 = [b[0] + (a[0] - b[0]) / l1 * rc, b[1] + (a[1] - b[1]) / l1 * rc], p2 = [b[0] + (d[0] - b[0]) / l2 * rc, b[1] + (d[1] - b[1]) / l2 * rc];
+        for (let k = 0; k <= 8; k++) { const u = k / 8, w = 1 - u; poly.push([w * w * p1[0] + 2 * w * u * b[0] + u * u * p2[0], w * w * p1[1] + 2 * w * u * b[1] + u * u * p2[1]]); }
+      }
+      poly.push(wp[wp.length - 1]);
+      const cum = [0]; for (let i = 1; i < poly.length; i++) cum.push(cum[i - 1] + Math.hypot(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1]));
+      st.poly = poly; st.cum = cum; st.L = cum[cum.length - 1];
+      const d = poly.map((p, i) => (i ? 'L ' : 'M ') + f2(p[0]) + ' ' + f2(p[1])).join(' ');
+      st.sA = path(st.serp, d, 'none', C.paper, 44, { 'stroke-linejoin': 'round', 'stroke-linecap': 'butt' });
+      st.sB = path(st.serp, d, 'none', C.red, 32, { 'stroke-linejoin': 'round', 'stroke-linecap': 'butt' });
+      const distOf = (yRun, x, left) => { for (let i = 0; i < poly.length; i++) if (Math.abs(poly[i][1] - yRun) < 1.5 && (left ? poly[i][0] <= x : poly[i][0] >= x)) return cum[i]; return st.L * 0.5; };
+      st.sg = [['host', ys[1], 1150, true, 'L’HÔTE'], ['suite', ys[2], 620, false, 'LA SUITE'], ['jet', ys[3], 1300, true, 'LE JET']].map(([kind, y, x, left, lab]) => {
+        const o = { y, x, dist: distOf(y, x, left), g: g(st.serp) };
+        const inner = g(o.g); o.inner = inner;
+        picto(g(inner, { transform: 'translate(0 -57) scale(0.44)' }), kind, null);
+        MT(inner, lab, 44, -48, 24, C.paper, { anchor: 'start' });
+        return o;
+      });
+      // la fonction qui donne la distance déroulée dans le serpentin (τ depuis le début de l'étape) : io2 entre 1,2 s et 5,2 s
+      st.dFrac = (tau) => E.io2(prog(tau, 1.2, 5.2));
+      st.tLand = (dist) => { let a = 1.2, b = 5.2; const f = dist / st.L; for (let i = 0; i < 24; i++) { const m = (a + b) / 2; if (st.dFrac(m) < f) a = m; else b = m; } return b; };
+      st.sg.forEach((o) => { o.tl = st.tLand(o.dist) + 0.15; });
+      st.mil = g(st.serp);
+      { const lab = 'QUAND LE THÉO SE COMPTE EN MILLIONS', z = fitMono(lab, 36, 1100); MT(st.mil, lab, 0, z * 0.33, z, C.paper, { anchor: 'middle' }); }
+      st.pointAt = (dist) => {
+        dist = clamp(dist, 0, st.L); let lo = 0, hi = cum.length - 1;
+        while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] <= dist) lo = m; else hi = m; }
+        const u = (dist - cum[lo]) / Math.max(1e-6, cum[hi] - cum[lo]);
+        return [lerp(poly[lo][0], poly[hi][0], u), lerp(poly[lo][1], poly[hi][1], u)];
+      };
+      // rouleau (hors du monde : sa position est calculée)
+      st.roll = g(st.main);
+      circle(st.roll, 0, 0, 1, C.red, C.ink, 6).setAttribute('vector-effect', 'non-scaling-stroke');
+      {
+        let sp = '';
+        for (let i = 0; i <= 64; i++) { const u = i / 64, a = u * 2.6 * 2 * Math.PI, r = 0.1 + 0.8 * u; sp += (i ? ' L ' : 'M ') + f2(r * Math.cos(a)) + ' ' + f2(r * Math.sin(a)); }
+        path(st.roll, sp, 'none', C.ink, 4, { 'vector-effect': 'non-scaling-stroke' });
+      }
+      // case verte
+      st.box = g(st.main);
+      if (zero) {
+        rect(st.box, -120 + 10, -240 + 10, 240, 240, 36, C.pocket);
+        rect(st.box, -120, -240, 240, 240, 36, C.lime, C.ink, 8);
+        BT(st.box, '0', 0, -120 + 180 * 0.35, 180, C.ink, { anchor: 'middle' });
+      }
+      // étiquette de fin
+      st.endL = g(st.main);
+      {
+        const z = fitSize(endLabel, 64, 1740), w = bw(endLabel, z);
+        BT(st.endL, endLabel, 0, z * 0.35, z, C.paper, { anchor: 'middle' });
+        const k = endLabel.indexOf('CASE VERTE');
+        if (k >= 0) { const x0 = -w / 2 + bw(endLabel.slice(0, k), z); rect(st.endL, x0, z * 0.35 + 12, bw('CASE VERTE', z), 10, 0, C.lime); }
+      }
+
+      /* =========== vue « compare » =========== */
+      st.cmp = g(root);
+      const Cg = st.cmp;
+      line(Cg, 60, 306, 1860, 306, C.paper, 6, { 'stroke-linecap': 'butt' });
+      line(Cg, 0, 770, 1920, 770, C.paper, 6, { 'stroke-linecap': 'butt' });
+      st.cS = mkStrip(Cg, 268, 300, 24, 4);
+      st.cB = mkStrip(Cg, 668, 748, 50, 6);
+      st.cGlass = g(Cg);
+      picto(g(st.cGlass, { transform: 'translate(0 190) scale(0.62)' }), 'glass', null);
+      rect(st.cGlass, -48, 238, 96, 22, 4, C.paper, C.ink, 4);
+      st.cSmall = g(Cg);
+      { const z = fitSize(small, 56, 520); BT(st.cSmall, small, 0, z * 0.35, z, C.paper, { anchor: 'start' }); }
+      st.cBig = g(Cg);
+      { const z = fitSize(big, 56, 700); BT(st.cBig, big, 0, z * 0.35, z, C.paper, { anchor: 'start' }); }
+      st.cG = [['host', 900], ['suite', 1250], ['jet', 1600]].map(([k, x]) => {
+        const o = { x, g: g(Cg) }; const inner = g(o.g); o.inner = inner;
+        picto(g(inner, { transform: 'translate(0 560)' }), k, C.pocket);
+        rect(inner, -98 + 10, 636 + 10, 196, 26, 4, C.pocket);
+        rect(inner, -98, 636, 196, 26, 4, C.paper, C.ink, 6);
+        return o;
+      });
+      st.cSame = g(Cg);
+      { const z = fitSize(same, 72, 800); BT(st.cSame, same, 0, z * 0.35, z, C.paper, { anchor: 'start' }); }
+      st.cComma = g(Cg);
+      {
+        const tail = 'M 22 -10 C 34 30 18 74 -28 96 L -14 52 C 6 40 8 18 -12 4 Z';
+        path(st.cComma, tail, C.ink, C.ink, 16); circle(st.cComma, 0, -28, 40, C.ink, C.ink, 16);
+        path(st.cComma, tail, C.lime); circle(st.cComma, 0, -28, 40, C.lime);
+      }
+      st.cStk = g(Cg);
+      {
+        const lab = 'SEULE LA VIRGULE CHANGE DE PLACE', z = fitSize(lab, 44, 940), w = bw(lab, z) + 56, h = 68;
+        rect(st.cStk, -w / 2 + 9, -h / 2 + 9, w, h, 12, C.pocket);
+        rect(st.cStk, -w / 2, -h / 2, w, h, 12, C.paper, C.ink, 6);
+        BT(st.cStk, lab, 0, z * 0.35, z, C.ink, { anchor: 'middle' });
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const ev = st.ev, c = st.c;
+      /* ---- étape de vue courante ---- */
+      let j = -1; for (let i = 0; i < ev.length; i++) if (ev[i].t <= t) j = i;
+      const seg = j >= 0 ? ev[j] : null, kind = seg ? seg.kind : 'A', prevKind = j > 0 ? ev[j - 1].kind : 'A';
+      const ts = seg ? seg.t + (prevKind === 'C' && kind !== 'C' ? 0.5 : 0) : 0;
+      /* conveyor main <-> compare */
+      let offM = 0, mainOn = true, offC = 0, cmpOn = false, cmpT0 = 0;
+      if (kind === 'C') {
+        offM = -1080 * E.io2(prog(t, seg.t, seg.t + 0.3)); mainOn = t < seg.t + 0.32;
+        offC = 1080 * (1 - E.out3(prog(t, seg.t + 0.15, seg.t + 0.5))); cmpOn = t >= seg.t + 0.15; cmpT0 = seg.t + 0.5;
+      } else if (prevKind === 'C' && seg) {
+        offC = -1080 * E.io2(prog(t, seg.t, seg.t + 0.3)); cmpOn = t < seg.t + 0.32; cmpT0 = ev[j - 1].t + 0.5;
+        offM = 1080 * (1 - E.out3(prog(t, seg.t + 0.15, seg.t + 0.5))); mainOn = t >= seg.t + 0.15;
+      }
+      vis(st.main, mainOn); vis(st.cmp, cmpOn);
+      setA(st.main, 'transform', `translate(0 ${f2(offM)})`);
+      setA(st.cmp, 'transform', `translate(0 ${f2(offC)})`);
+      if (cmpOn) updCompare(st, t - cmpT0);
+      if (!mainOn) return;
+
+      /* ---- scène principale ---- */
+      const xfLen = st.xfLen;
+      let s = 1, pS = 0;
+      const tauB = t - ts;
+      if (kind === 'B') { s = lerp(1, 0.35, E.io2(prog(tauB, 0, 1.4))); pS = st.dFrac(tauB); }
+      else if (kind === 'E' && prevKind === 'B') { s = lerp(0.35, 1, E.io2(prog(t, ts, ts + 1.0))); pS = 1 - E.in2(prog(t, ts, ts + 0.8)); }
+      let xf = lerp(80, xfLen, E.out3(prog(t, c.unroll, c.unroll + 1.6)));
+      if (kind === 'E') xf = lerp(xfLen, 1700, E.out3(prog(t, ts, ts + 1.2)));
+      setA(st.world, 'transform', `scale(${f2(s)})`);
+      setStrip(st.strip, 80, xf, xf > 90);
+      st.dia.forEach((n, k) => { const x = 140 + k * 110; const on = x < xf - 10 && xf > 90; vis(n, on); if (on) setA(n, 'transform', `translate(${f2(x + 30)} 570)`); });
+      /* cadeaux */
+      st.gfx.forEach((o, i) => {
+        const t0 = c.g[i], u = t0 == null ? -1 : t - t0;
+        const on = t0 != null && u >= 0;
+        vis(o.g, on);
+        if (!on) return;
+        const fall = 300, p = clamp(u / 0.2), dy = u < 0.2 ? -fall * (1 - p * p) : -0.04 * fall * Math.sin(Math.PI * clamp((u - 0.2) / 0.133));
+        setA(o.g, 'transform', `translate(${f2(o.x)} ${f2(dy)})`);
+        const k = pop(u, 0.2, 0.25); setA(o.lab, 'transform', `translate(0 474) scale(${f2(sc(k))}) translate(0 -474)`);
+      });
+      /* serpentin */
+      const serpOn = pS > 0.0005;
+      vis(st.serp, serpOn);
+      if (serpOn) {
+        const dd = pS * st.L;
+        setA(st.sA, 'stroke-dasharray', `${f2(dd)} ${f2(st.L + 60)}`); setA(st.sB, 'stroke-dasharray', `${f2(dd)} ${f2(st.L + 60)}`);
+        st.sg.forEach((o) => {
+          const u = kind === 'B' ? tauB - o.tl : -1, on = kind === 'B' && u >= 0;
+          vis(o.g, on);
+          if (!on) return;
+          const p = clamp(u / 0.2), dy = u < 0.2 ? -160 * (1 - p * p) : -6 * Math.sin(Math.PI * clamp((u - 0.2) / 0.133));
+          setA(o.g, 'transform', `translate(${f2(o.x)} ${f2(o.y + dy)})`);
+        });
+        const k = pop(tauB, 1.0, 0.3); setA(st.mil, 'transform', `translate(1280 72) scale(${f2(sc(kind === 'B' ? k : 0))})`); vis(st.mil, kind === 'B' && k > 0.001);
+      } else { vis(st.mil, false); }
+      /* rouleau */
+      {
+        const r0 = lerp(50, 18, clamp((xf - 80) / 1620));
+        let px = s * (xf + 30), py = s * 570, r = s * r0;
+        if (serpOn) { const tip = st.pointAt(pS * st.L), w = clamp(pS / 0.03); px = lerp(px, tip[0], w); py = lerp(py, tip[1], w); r = lerp(r, 15, w); }
+        const ang = (0.6 * (xf - 80) / Math.max(r0, 8) + (serpOn ? pS * st.L / 140 : 0)) * 57.2958;
+        setA(st.roll, 'transform', `translate(${f2(px)} ${f2(py)}) rotate(${f2(ang)}) scale(${f2(sc(r))})`);
+        vis(st.roll, true);                                                          // en fin de course, la case (au premier plan) recouvre le rouleau
+      }
+      /* case verte */
+      if (st.zero) {
+        const sBase = (x) => lerp(0.55, 1, E.io2(prog(x, 900, 1500)));
+        let bx = 1680, by = 620, sb = sBase(kind === 'A' ? xf : xfLen);
+        if (kind === 'B') {
+          const w = E.io2(prog(tauB, 1.0, 2.2)), ws = sBase(xfLen) * s;
+          bx = lerp(1680 * s, 1700, w); by = lerp(620 * s, 742, w); sb = lerp(ws, 0.55, w);
+        } else if (kind === 'E') {
+          const b0 = sBase(xfLen);
+          sb = lerp(b0, 1.25, E.back(prog(t, ts + 1.0, ts + 1.6)));
+          if (prevKind === 'B') { const w = E.io2(prog(t, ts, ts + 1.0)); bx = lerp(1700, bx, w); by = lerp(742, by, w); sb = lerp(0.55, sb, w); }
+          const [dx, dy] = shakeAt(t, ts + 1.0, 6, 0.4); bx += dx; by += dy;
+        }
+        setA(st.box, 'transform', `translate(${f2(bx)} ${f2(by)}) scale(${f2(sc(sb))})`);
+      }
+      /* étiquette de fin */
+      {
+        const k = kind === 'E' ? pop(t, ts + 1.5, 0.3) : 0;
+        setA(st.endL, 'transform', `translate(960 215) scale(${f2(sc(k))})`); vis(st.endL, k > 0.001);
+      }
+    }
+  });
+
+  /* vue « compare » : τ = secondes depuis le début de la vue (après le conveyor) */
+  function updCompare(st, tau) {
+    // bande du haut : tapis minuscule, un seul verre
+    const a = E.out3(prog(tau, 0.1, 0.5));
+    setStrip(st.cS, 200, 200 + 160 * a, a > 0.02);
+    const kg = tau < 0.4 ? 0 : 1, fall = 160, u = tau - 0.4;
+    const dy = u < 0 ? -fall : u < 0.2 ? -fall * (1 - (u / 0.2) * (u / 0.2)) : -0.04 * fall * Math.sin(Math.PI * clamp((u - 0.2) / 0.133));
+    setA(st.cGlass, 'transform', `translate(282 ${f2(dy)})`); vis(st.cGlass, kg > 0);
+    const k1 = pop(tau, 0.7, 0.25); setA(st.cSmall, 'transform', `translate(430 215) scale(${f2(sc(k1))})`); vis(st.cSmall, k1 > 0.001);
+    // bande du bas : tapis qui traverse tout le cadre
+    const b = E.out3(prog(tau, 0.7, 1.7));
+    setStrip(st.cB, -90, -90 + 2100 * b, b > 0.01);
+    st.cG.forEach((o, i) => {
+      const t0 = 1.5 + 0.2 * i, v = tau - t0, on = v >= 0; vis(o.g, on);
+      if (!on) return;
+      const f = 300, d = v < 0.2 ? -f * (1 - (v / 0.2) * (v / 0.2)) : -0.04 * f * Math.sin(Math.PI * clamp((v - 0.2) / 0.133));
+      setA(o.g, 'transform', `translate(${o.x} ${f2(d)})`);
+    });
+    const k2 = pop(tau, 2.0, 0.25); setA(st.cBig, 'transform', `translate(100 515) scale(${f2(sc(k2))})`); vis(st.cBig, k2 > 0.001);
+    const k3 = pop(tau, 2.6, 0.25); setA(st.cSame, 'transform', `translate(100 420) scale(${f2(sc(k3))})`); vis(st.cSame, k3 > 0.001);
+    // la virgule : saute de la bande du haut à la bande du bas
+    const x0 = 1000, y0 = 222, x1 = 520, y1 = 652, tj = 3.4, p = prog(tau, tj, tj + 10 / 30), e = E.back(p);
+    const kc = tau < 2.6 ? 0 : tau < tj ? pop(tau, 2.6, 0.25) : 1;
+    const cx = lerp(x0, x1, e), cy = lerp(y0, y1, e) - 230 * Math.sin(Math.PI * clamp(p));
+    setA(st.cComma, 'transform', `translate(${f2(cx)} ${f2(cy)}) rotate(${f2(-24 * Math.sin(Math.PI * clamp(p)))}) scale(${f2(sc(kc) * 1.2)})`); vis(st.cComma, kc > 0.001);
+    const k4 = pop(tau, 3.9, 0.3); setA(st.cStk, 'transform', `translate(1190 392) rotate(-2) scale(${f2(sc(k4))})`); vis(st.cStk, k4 > 0.001);
+  }
+})();
+;
 /* ==== tools/video/composition/components/rtp-bars.js ==== */
 // Composant « rtp-bars » (épisode 2) : « la case verte invisible », le taux de redistribution. Voir EP2-COMPONENTS.md.
 // Deux barres de 100 unités (1500 px) : part rendue en paper, part gardée en lime. Fonction pure du temps du plan ; aplats seulement.
@@ -11242,6 +17494,2072 @@
   });
 })();
 ;
+/* ==== tools/video/composition/components/savings-drain.js ==== */
+// Composant `savings-drain` (épisode 8) : l'argent de Sami, saison par saison. Voir EP8-COMPONENTS.md.
+// Fond paper. Gauche : la jauge du compte ; droite : téléphone + lit ; entre les deux, un tuyau où défilent les jetons de dépôt.
+// Mode `payday` : frise de 3 mois, le salaire tombe dans la jauge et repart le jour même par un seul gros jeton red.
+// Cues : save, belief, r10, r100, r500, r1000 (noms = props.rates[].cue), bed, two-months, empty, payday (xN), rent.
+// Fonction pure du temps ; aplats seulement ; aucun dégradé, flou, lueur, filter ; au plus 4 jetons émis par seconde.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, shakeAt, fr } = ZV;
+  let UID = 0;
+  const NB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const setT = (n, s) => { if (n.__s !== s) { n.__s = s; n.textContent = s; } };
+  const mono = (parent, s, x, y, size, fill, o) => text(parent, s, x, y, size, fill, Object.assign({ mono: true }, o || {}));
+  function fit(n, maxW) {
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); } } catch (e) { /* hors DOM */ }
+  }
+  // réduit la taille de police pour que le pire cas tienne dans maxW (texte dynamique)
+  function fitSize(n, worst, size, maxW) {
+    const keep = n.textContent;
+    n.textContent = worst;
+    try { const w = n.getComputedTextLength(); if (w > maxW && w > 0) n.setAttribute('font-size', f2(size * maxW / w)); } catch (e) { /* hors DOM */ }
+    n.textContent = keep;
+  }
+  // boîte « sticker » (ombre dure + face) placée derrière le texte `tn`
+  function boxBehind(grp, tn, w, h, face, shadow, r, sw, sh) {
+    const a = rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, r, shadow, C.ink, 4);
+    const b = rect(grp, -w / 2, -h / 2, w, h, r, face, C.ink, sw);
+    grp.insertBefore(a, tn); grp.insertBefore(b, tn);
+  }
+  const eur = (n) => fr(Math.max(0, Math.round(n))) + NB + '€';
+
+  const GX = 140, GY = 150, GW = 300, GH = 630, GI = 8;            // jauge
+  const PX0 = 440, PX1 = 1540, PY = 380, PH = 90;                  // tuyau
+  const SPEED = 640;
+  const TOK = [{ w: 34, h: 22, f: 0, rate: 0.8 }, { w: 100, h: 50, f: 28, rate: 1.6 }, { w: 124, h: 58, f: 32, rate: 2.6 }, { w: 150, h: 66, f: 36, rate: 3.6 }];
+  const POOL = 14;
+
+  ZV.define('savings-drain', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const uid = 'sd' + (++UID);
+      const st = { uid, dur: Math.max(0.1, shot.dur || 1) };
+      st.mode = P.mode === 'payday' ? 'payday' : 'seasons';
+      st.savings = clamp(isNum(P.savings) ? P.savings : 15000, 1, 1e9);
+      st.start = clamp(isNum(P.start_level) ? P.start_level : 0, 0, st.savings);
+      st.months = clamp(Math.round(isNum(P.months) ? P.months : 3), 1, 3);
+      st.belief = str(P.belief, '« UN PEU LE JEU », SE DIT-IL');
+      const dr = [{ cue: 'r10', label: '10' + NB + '€', amount: 10 }, { cue: 'r100', label: '100' + NB + '€ / SEMAINE', amount: 100 }, { cue: 'r500', label: '500' + NB + '€ / SEMAINE', amount: 500 }, { cue: 'r1000', label: '1' + ' ' + '000' + NB + '€ / JOUR', amount: 1000 }];
+      st.rates = (Array.isArray(P.rates) && P.rates.length ? P.rates.slice(0, 6) : dr).map((r, i) => ({
+        cue: str(r && r.cue, dr[i] ? dr[i].cue : 'r' + i), label: str(r && r.label, dr[i] ? dr[i].label : '').replace(/ /g, NB), amount: isNum(r && r.amount) ? r.amount : (dr[i] ? dr[i].amount : 100), tok: TOK[Math.min(i, TOK.length - 1)]
+      }));
+
+      /* ---- repères ---- */
+      const cu = (n) => ZV.cue(shot, n);
+      const c = { save: cu('save'), belief: cu('belief'), bed: cu('bed'), two: cu('two-months'), empty: cu('empty'), rent: cu('rent') };
+      st.rc = st.rates.map((r) => cu(r.cue));
+      st.pay = ZV.cues(shot, 'payday').map((b) => b.t).sort((a, b) => a - b).slice(0, st.months);
+      const none = Object.values(c).every((x) => x === null) && st.rc.every((x) => x === null) && !st.pay.length;
+      if (none) {
+        const f = Math.min(1, st.dur / 14);
+        if (st.mode === 'payday') st.pay = [0.15, 0.43, 0.71].slice(0, st.months).map((x) => x * st.dur);
+        else { c.save = 0.3 * f; c.belief = 3.0 * f; st.rc = st.rates.map((r, i) => (4.4 + 1.2 * i) * f); c.bed = 9.4 * f; c.two = 10.6 * f; c.empty = 12.4 * f; }
+      }
+      if (st.mode === 'payday' && !st.pay.length && !none) st.pay = [];
+      st.c = c;
+
+      /* ---- segments de cadence + liste des jetons (déterministe) ---- */
+      const segs = [];
+      const order = st.rc.map((t, i) => ({ t, i })).filter((x) => x.t !== null).sort((a, b) => a.t - b.t);
+      const tStop = Math.min(c.two !== null ? c.two : Infinity, c.empty !== null ? c.empty : Infinity, st.dur + 1);
+      order.forEach((o, k) => { const end = Math.min(k + 1 < order.length ? order[k + 1].t : Infinity, tStop); if (end > o.t) segs.push({ a: o.t, b: end, i: o.i }); });
+      st.segs = segs;
+      st.tokens = [];
+      if (st.mode === 'seasons') {
+        segs.forEach((s) => { const tk = st.rates[s.i].tok, step = 1 / tk.rate; for (let te = s.a + 0.12; te < s.b - 0.02; te += step) st.tokens.push({ te, i: s.i }); });
+        if (c.empty !== null) { const N = 6, last = st.rates.length - 1; for (let j = 0; j < N; j++) st.tokens.push({ te: c.empty + 1.7 * (1 - Math.sqrt(1 - j / N)) * 1.0 + 0.05, i: last }); }
+        st.tokens.sort((a, b) => a.te - b.te);
+      }
+      // flux naturel (€ par seconde, continu) pour la jauge ; mis à l'échelle pour valoir exactement 5 000 € à `two-months`
+      st.flow = segs.map((s) => ({ a: s.a, b: s.b, v: st.rates[s.i].amount * st.rates[s.i].tok.rate }));
+      st.nat = (t) => { let d = 0; for (const f of st.flow) d += f.v * clamp(t - f.a, 0, f.b - f.a); return d; };
+      st.tStart = (c.save !== null ? c.save + 2.5 : 0);
+      if (c.two !== null) { const N = st.nat(c.two); st.twoN = N; }
+
+      /* ---- décor ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+      const pt = sv('pattern', { id: uid + 'h', width: 16, height: 16, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+      sv('rect', { x: 0, y: 0, width: 16, height: 16, fill: C.lime }, pt); sv('rect', { x: 0, y: 0, width: 5, height: 16, fill: C.ink }, pt);
+      const clipB = sv('clipPath', { id: uid + 'cb' }, defs); sv('rect', { x: 0, y: 0, width: 1920, height: GY + 2 }, clipB);
+
+      /* tuyau */
+      rect(root, PX0 + 8, PY + 8, PX1 - PX0, PH, 6, C.ink);
+      rect(root, PX0, PY, PX1 - PX0, PH, 6, C.pocket, C.ink, 6);
+      line(root, PX0 + 20, PY + PH / 2, PX1 - 20, PY + PH / 2, '#2A2A2A', 3, { 'stroke-dasharray': '2 24', 'stroke-linecap': 'butt' });
+      /* jetons (réserve) */
+      st.tk = [];
+      for (let k = 0; k < POOL; k++) {
+        const tg = g(root); tg.setAttribute('display', 'none');
+        const r = rect(tg, 0, 0, 100, 50, 12, C.red, C.ink, 4);
+        const tx = mono(tg, '', 50, 34, 28, C.paper, { anchor: 'middle', weight: 800 });
+        st.tk.push({ g: tg, r, tx });
+      }
+      /* gros jeton du jour de paie */
+      st.big = g(root); st.big.setAttribute('display', 'none');
+      rect(st.big, 0, 0, 240, 70, 14, C.red, C.ink, 5);
+      { const t = text(st.big, 'SALAIRE', 120, 49, 40, C.paper, { anchor: 'middle' }); fit(t, 200); }
+
+      /* jauge */
+      st.gaugeG = g(root);
+      rect(st.gaugeG, GX + 10, GY + 10, GW, GH, 20, C.ink);
+      rect(st.gaugeG, GX, GY, GW, GH, 20, C.white);
+      st.fill = rect(st.gaugeG, GX + GI, GY + GH - GI, GW - 2 * GI, 0, 6, C.lime);
+      st.slice = rect(st.gaugeG, GX + GI, GY + GI, GW - 2 * GI, 36, 6, `url(#${uid}h)`, C.ink, 3);
+      rect(st.gaugeG, GX, GY, GW, GH, 20, 'none', C.ink, 8);
+      st.gaugeG.insertBefore(st.fill, st.slice);
+
+      /* blocs « SALAIRE » qui tombent dans la jauge */
+      st.blk = [];
+      { const bg = g(root, { 'clip-path': `url(#${uid}cb)` }); const nb = st.mode === 'payday' ? 1 : 6;
+        for (let k = 0; k < nb; k++) { const b = g(bg); b.setAttribute('display', 'none'); const w = st.mode === 'payday' ? 230 : 210, h = st.mode === 'payday' ? 66 : 50; rect(b, -w / 2 + 6, -h / 2 + 6, w, h, 10, C.ink); rect(b, -w / 2, -h / 2, w, h, 10, C.paper, C.ink, 6); const t = text(b, 'SALAIRE', 0, h * 0.18, st.mode === 'payday' ? 44 : 32, C.ink, { anchor: 'middle' }); fit(t, w - 24); st.blk.push(b); } }
+
+      /* solde, étiquette, compteur */
+      st.bal = text(root, eur(st.start), GX, 92, 84, C.ink);
+      fitSize(st.bal, eur(st.savings), 84, 360);
+      st.balLab = mono(root, st.mode === 'payday' ? 'SOLDE' : 'DE CÔTÉ', GX, 134, 26, C.ink, { weight: 800 });
+      st.cnt = mono(root, 'PARTIS : ' + eur(0), PX0 + 60, 585, 40, C.ink, { weight: 800 });
+      fitSize(st.cnt, 'PARTIS : ' + eur(st.savings), 40, 560);
+      if (st.mode === 'payday') { st.bal.setAttribute('display', 'none'); st.cnt.setAttribute('display', 'none'); }
+
+      /* étiquette « belief » à droite de la jauge */
+      st.beliefLab = mono(root, st.belief, GX + GW + 24, 186, 24, C.ink, { weight: 800 }); fit(st.beliefLab, 640);
+
+      /* stickers de rythme */
+      st.rs = st.rates.map((r) => {
+        const sg = g(root); sg.setAttribute('display', 'none');
+        const t = text(sg, r.label, 0, 19, 56, C.lime, { anchor: 'middle' });
+        let w = 300; try { w = t.getComputedTextLength(); } catch (e) { w = r.label.length * 34; } if (!(w > 0)) w = r.label.length * 34;
+        w = Math.min(w, 640); if (w >= 640) { t.setAttribute('textLength', 640); t.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+        const bw = w + 64;
+        boxBehind(sg, t, bw, 84, C.ink, C.lime, 16, 6, 10);
+        return sg;
+      });
+
+      /* téléphone + lit */
+      st.pg = g(root);
+      const PG = st.pg;
+      rect(PG, 1440 + 8, 640 + 8, 400, 120, 24, C.ink);
+      rect(PG, 1440, 640, 400, 120, 24, C.paper, C.ink, 6);
+      rect(PG, 1458, 618, 110, 54, 22, C.white, C.ink, 5);
+      rect(PG, 1590, 690, 236, 56, 16, C.pocket, C.ink, 4);
+      rect(PG, 1540 + 12, 220 + 12, 220, 420, 34, C.ink);
+      rect(PG, 1540, 220, 220, 420, 34, C.pocket, C.ink, 8);
+      rect(PG, 1556, 250, 188, 360, 22, C.ink);
+      rect(PG, 1610, 236, 80, 12, 6, C.ink);
+      st.scr = [0, 1, 2].map((i) => rect(PG, 1572 + i * 60, 300, 52, 52, 8, C.paper));
+      st.pbar = rect(PG, 1572, 400, 156, 22, 6, C.paper); rect(PG, 1572, 440, 100, 22, 6, C.pocket, C.paper, 3);
+      rect(PG, 1572, 400, 156, 22, 6, 'none', C.paper, 3);
+      st.bedLab = g(root);
+      { const t = text(st.bedLab, 'DEPUIS SON LIT', 0, 12, 34, C.lime, { anchor: 'middle' }); fit(t, 300); boxBehind(st.bedLab, t, 340, 60, C.ink, C.lime, 14, 5, 8); }
+      st.bedLab.setAttribute('display', 'none');
+
+      /* « EN 2 MOIS », tampon « PLUS RIEN » */
+      st.two = g(root);
+      { rect(st.two, -150 + 10, -42 + 10, 300, 84, 14, C.ink); rect(st.two, -150, -42, 300, 84, 14, C.red, C.ink, 6); const t = text(st.two, 'EN 2 MOIS', 0, 19, 56, C.ink, { anchor: 'middle' }); fit(t, 260); }
+      st.two.setAttribute('display', 'none');
+      st.stamp = g(root);
+      { rect(st.stamp, -170 + 8, -46 + 8, 340, 92, 10, C.paper); rect(st.stamp, -170, -46, 340, 92, 10, C.ink, C.ink, 5); const t = text(st.stamp, 'PLUS RIEN', 0, 17, 52, C.paper, { anchor: 'middle' }); fit(t, 300); }
+      st.stamp.setAttribute('display', 'none');
+
+      /* le loyer */
+      st.rent = g(root);
+      { rect(st.rent, -160 + 10, -60 + 10, 320, 120, 16, C.ink); rect(st.rent, -160, -60, 320, 120, 16, C.paper, C.ink, 6);
+        const t = text(st.rent, 'LE LOYER', -140, 14, 42, C.ink); fit(t, 210);
+        text(st.rent, '?', 140, 40, 130, C.red, { anchor: 'end' }); }
+      st.rent.setAttribute('display', 'none');
+
+      /* frise de 3 mois (mode payday) */
+      st.cells = [];
+      if (st.mode === 'payday') {
+        const X0 = 560, CW = 40, CH = 26;
+        for (let m = 0; m < st.months; m++) {
+          const y = 110 + m * 30;
+          mono(root, 'MOIS ' + (m + 1), X0 - 14, y + 19, 18, C.ink, { anchor: 'end', weight: 800 });
+          for (let d = 1; d <= 30; d++) {
+            const x = X0 + (d - 1) * CW;
+            const r = rect(root, x + 1, y, CW - 3, CH, 3, C.paper, C.ink, 3);
+            const t = mono(root, String(d), x + (CW - 3) / 2 + 1, y + 19, 18, C.ink, { anchor: 'middle', weight: 700 });
+            if (d === 28) st.cells.push({ r, t, x: x + (CW - 3) / 2 + 1, y });
+          }
+        }
+        st.same = g(root); st.same.setAttribute('display', 'none');
+        { const t = mono(st.same, 'LE JOUR MÊME', 0, 0, 24, C.red, { anchor: 'middle', weight: 800 }); fit(t, 200);
+          path(st.same, 'M-10 12 L10 12 L0 26Z', C.red, C.ink, 2); }
+        st.sameX = st.cells.length ? st.cells[0].x : 1659;
+      }
+      return st;
+    },
+
+    update(st, t, shot) { try { draw(st, t); } catch (e) { /* jamais d'exception */ } }
+  });
+
+  function draw(st, t) {
+    const c = st.c, S = st.savings;
+    /* ---- niveau du compte ---- */
+    let lvl, partis = 0, emptied = false, lvlFrac;
+    const payday = st.mode === 'payday';
+    let payLvl = 0, payIdx = -1, payP = 0;
+    if (payday) {
+      for (let m = 0; m < st.pay.length; m++) if (t >= st.pay[m] - 0.001) { payIdx = m; payP = t - st.pay[m]; }
+      if (payIdx >= 0) payLvl = 0.7 * E.out2(prog(payP, 0.28, 0.55)) * (1 - E.in2(prog(payP, 0.62, 1.1)));
+      lvl = payLvl * S;
+    } else {
+      const base = c.save === null ? st.start : st.start + (S - st.start) * (1 - Math.pow(1 - prog(t, c.save, c.save + 2.5), 1.6));
+      const baseAt = (tt) => (c.save === null ? st.start : st.start + (S - st.start) * (1 - Math.pow(1 - prog(tt, c.save, c.save + 2.5), 1.6)));
+      const Dat = (tt) => {
+        if (c.two !== null && tt >= c.two) return 5000;
+        const nat = st.nat(tt);
+        if (c.two !== null) {
+          if (st.twoN > 0) return 5000 * nat / st.twoN;
+          return 5000 * prog(tt, st.tStart, c.two);
+        }
+        return Math.min(nat, 0.75 * S);
+      };
+      const te = c.empty !== null ? Math.min(t, c.empty) : t;
+      const D = Math.min(Dat(te), baseAt(te));
+      lvl = Math.max(0, base - D);
+      partis = D;
+      if (c.empty !== null && t > c.empty) {
+        const l0 = Math.max(0, baseAt(c.empty) - Math.min(Dat(c.empty), baseAt(c.empty))), p = prog(t, c.empty, c.empty + 1.8), q = Math.pow(p, 1.6);
+        lvl = l0 * (1 - q); partis = D + l0 * q; emptied = p >= 1;
+      }
+    }
+    lvlFrac = clamp(lvl / S, 0, 1);
+    const IH = GH - 2 * GI, fh = IH * lvlFrac;
+    setA(st.fill, 'y', f2(GY + GH - GI - fh)); setA(st.fill, 'height', f2(fh));
+    if (!payday) {
+      setT(st.bal, eur(lvl)); setA(st.bal, 'fill', emptied ? C.red : C.ink);
+      setT(st.cnt, 'PARTIS : ' + eur(partis));
+    }
+
+    /* tranche « belief » : en haut de la jauge, lime hachurée */
+    if (c.belief === null || t < c.belief || payday) { setA(st.slice, 'display', 'none'); setA(st.beliefLab, 'display', 'none'); }
+    else {
+      const p = E.out2(prog(t, c.belief, c.belief + 0.3));
+      const top = GY + GH - GI - fh, hh = Math.min(36, fh);
+      setA(st.slice, 'display', hh > 2 ? 'inline' : 'none'); setA(st.slice, 'y', f2(top)); setA(st.slice, 'height', f2(hh * p));
+      setA(st.beliefLab, 'display', hh > 2 ? 'inline' : 'none'); setA(st.beliefLab, 'opacity', f2(p));
+      setA(st.beliefLab, 'y', f2(clamp(top + 28, 186, 346)));
+    }
+
+    /* blocs SALAIRE */
+    if (payday) {
+      const b = st.blk[0];
+      if (payIdx < 0 || payP > 0.7) setA(b, 'display', 'none');
+      else { const k = prog(payP, 0, 0.42); setA(b, 'display', 'inline'); setA(b, 'transform', `translate(${GX + GW / 2} ${f2(lerp(-80, GY + 20, E.in2(k)))})`); }
+    } else {
+      st.blk.forEach((b, j) => {
+        const t0 = c.save === null ? null : c.save + j * 0.4, k = t0 === null ? -1 : prog(t, t0, t0 + 0.4);
+        if (t0 === null || t < t0 || k >= 1) { setA(b, 'display', 'none'); return; }
+        setA(b, 'display', 'inline'); setA(b, 'transform', `translate(${GX + GW / 2} ${f2(lerp(-70, GY + 24, E.in2(k)))})`);
+      });
+    }
+
+    /* jetons dans le tuyau */
+    let used = 0;
+    const emitted = payday ? [] : st.tokens;
+    const ypos = PY + (PH - 0) / 2;
+    // premier jeton encore dans le tuyau (liste triée par instant d'émission)
+    let first = 0; while (first < emitted.length && (t - emitted[first].te) * SPEED > 1300) first++;
+    for (let k = first; k < emitted.length && used < POOL; k++) {
+      const e = emitted[k]; if (e.te > t) break;
+      const tk = st.rates[e.i].tok, node = st.tk[k % POOL], x = 360 + (t - e.te) * SPEED;
+      if (x > 1580) continue;
+      setA(node.g, 'display', 'inline'); setA(node.g, 'transform', `translate(${f2(x)} ${f2(ypos - tk.h / 2)})`);
+      setA(node.r, 'width', tk.w); setA(node.r, 'height', tk.h); setA(node.r, 'rx', Math.min(12, tk.h / 3));
+      if (tk.f) { setA(node.tx, 'display', 'inline'); setA(node.tx, 'x', tk.w / 2); setA(node.tx, 'y', f2(tk.h / 2 + tk.f * 0.35)); setA(node.tx, 'font-size', tk.f); setT(node.tx, fr(st.rates[e.i].amount)); }
+      else setA(node.tx, 'display', 'none');
+      used++; node.on = t;
+    }
+    const aliveSet = new Set();
+    for (let k = first; k < emitted.length; k++) { if (emitted[k].te > t) break; const x = 360 + (t - emitted[k].te) * SPEED; if (x <= 1580) aliveSet.add(k % POOL); }
+    st.tk.forEach((n, i) => { if (!aliveSet.has(i)) setA(n.g, 'display', 'none'); });
+    // gros jeton du jour de paie
+    if (payday && payIdx >= 0 && payP >= 0.6 && payP < 2.2) {
+      const x = 330 + (payP - 0.6) * 760; setA(st.big, 'display', x < 1580 ? 'inline' : 'none'); setA(st.big, 'transform', `translate(${f2(x)} ${f2(ypos - 35)})`);
+    } else setA(st.big, 'display', 'none');
+
+    /* rythme courant */
+    let cur = -1, tcur = 0;
+    st.rc.forEach((tc, i) => { if (tc !== null && t >= tc && tc >= tcur - 1e-9 && (cur < 0 || tc >= tcur)) { cur = i; tcur = tc; } });
+    st.rs.forEach((sg, i) => {
+      if (payday || i !== cur || (c.empty !== null && t >= c.empty + 1.8)) { setA(sg, 'display', 'none'); return; }
+      const p = prog(t, tcur, tcur + 0.25), s = 0.6 + 0.4 * E.back(p);
+      setA(sg, 'display', 'inline'); setA(sg, 'transform', `translate(990 282) scale(${f2(s * 1000) / 1000})`);
+    });
+
+    /* téléphone + lit : secousse unique, étiquette */
+    let sx = 0, sy = 0;
+    if (c.bed !== null) { const s = shakeAt(t, c.bed, 4, 0.4); sx = s[0]; sy = s[1]; }
+    setA(st.pg, 'transform', `translate(${f2(sx)} ${f2(sy)})`);
+    if (c.bed === null || t < c.bed) setA(st.bedLab, 'display', 'none');
+    else { const p = E.back(prog(t, c.bed, c.bed + 0.3)); setA(st.bedLab, 'display', 'inline'); setA(st.bedLab, 'transform', `translate(1640 ${f2(804 - (1 - Math.min(1, p)) * 0)}) scale(${f2(Math.max(0.01, p) * 1000) / 1000})`); }
+
+    /* « EN 2 MOIS » et tampon « PLUS RIEN » */
+    if (c.two === null || t < c.two || payday) setA(st.two, 'display', 'none');
+    else { const p = E.back(prog(t, c.two, c.two + 0.3)); setA(st.two, 'display', 'inline'); setA(st.two, 'transform', `translate(1220 585) rotate(-3) scale(${f2(Math.max(0.01, p) * 1000) / 1000})`); }
+    if (c.empty === null || t < c.empty + 1.8 || payday) setA(st.stamp, 'display', 'none');
+    else { const p = E.in2(1 - prog(t, c.empty + 1.8, c.empty + 2.05)); const s = 1 + 0.6 * p; setA(st.stamp, 'display', 'inline'); setA(st.stamp, 'opacity', f2(1 - p)); setA(st.stamp, 'transform', `translate(${GX + GW / 2} ${GY + GH / 2}) rotate(-6) scale(${f2(s * 1000) / 1000})`); }
+
+    /* loyer */
+    if (c.rent === null || t < c.rent) setA(st.rent, 'display', 'none');
+    else { const p = E.back(prog(t, c.rent, c.rent + 0.35)); setA(st.rent, 'display', 'inline'); setA(st.rent, 'transform', `translate(1260 700) rotate(3) scale(${f2(Math.max(0.01, p) * 1000) / 1000})`); }
+
+    /* frise des paies */
+    if (payday) {
+      st.cells.forEach((cl, m) => {
+        const tp = st.pay[m], on = tp !== undefined && t >= tp + 0.55;
+        setA(cl.r, 'fill', on ? C.red : C.paper); setA(cl.t, 'fill', on ? C.paper : C.ink);
+      });
+      if (payIdx < 0 || payP < 0.6) setA(st.same, 'display', 'none');
+      else {
+        const p = E.back(prog(payP, 0.6, 0.85)), cl = st.cells[payIdx] || st.cells[0];
+        setA(st.same, 'display', 'inline');
+        setA(st.same, 'transform', `translate(${f2(st.sameX)} 82) scale(${f2(Math.max(0.01, p) * 1000) / 1000})`);
+      }
+    }
+  }
+})();
+;
+/* ==== tools/video/composition/components/sealed-room.js ==== */
+// Composant `sealed-room` (épisode 6) : la salle sans repères. Voir EP6-COMPONENTS.md.
+// Un mur de face (fenêtre, horloge, panneau Sortie, lampe fixe), un sol ink portant la frise du temps (DEHORS / DEDANS), un téléphone final.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter ; le ciel change par fondus lents (jamais d'alternance).
+// Cues : ask, hours (dur), window-clock, no-window, no-clock, no-exit, no-edges, phone.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
+  const tr = (n, x, y, r, s) => setA(n, 'transform', `translate(${f2(x)} ${f2(y)})` + (r ? ` rotate(${f2(r)})` : '') + (s !== undefined && s !== 1 ? ` scale(${f2(Math.max(s, 0.0001))})` : ''));
+  // largeurs estimées (servent de textLength : indépendantes de la police de secours)
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  // texte posé avec largeur imposée ; maxW réduit la police plutôt que de laisser déborder
+  function T(parent, s, x, y, size, fill, o) {
+    o = o || {};
+    const est = (sz) => (o.mono ? mw(s, sz) : bw(s, sz));
+    if (o.maxW && est(size) > o.maxW) size = size * o.maxW / est(size);
+    const n = text(parent, s, x, y, size, fill, { mono: o.mono, anchor: o.anchor, weight: o.weight, spacing: o.spacing });
+    n.setAttribute('textLength', f2(est(size)));
+    n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    n.__size = size; n.__w = est(size);
+    return n;
+  }
+  // texte dynamique en Mono : contenu + longueur mis à jour seulement si la chaîne change
+  const setTxt = (n, s, size) => { if (n.__s !== s) { n.__s = s; n.textContent = s; n.setAttribute('textLength', f2(Math.max(1, mw(s, size)))); } };
+  // sticker plat : renvoie le groupe centré sur (0,0) et sa largeur
+  function stk(parent, label, size, fill, textFill, maxW, h) {
+    h = h || Math.round(size * 1.75);
+    const sz = (maxW && bw(label, size) + 56 > maxW) ? (maxW - 56) / bw(label, size) * size : size;
+    const w = Math.round(bw(label, sz) + 56);
+    const grp = g(parent);
+    rect(grp, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, 14, fill, C.ink, 6);
+    T(grp, label, 0, sz * 0.35, sz, textFill, { anchor: 'middle' });
+    grp.__w = w;
+    return grp;
+  }
+  const popT = (n, x, y, rot, p) => { const s = E.back(clamp(p)); if (p <= 0) { vis(n, false); return; } vis(n, true); tr(n, x, y, rot, Math.max(0.0001, s)); setA(n, 'opacity', f2(clamp(p * 4))); };
+
+  const CX = 960, CY = 330, CR = 130;                       // horloge murale
+  const WX = 190, WY = 170, WW = 400, WH = 390;             // cadre de la fenêtre
+  const GX = 200, GY = 180, GW = 380, GH = 370;             // vitre
+  const GCX = 390, GCY = 365;                               // croisillon
+  const LAB_Y = 604;
+  const FX = 190, FW = 1540, FY1 = 668, FY2 = 742, FH = 44; // frise
+  const SIGN = { x: 1350, y: 260, w: 380, h: 150 };
+  const PH = { x: 1440, y: 110, w: 280, h: 480 };
+
+  function hand(parent, len, w) {
+    const grp = g(parent);
+    line(grp, 0, 12, 0, -len, C.ink, w);
+    return grp;
+  }
+
+  ZV.define('sealed-room', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cb = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).sort((a, b) => a.t - b.t);
+      const cu = (n) => { const a = cb(n); return a.length ? a[0].t : null; };
+      const L = Object.assign({ window: 'FENÊTRE', clock: 'HORLOGE', exit: 'SORTIE' }, P.labels && typeof P.labels === 'object' ? P.labels : {});
+      const outside = Array.isArray(P.outside) && P.outside.length ? P.outside.slice(0, 6).map(String) : ['APRÈS-MIDI', 'SOIR', 'NUIT', 'PETIT MATIN'];
+      const inside = str(P.inside, 'LA MÊME LUMIÈRE');
+      const question = str(P.question, '?? H ??');
+      const phoneText = str(P.phone_text, "ALARME : L'HEURE OÙ TU SORS");
+      const skyIdx = Math.max(0, ['day', 'sunset', 'night', 'dawn'].indexOf(P.sky));
+      const hb = cb('hours')[0];
+      const st = {
+        dur, L, outside, inside, question, skyIdx,
+        ta: cu('ask'), th: hb ? hb.t : null, hd: hb ? clamp(num(hb.dur, 4), 2, 30) : 4,
+        twc: cu('window-clock'), tnw: cu('no-window'), tnc: cu('no-clock'), tnx: cu('no-exit'), tne: cu('no-edges'), tp: cu('phone'),
+        timeline: !!P.timeline
+      };
+      const uid = 'sr' + (++UID);
+
+      /* ---- mur, plafond, sol ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      rect(root, 0, 0, 1920, 56, 0, C.ink);
+      rect(root, 0, 630, 1920, 450, 0, C.ink);
+
+      /* ---- lampe : strictement fixe ---- */
+      line(root, 960, 56, 960, 94, C.ink, 6);
+      path(root, 'M934 94 L986 94 L1022 146 L898 146 Z', C.ink, C.ink, 4);
+      circle(root, 960, 152, 13, C.paper, C.ink, 5);
+
+      /* ---- fenêtre ---- */
+      st.win = g(root);
+      rect(st.win, WX + 12, WY + 12, WW, WH, 0, C.ink);
+      rect(st.win, WX, WY, WW, WH, 0, C.ink);
+      const sky = [];
+      const sg = (i) => { const n = g(st.win); sky[i] = n; return n; };
+      {
+        const d = sg(0);
+        rect(d, GX, GY, GW, GH, 0, C.white);
+        st.sunDay = circle(d, 300, 264, 56, C.lime, C.ink, 5);
+        const s = sg(1);
+        rect(s, GX, GY, GW, GH, 0, C.red);
+        st.sunSet = circle(s, 468, 478, 50, C.red, C.ink, 6);
+        const bl = [[200, 54, 48], [254, 40, 72], [294, 62, 40], [356, 36, 86], [392, 56, 52], [448, 44, 68], [492, 38, 44], [530, 50, 78]];
+        for (const [x, w, h] of bl) rect(s, x, GY + GH - h, w, h, 0, C.ink);
+        const n = sg(2);
+        rect(n, GX, GY, GW, GH, 0, C.ink);
+        circle(n, 470, 262, 46, C.paper);
+        circle(n, 490, 248, 40, C.ink);
+        for (const [x, y] of [[240, 236], [322, 300], [350, 212], [292, 430], [520, 378], [548, 230], [440, 480]]) rect(n, x, y, 6, 6, 0, C.paper);
+        const w = sg(3);
+        rect(w, GX, GY, GW, 200, 0, C.pocket);
+        rect(w, GX, GY + 200, GW, GH - 200, 0, C.paper);
+        rect(w, GX, GY + 196, GW, 8, 0, C.lime);
+      }
+      st.sky = sky;
+      rect(st.win, GCX - 4, GY, 8, GH, 0, C.ink);
+      rect(st.win, GX, GCY - 4, GW, 8, 0, C.ink);
+      // graduations de la fenêtre-horloge (ink cerné de paper pour rester lisibles sur la nuit)
+      st.ticks = [];
+      for (let k = 0; k < 12; k++) {
+        const a = k * Math.PI / 6, dx = Math.sin(a), dy = -Math.cos(a);
+        const s = Math.min(Math.abs(dx) > 1e-6 ? (GW / 2 - 6) / Math.abs(dx) : 1e9, Math.abs(dy) > 1e-6 ? (GH / 2 - 6) / Math.abs(dy) : 1e9);
+        const L1 = k % 3 === 0 ? 36 : 24;
+        const x2 = GCX + dx * s, y2 = GCY + dy * s * (GH / GW > 0 ? 1 : 1), x1 = x2 - dx * L1, y1 = y2 - dy * L1;
+        const tg = g(st.win);
+        line(tg, x1, y1, x2, y2, C.paper, 14, { 'stroke-linecap': 'butt' });
+        line(tg, x1, y1, x2, y2, C.ink, 8, { 'stroke-linecap': 'butt' });
+        st.ticks.push(tg);
+      }
+      st.wsun = circle(st.win, 260, 470, 40, C.lime, C.ink, 5);
+      // murage
+      {
+        const clip = sv('clipPath', { id: uid + 'w' }, sv('defs', null, st.win));
+        rect(clip, GX, GY, GW, GH, 0, '#000');
+        const bg = g(st.win, { 'clip-path': `url(#${uid}w)` });
+        st.rows = [];
+        for (let r = 0; r < 8; r++) {
+          const rg = g(bg), top = GY + GH - 40.25 - 46.25 * r;
+          rect(rg, GX, top - 6, GW, 46.25, 0, C.paper);
+          const off = r % 2 ? -51 : 0;
+          for (let k = 0; k < 5; k++) rect(rg, GX + off + 102 * k, top, 96, 40.25, 0, C.ink);
+          st.rows.push(rg);
+        }
+      }
+      st.lblW = T(root, L.window, WX + WW / 2, LAB_Y, 30, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+      st.strikeW = rect(root, WX + WW / 2 - 130, LAB_Y - 11, 260, 7, 0, C.red);
+      st.stkWin = stk(root, 'UNE FENÊTRE, C\'EST UNE HORLOGE', 36, C.paper, C.ink, 640, 66);
+
+      /* ---- horloge : trace + clou, puis l'horloge ---- */
+      st.trace = g(root);
+      circle(st.trace, CX, CY, 146, C.white);
+      circle(st.trace, CX, CY, 146, 'none', '#CFC9B8', 4).setAttribute('stroke-dasharray', '14 12');
+      circle(root, CX, CY - 112, 9, C.ink, C.ink, 3);
+      st.clockOuter = g(root);
+      st.clock = g(st.clockOuter);
+      circle(st.clock, 12, 12, CR + 5, C.ink);
+      circle(st.clock, 0, 0, CR, C.paper, C.ink, 10);
+      for (let k = 0; k < 12; k++) {
+        const a = k * Math.PI / 6, s = Math.sin(a), c = -Math.cos(a), r0 = k % 3 === 0 ? 100 : 104, r1 = 118;
+        line(st.clock, s * r0, c * r0, s * r1, c * r1, C.ink, k % 3 === 0 ? 8 : 6, { 'stroke-linecap': 'butt' });
+      }
+      st.hHour = hand(st.clock, 70, 12);
+      st.hMin = hand(st.clock, 102, 8);
+      st.qm = T(st.clock, question, 0, 0, 84, C.ink, { anchor: 'middle', maxW: 176 });
+      st.qm.setAttribute('y', f2(st.qm.__size * 0.35));
+      st.dot = circle(st.clock, 0, 0, 12, C.lime, C.ink, 5);
+      st.lblC = T(root, L.clock, CX, LAB_Y, 30, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+
+      /* ---- panneau Sortie ---- */
+      st.screws = g(root);
+      circle(st.screws, SIGN.x + 22, SIGN.y + 22, 8, C.ink, C.ink, 3);
+      circle(st.screws, SIGN.x + SIGN.w - 22, SIGN.y + SIGN.h - 22, 8, C.ink, C.ink, 3);
+      st.exit = g(root);
+      rect(st.exit, SIGN.x + 12, SIGN.y + 12, SIGN.w, SIGN.h, 6, C.ink);
+      rect(st.exit, SIGN.x, SIGN.y, SIGN.w, SIGN.h, 6, C.lime, C.ink, 8);
+      {
+        const ex = st.exit, cy = SIGN.y + SIGN.h / 2, fx = SIGN.x + 52;
+        // silhouette plate qui court (aucun trait de visage)
+        circle(ex, fx + 10, cy - 38, 11, C.ink);
+        line(ex, fx + 6, cy - 22, fx - 4, cy + 10, C.ink, 13);
+        line(ex, fx + 6, cy - 20, fx + 28, cy - 4, C.ink, 10);
+        line(ex, fx - 2, cy - 14, fx - 22, cy - 6, C.ink, 9);
+        line(ex, fx - 4, cy + 8, fx + 14, cy + 32, C.ink, 11);
+        line(ex, fx - 2, cy + 8, fx - 26, cy + 26, C.ink, 11);
+        // flèche →
+        line(ex, fx + 34, cy, fx + 62, cy, C.ink, 11, { 'stroke-linecap': 'butt' });
+        path(ex, `M${fx + 58} ${cy - 20} L${fx + 84} ${cy} L${fx + 58} ${cy + 20} Z`, C.ink, C.ink, 4);
+        T(ex, 'SORTIE', SIGN.x + SIGN.w - 18, cy + 22, 64, C.ink, { anchor: 'end', maxW: 206 });
+      }
+      st.lblX = T(root, L.exit, SIGN.x + SIGN.w / 2, LAB_Y, 30, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+
+      /* ---- frise du temps ---- */
+      st.fr = g(root);
+      const fr = st.fr;
+      st.outG = g(fr);
+      {
+        const segW = FW / outside.length, cols = [[C.paper, C.ink], [C.red, C.ink], [C.pocket, C.paper], [C.paper, C.ink]];
+        outside.forEach((lab, i) => {
+          const [bg, fg] = cols[i % 4], x = FX + segW * i;
+          rect(st.outG, x, FY1, segW + 0.5, FH, 0, bg);
+          if (i % 4 === 3) rect(st.outG, x, FY1 + FH - 12, segW + 0.5, 12, 0, C.lime);
+          T(st.outG, lab, x + segW / 2, FY1 + 30, 24, fg, { mono: true, anchor: 'middle', weight: 800, maxW: segW - 24 });
+        });
+        rect(st.outG, FX, FY1, FW, FH, 0, 'none', C.paper, 4);
+        st.lblOut = T(fr, 'DEHORS', 36, FY1 + 30, 24, C.paper, { mono: true, weight: 800 });
+        st.strikeOut = rect(fr, FX - 6, FY1 + FH / 2 - 4, FW + 12, 8, 0, C.red);
+      }
+      st.inFill = rect(fr, FX, FY2, FW, FH, 0, C.paper, C.paper, 4);
+      st.inEdge = rect(fr, FX + 6, FY2 + 6, FW - 12, FH - 12, 0, 'none', C.ink, 3);
+      st.lblIn = T(fr, 'DEDANS', 36, FY2 + 30, 24, C.paper, { mono: true, weight: 800 });
+      T(fr, inside, CX, FY2 + 30, 24, C.ink, { mono: true, anchor: 'middle', weight: 800, maxW: 460 });
+      st.cur = g(fr);
+      line(st.cur, 0, FY1, 0, FY1 + FH, C.paper, 12, { 'stroke-linecap': 'butt' });
+      line(st.cur, 0, FY1, 0, FY1 + FH, C.ink, 5, { 'stroke-linecap': 'butt' });
+      path(st.cur, `M-17 ${FY1 - 22} L17 ${FY1 - 22} L0 ${FY1 + 2} Z`, C.ink, C.paper, 4);
+      st.capEdges = T(root, "LA SOIRÉE N'A PLUS DE BORDS", CX, FY2 - 20, 30, C.paper, { mono: true, anchor: 'middle', weight: 800, maxW: 1200 });
+
+      /* ---- téléphone ---- */
+      st.phone = g(root);
+      {
+        const ph = st.phone;
+        rect(ph, 0, 0, PH.w, PH.h, 44, C.ink);
+        rect(ph, 3, 3, PH.w - 6, PH.h - 6, 41, 'none', C.paper, 6);
+        rect(ph, 24, 24, PH.w - 48, PH.h - 48, 26, C.paper, C.ink, 4);
+        const cx = PH.w / 2, cy = 168;
+        circle(ph, cx, cy, 72, C.white, C.ink, 7);
+        for (let k = 0; k < 12; k++) {
+          const a = k * Math.PI / 6, s = Math.sin(a), c = -Math.cos(a);
+          line(ph, cx + s * 52, cy + c * 52, cx + s * 62, cy + c * 62, C.ink, k % 3 === 0 ? 6 : 4, { 'stroke-linecap': 'butt' });
+        }
+        const hh = g(ph, { transform: `translate(${cx} ${cy}) rotate(300)` }); line(hh, 0, 6, 0, -34, C.ink, 8);
+        const hm = g(ph, { transform: `translate(${cx} ${cy}) rotate(60)` }); line(hm, 0, 6, 0, -50, C.ink, 6);
+        circle(ph, cx, cy, 8, C.lime, C.ink, 4);
+        T(ph, 'ALARME', cx, 318, 26, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+        st.track = rect(ph, cx - 66, 342, 132, 66, 33, C.white, C.ink, 6);
+        st.knob = circle(ph, cx - 33, 375, 22, C.ink);
+        st.onTxt = T(ph, 'ON', cx - 24, 384, 26, C.ink, { mono: true, weight: 800 });
+        st.knobX0 = cx - 33; st.knobX1 = cx + 33;
+      }
+      st.phoneCap = T(root, phoneText, PH.x + PH.w / 2, 690, 28, C.paper, { mono: true, anchor: 'middle', weight: 800, maxW: 560 });
+      st.stkPhone = stk(root, 'TON TÉLÉPHONE, LUI, A UNE HORLOGE', 38, C.lime, C.ink, 1000, 68);
+      st.phoneStkX = clamp(Math.min(PH.x + PH.w / 2, 1840 - st.stkPhone.__w / 2), st.stkPhone.__w / 2 + 40, 1880);
+      return st;
+    },
+
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        const { ta, th, hd, twc, tnw, tnc, tnx, tne, tp } = st;
+        const has = (x) => x != null && t >= x;
+
+        /* ---- ciel : fondus lents par paliers, jamais d'alternance ---- */
+        const o = [1, 0, 0, 0];
+        for (let j = 1; j < 4; j++) o[j] = j <= st.skyIdx ? 1 : 0;
+        if (has(th)) {
+          const f = clamp(hd / 4 * 0.8, 0.4, 0.6);
+          for (let j = 1; j < 4; j++) o[j] = prog(t, th + hd * j / 4, th + hd * j / 4 + f);
+        }
+        for (let j = 0; j < 4; j++) op(st.sky[j], o[j]);
+        const sunsOn = !has(twc);
+        vis(st.sunDay, sunsOn); vis(st.sunSet, sunsOn);
+
+        /* ---- fenêtre-horloge ---- */
+        const wcP = twc == null ? 0 : t - twc;
+        st.ticks.forEach((tk, k) => op(tk, twc == null ? 0 : prog(wcP, k * 0.045, k * 0.045 + 0.12)));
+        if (!has(twc)) vis(st.wsun, false);
+        else {
+          const u = E.io2(prog(wcP, 0.4, 2.4));
+          const x = 260 + 260 * u, y = 478 - 215 * Math.sin(Math.PI * u);
+          vis(st.wsun, true); setA(st.wsun, 'cx', f2(x)); setA(st.wsun, 'cy', f2(y));
+        }
+        popT(st.stkWin, 390, 106, -2, twc == null ? 0 : prog(wcP, 0.2, 0.55));
+
+        /* ---- murage ---- */
+        const BR = 0.15;
+        st.rows.forEach((rg, r) => {
+          const p = tnw == null ? 0 : prog(t, tnw + r * BR, tnw + r * BR + 0.12);
+          op(rg, p > 0 ? 1 : 0);
+          tr(rg, 0, (1 - p) * 14, 0, 1);
+        });
+        const endBr = tnw == null ? 1e9 : tnw + 8 * BR;
+        const sP = tnw == null ? 0 : prog(t, endBr + 0.05, endBr + 0.3);
+        const swapW = tnw != null && t >= endBr + 0.3;
+        setTxt(st.lblW, swapW ? 'PAS DE FENÊTRE' : st.L.window, 30);
+        vis(st.strikeW, tnw != null && sP > 0 && !swapW);
+        if (sP > 0) { setA(st.strikeW, 'x', f2(390 - st.lblW.__w / 2 - 6)); setA(st.strikeW, 'width', f2((st.lblW.__w + 12) * sP)); }
+        // centrage des étiquettes changeantes (textLength fixe : on recalcule l'ancre via text-anchor middle)
+
+        /* ---- horloge murale ---- */
+        let hOp = 1, qOp = 0;
+        if (has(ta)) { hOp = 1 - prog(t, ta, ta + 8 / 30); qOp = prog(t, ta + 0.1, ta + 0.4); }
+        if (has(th) && ta != null && th > ta) { hOp = prog(t, th, th + 0.25); qOp = 1 - prog(t, th, th + 0.2); }
+        else if (has(th) && ta == null) { hOp = 1; qOp = 0; }
+        let rotH = 305, rotM = 60;
+        if (th != null) { const u = E.io2(prog(t, th, th + hd)); rotH += 360 * u; rotM += 360 * 12 * u; }
+        setA(st.hHour, 'transform', `rotate(${f2(rotH)})`);
+        setA(st.hMin, 'transform', `rotate(${f2(rotM)})`);
+        op(st.hHour, hOp); op(st.hMin, hOp); op(st.qm, qOp); op(st.dot, 1 - qOp);
+        let sway = 0;
+        if (ta != null) { const tau = t - ta; if (tau >= 0 && tau <= 1) sway = 4 * Math.sin(tau * Math.PI * 4) * (1 - tau); }
+        let dy = 0;
+        if (tnc != null) {
+          dy = -40 * E.out2(prog(t, tnc, tnc + 0.3)) - 620 * E.in3(prog(t, tnc + 0.3, tnc + 0.7));
+        }
+        const gone = tnc != null && t >= tnc + 0.7;
+        vis(st.clockOuter, !gone);
+        setA(st.clockOuter, 'transform', `translate(${CX} ${f2(CY + dy)}) rotate(${f2(sway)})`);
+        setA(st.clock, 'transform', 'translate(0 0)');
+        op(st.trace, tnc != null && t >= tnc + 0.3 ? 1 : 0);
+        setTxt(st.lblC, gone ? "PAS D'HORLOGE" : st.L.clock, 30);
+
+        /* ---- panneau Sortie ---- */
+        const slideNx = tnx == null ? 0 : E.in2(prog(t, tnx, tnx + 14 / 30));
+        const slideP = tp == null ? 0 : E.in2(prog(t, tp, tp + 10 / 30));
+        const sx = Math.max(slideNx, slideP) * 640;
+        setA(st.exit, 'transform', `translate(${f2(sx)} 0)`);
+        vis(st.exit, sx < 639);
+        const swapX = tnx != null && t >= tnx + 14 / 30;
+        setTxt(st.lblX, swapX ? 'PAS DE PANNEAU SORTIE' : st.L.exit, 30);
+        setA(st.lblX, 'transform', `translate(${f2(slideP * 640)} 0)`);
+        vis(st.lblX, slideP < 0.999);
+
+        /* ---- frise ---- */
+        let tf = null;
+        if (st.timeline) tf = -1;
+        else { const c = [th, tne].filter((x) => x != null); if (c.length) tf = Math.min(...c); }
+        let frOp = tf == null ? 0 : (tf < 0 ? 1 : prog(t, tf, tf + 0.35));
+        if (tp != null) frOp *= 1 - prog(t, tp, tp + 8 / 30);
+        op(st.fr, frOp);
+        setA(st.fr, 'transform', `translate(0 ${f2(tf != null && tf >= 0 ? 24 * (1 - prog(t, tf, tf + 0.35)) : 0)})`);
+        // curseur
+        let curOp = th == null ? 0 : 1;
+        if (tne != null) curOp *= 1 - prog(t, tne, tne + 0.2);
+        op(st.cur, curOp);
+        if (th != null) setA(st.cur, 'transform', `translate(${f2(FX + FW * clamp((t - th) / hd))} 0)`);
+        // plus de bords
+        let stP = 0, outP = 1, capP = 0, sXP = 0;
+        if (tne != null) {
+          sXP = prog(t, tne, tne + 0.35);
+          const tfade = tne + 0.5;
+          outP = 1 - prog(t, tfade, tfade + 0.25);
+          stP = E.io2(prog(t, tfade + 0.15, tfade + 0.95));
+          capP = prog(t, tfade + 0.5, tfade + 0.8);
+        }
+        op(st.outG, outP); op(st.lblOut, outP);
+        op(st.strikeOut, outP > 0 && sXP > 0 ? 1 : 0);
+        setA(st.strikeOut, 'width', f2((FW + 12) * sXP));
+        const bx = FX + (-40 - FX) * stP, bwid = FW + (2000 - FW) * stP;
+        setA(st.inFill, 'x', f2(bx)); setA(st.inFill, 'width', f2(bwid));
+        setA(st.inEdge, 'x', f2(bx + 6)); setA(st.inEdge, 'width', f2(bwid - 12));
+        op(st.lblIn, 1 - prog(t, tne == null ? 1e9 : tne + 0.65, tne == null ? 1e9 : tne + 0.85));
+        op(st.capEdges, capP * (tp == null ? 1 : 1 - prog(t, tp, tp + 8 / 30)));
+
+        /* ---- téléphone ---- */
+        const pIn = tp == null ? 0 : E.out3(prog(t, tp + 0.3, tp + 0.85));
+        vis(st.phone, pIn > 0);
+        setA(st.phone, 'transform', `translate(${PH.x} ${f2(PH.y + (1 - pIn) * 1000)})`);
+        const sw = tp == null ? 0 : E.io2(prog(t, tp + 1.1, tp + 1.3));
+        setA(st.knob, 'cx', f2(st.knobX0 + (st.knobX1 - st.knobX0) * sw));
+        setA(st.track, 'fill', sw > 0.5 ? C.lime : C.white);
+        op(st.onTxt, sw > 0.5 ? 1 : 0);
+        op(st.phoneCap, tp == null ? 0 : prog(t, tp + 0.9, tp + 1.15));
+        popT(st.stkPhone, st.phoneStkX, 756, 0, tp == null ? 0 : prog(t, tp + 1.5, tp + 1.85));
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/season-board.js ==== */
+// Composant `season-board` (épisode 0) : le sommaire de la saison, 9 cartes (3 × 3) retournées une par une, puis trois cartes dont le verso montre un témoin (un objet, jamais une personne) ; sert aussi au « premier épisode ».
+// Props : title, episodes[9] {n,title,sub,picto}, witnesses[3] {cue,card,object,role,line}, start (closed|open), first_label.
+// Cues : title, e1…e9, all, people, w-escroc / w-ecrivain / w-joueuse (noms modifiables par witnesses[].cue), first.
+// Cue absent = l'étape n'a pas lieu ; sans aucun cue : start = open, 9 cartes face visibles, titre en place, immobile.
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter ; rien d'important sous y = 840.
+(() => {
+  'use strict';
+  const { C, F, E, clamp, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const I = 1 / 30;
+  const INF = Infinity;
+  const pg = (t, a, d) => (a === -INF ? 1 : a === INF ? 0 : clamp((t - a) / d));
+  const str = (v, d) => (typeof v === 'string' && v.trim().length ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const tr = (n, x, y, r, sx, sy) => { let s = `translate(${f2(x)} ${f2(y)})`; if (r) s += ` rotate(${f2(r)})`; if (sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) s += ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})`; setA(n, 'transform', s); };
+  function metric(root) {
+    const probe = sv('text', { x: 0, y: -3000, 'font-size': 100, 'font-weight': 800, visibility: 'hidden' }, root);
+    const cache = {};
+    const est = (s, mono) => { let a = 0; for (const ch of s) a += mono ? 60 : (ch === ' ' ? 26 : /[0-9]/.test(ch) ? 60 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 68 : /[.,:;'’!|·]/.test(ch) ? 32 : 58); return a; };
+    return (s, size, mono) => {
+      s = String(s); const k = (mono ? 'm' : 'd') + s; let w = cache[k];
+      if (w === undefined) {
+        probe.setAttribute('font-family', mono ? F.mono : F.display); probe.setAttribute('font-weight', mono ? 600 : 800); probe.textContent = s;
+        w = 0; try { w = probe.getComputedTextLength(); } catch (e) { w = 0; }
+        if (!(w > 0)) w = est(s, mono);
+        cache[k] = w;
+      }
+      return w * size / 100;
+    };
+  }
+  // coupe en n lignes équilibrées sur les espaces : {w, lines}
+  function split(M, s, n, sz, mono) {
+    const words = String(s).split(/\s+/).filter(Boolean); if (!words.length) words.push(' ');
+    n = Math.max(1, Math.min(n, words.length));
+    const wl = (a, b) => M(words.slice(a, b).join(' '), sz, mono);
+    let best = null;
+    const rec = (start, left, cuts, mx) => {
+      if (left === 1) { const m = Math.max(mx, wl(start, words.length)); if (!best || m < best.w - 0.5) best = { w: m, cuts: cuts.slice() }; return; }
+      for (let e = start + 1; e <= words.length - (left - 1); e++) { cuts.push(e); rec(e, left - 1, cuts, Math.max(mx, wl(start, e))); cuts.pop(); }
+    };
+    rec(0, n, [], 0);
+    const lines = []; let s0 = 0;
+    for (const c of best.cuts.concat([words.length])) { lines.push(words.slice(s0, c).join(' ')); s0 = c; }
+    return { w: best.w, lines };
+  }
+  // meilleur découpage ≤ maxL lignes tenant dans maxW à la taille sz (le moins de lignes possible) ou null
+  function fitLines(M, s, sz, maxW, maxL, mono) {
+    const words = String(s).split(/\s+/).filter(Boolean).length || 1;
+    for (let n = 1; n <= Math.min(maxL, words); n++) { const p = split(M, s, n, sz, mono); if (p.w <= maxW + 0.5) return p; }
+    return null;
+  }
+  // texte placé avec largeur imposée
+  function put(parent, s, x, y, size, fill, M, o) {
+    o = o || {};
+    const n = text(parent, s, x, y, f2(size), fill, { mono: o.mono, anchor: o.anchor, weight: o.weight });
+    const w = M(s, size, o.mono);
+    n.setAttribute('textLength', f2(o.maxW ? Math.min(w, o.maxW) : w)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    return n;
+  }
+
+  // ---------- pictos : zone 130 × 130 centrée sur (0,0) ----------
+  const PAL = {
+    face: { ln: C.ink, dk: C.ink, a: C.paper, b: C.white, lm: C.lime, rd: C.red, pk: C.pocket, lt: C.paper, ed: C.paper },
+    inv: { ln: C.paper, dk: C.ink, a: C.ink, b: C.paper, lm: C.lime, rd: C.lime, pk: C.ink, lt: C.paper, ed: C.ink }
+  };
+  const ell = (p, cx, cy, rx, ry, fill, stroke, sw) => sv('ellipse', { cx, cy, rx, ry, fill, stroke, 'stroke-width': sw }, p);
+  function pic(parent, kind, mode) {
+    const p = PAL[mode], G = g(parent), W = 5;
+    const R = (x, y, w, h, rx, fill, stroke, sw) => rect(G, x, y, w, h, rx, fill, stroke, sw);
+    switch (kind) {
+      case 'ball':
+        circle(G, -16, 22, 30, p.b, p.ln, W);
+        circle(G, 8, -4, 5, p.a, p.ln, 4); circle(G, 19, -18, 8, p.a, p.ln, 4);
+        ell(G, 30, -42, 34, 22, p.a, p.ln, W);
+        break;
+      case 'slot':
+        R(-46, -46, 92, 104, 8, p.pk, p.ln, W);
+        R(-52, -60, 104, 26, 6, p.rd, p.ln, W);
+        [-39, -13, 13].forEach((x) => { R(x, -20, 26, 40, 3, p.a, p.ln, 3); circle(G, x + 13, 0, 6, p.ln); });
+        line(G, 46, -22, 62, -38, p.ln, 6); circle(G, 62, -40, 7, p.rd, p.ln, 4);
+        R(-46, 36, 92, 22, 4, p.lm, p.ln, W);
+        break;
+      case 'ladder':
+        [14, 28, 56, 84].forEach((h, i) => R(-60 + i * 30, 58 - h, 28, h, 2, i < 3 ? p.a : p.rd, p.ln, W));
+        break;
+      case 'chase':
+        line(G, -62, 12, 62, 12, p.ln, 3, { 'stroke-dasharray': '6 7', 'stroke-linecap': 'butt' });
+        path(G, 'M-56 12 L-12 -46 L26 38', 'none', p.ln, 10, { 'stroke-linejoin': 'round' });
+        path(G, 'M43 35 L13 49 L38 64 Z', p.rd, p.ln, 5);
+        break;
+      case 'cards':
+        [[-14, 0, -14], [16, 4, 12]].forEach((c) => {
+          const cg = g(G, { transform: `translate(${c[0]} ${c[1]}) rotate(${c[2]})` });
+          rect(cg, -28, -40, 56, 80, 7, 'none', p.dk, 12);
+          rect(cg, -28, -40, 56, 80, 7, p.pk, p.lt, 5);
+          rect(cg, -17, -29, 34, 58, 3, 'none', p.lt, 2.5);
+        });
+        break;
+      case 'clock-off':
+        circle(G, 0, 0, 44, p.a, p.ln, W);
+        [[0, -36, 0, -28], [36, 0, 28, 0], [0, 36, 0, 28], [-36, 0, -28, 0]].forEach((l) => line(G, l[0], l[1], l[2], l[3], p.ln, 4));
+        line(G, 0, 0, 0, -24, p.ln, 5); line(G, 0, 0, 17, 9, p.ln, 5);
+        line(G, -54, -54, 54, 54, p.dk, 20); line(G, -54, -54, 54, 54, p.rd, 10);
+        break;
+      case 'carpet':
+        path(G, 'M-58 60 L58 60 L17 -50 L-17 -50 Z', p.rd, p.ln, W);
+        line(G, -46, 54, -12, -42, p.ed, 5); line(G, 46, 54, 12, -42, p.ed, 5);
+        [[18, 33], [-12, 20]].forEach((a) => line(G, -a[1], a[0], a[1], a[0], p.ed, 3, { 'stroke-linecap': 'butt' }));
+        line(G, -30, -50, 30, -50, p.ln, 5);
+        break;
+      case 'phone':
+        R(-34, -58, 68, 116, 10, p.pk, p.ln, W);
+        R(-26, -42, 52, 84, 3, p.b);
+        circle(G, 0, -2, 22, p.lm, p.dk, 3);
+        for (let i = 0; i < 3; i++) { const a = i * 60 * ZV.D2R; line(G, -22 * Math.cos(a), -2 - 22 * Math.sin(a), 22 * Math.cos(a), -2 + 22 * Math.sin(a), p.dk, 3, { 'stroke-linecap': 'butt' }); }
+        R(-10, 48, 20, 4, 2, p.lt);
+        break;
+      case 'exit':
+        R(-42, -56, 64, 112, 0, p.pk, p.ln, W);
+        path(G, 'M-42 -56 L-14 -46 L-14 46 L-42 56 Z', p.a, p.ln, W);
+        circle(G, -20, 0, 3.5, p.ln);
+        path(G, 'M2 -8 H34 V-22 L62 0 L34 22 V8 H2 Z', p.lm, p.ln, W);
+        break;
+      // objets des témoins (palette fixe sur carte ink) : jamais de personne
+      case 'tophat':
+        line(G, -50, 58, 46, -40, C.paper, 16); line(G, -50, 58, 46, -40, C.lime, 8);
+        path(G, 'M46 -40 q12 -14 22 -4', 'none', C.paper, 14); path(G, 'M46 -40 q12 -14 22 -4', 'none', C.lime, 7);
+        ell(G, 0, 36, 54, 12, C.ink, C.paper, W);
+        R(-32, -40, 64, 76, 0, C.ink, C.paper, W);
+        R(-29, 12, 58, 16, 0, C.lime);
+        ell(G, 0, -40, 32, 9, C.ink, C.paper, W);
+        break;
+      case 'quill':
+        path(G, 'M-18 22 C-8 -28 22 -50 56 -60 C50 -30 32 2 -12 20 Z', C.paper, C.paper, 3);
+        line(G, -18, 22, 46, -52, C.ink, 3);
+        R(-48, 16, 44, 40, 6, C.ink, C.paper, W); R(-38, 6, 24, 12, 2, C.ink, C.paper, 4);
+        R(16, -6, 9, 38, 0, C.paper); R(16, 28, 40, 9, 0, C.paper); line(G, 20, 36, 20, 58, C.paper, 7); line(G, 52, 36, 52, 58, C.paper, 7);
+        break;
+      case 'stool':
+        R(-8, -12, 16, 62, 0, C.ink, C.paper, W);
+        ell(G, 0, 52, 36, 8, C.ink, C.paper, W);
+        R(-42, -34, 84, 22, 11, C.red, C.paper, W);
+        circle(G, 52, 24, 14, C.lime, C.paper, W);
+        break;
+      default:
+        circle(G, 0, 0, 40, p.a, p.ln, W);
+    }
+    return G;
+  }
+
+  const DEF_EP = [
+    { n: '01', title: 'La bille n’a pas de mémoire', sub: '', picto: 'ball' },
+    { n: '02', title: 'La zone', sub: '', picto: 'slot' },
+    { n: '03', title: 'Le système infaillible', sub: 'qui ne l’est jamais', picto: 'ladder' },
+    { n: '04', title: 'Se refaire', sub: 'perdre plus vite en voulant rattraper', picto: 'chase' },
+    { n: '05', title: 'Le seul jeu qu’on peut battre', sub: '', picto: 'cards' },
+    { n: '06', title: 'Une maison sans horloges', sub: '', picto: 'clock-off' },
+    { n: '07', title: 'Le tapis rouge', sub: 'et qui le paie', picto: 'carpet' },
+    { n: '08', title: 'Le casino dans la poche', sub: '', picto: 'phone' },
+    { n: '09', title: 'La sortie', sub: '', picto: 'exit' }
+  ];
+  const DEF_W = [
+    { cue: 'w-escroc', card: 1, object: 'tophat', role: 'Un escroc', line: 'qui a fait sauter la banque de Monte-Carlo' },
+    { cue: 'w-ecrivain', card: 3, object: 'quill', role: 'Un écrivain russe', line: 'et la femme qui l’attendait' },
+    { cue: 'w-joueuse', card: 2, object: 'stool', role: 'Une joueuse de Las Vegas', line: 'qui ne joue pas pour gagner' }
+  ];
+  const XS = [140, 700, 1260], YS = [130, 370, 610];
+
+  ZV.define('season-board', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const M = metric(root);
+      const sh = { beats: shot.beats || [] };
+      const cu = (n) => { const v = ZV.cue(sh, n); return v == null ? null : v; };
+      const st = { cards: [] };
+      const titleTxt = str(P.title, 'SAISON 1 · 9 ÉPISODES').toUpperCase();
+      const peopleTxt = 'AVEC DES GENS QUI L’ONT VÉCU';
+      const firstTxt = str(P.first_label, 'PREMIER ÉPISODE').toUpperCase();
+      const epP = Array.isArray(P.episodes) ? P.episodes : [];
+      const eps = DEF_EP.map((d, i) => { const e = epP[i] && typeof epP[i] === 'object' ? epP[i] : {}; return { n: str(e.n, d.n), title: typeof e.title === 'string' ? e.title : d.title, sub: typeof e.sub === 'string' ? e.sub : d.sub, picto: str(e.picto, d.picto) }; });
+      const wP = Array.isArray(P.witnesses) ? P.witnesses : [];
+      const wit = wP.length ? wP : DEF_W;
+
+      // ---- calendrier
+      const tTitle = cu('title'), tAll = cu('all'), tPeople = cu('people'), tFirst = cu('first');
+      const tE = eps.map((e, i) => cu('e' + (i + 1)));
+      const anyE = tE.some((x) => x != null) || tAll != null;
+      const closed = P.start === 'closed' ? true : P.start === 'open' ? false : anyE;
+      st.k = { title: tTitle, people: tPeople, first: tFirst, all: tAll };
+      const witByCard = {};
+      const wEv = [];
+      wit.forEach((w) => { const c = (w && +w.card) | 0; const tw = w ? cu(str(w.cue, '')) : null; if (c >= 1 && c <= 9) { witByCard[c - 1] = w; if (tw != null) wEv.push({ i: c - 1, t: tw }); } });
+
+      // ---- décor
+      rect(root, 0, 0, 1920, 1080, 0, C.lime);
+      let gd = ''; for (let x = 0; x <= 1920; x += 120) gd += `M${x} 0V1080`; for (let y = 0; y <= 1080; y += 120) gd += `M0 ${y}H1920`;
+      path(root, gd, 'none', C.ink, 2, { opacity: 0.12, 'stroke-linecap': 'butt' });
+      const cardsG = g(root);
+
+      // ---- événements de côté (face / dos / témoin) par carte
+      const evs = eps.map((e, i) => {
+        const a = [];
+        if (closed && tE[i] != null) a.push({ t: tE[i], to: 'face' });
+        const w = wEv.filter((x) => x.i === i); w.forEach((x) => a.push({ t: x.t, to: 'wit' }));
+        if (tFirst != null) a.push({ t: tFirst, to: 'face' });
+        return a;
+      });
+      if (closed && tAll != null) {
+        let rank = 0;
+        for (let i = 0; i < 9; i++) {
+          if (evs[i].some((x) => x.t <= tAll)) continue;
+          evs[i].push({ t: tAll + rank * 3 * I, to: 'face' }); rank++;
+        }
+      }
+      const cardEv = evs.map((a) => {
+        a.sort((x, y) => x.t - y.t);
+        let cur = closed ? 'back' : 'face'; const out = [];
+        a.forEach((x) => { if (x.to !== cur) { out.push({ t: x.t, from: cur, to: x.to }); cur = x.to; } });
+        return out;
+      });
+      // événements « carte active »
+      const act = [];
+      tE.forEach((x, i) => { if (x != null) act.push({ t: x, c: i }); });
+      [tAll, tPeople, tFirst].forEach((x) => { if (x != null) act.push({ t: x, c: -1 }); });
+      act.sort((x, y) => x.t - y.t);
+      st.act = act;
+      const wSet = new Set(Object.keys(witByCard).map(Number));
+      st.wSet = wSet;
+
+      // ---- cartes (ordre DOM : 2…9 puis 1, pour que la 01 reste au-dessus quand elle grandit)
+      const order = [1, 2, 3, 4, 5, 6, 7, 8, 0];
+      const cards = [];
+      order.forEach((i) => {
+        const cx = XS[i % 3] + 260, cy = YS[Math.floor(i / 3)] + 100;
+        const pos = g(cardsG), flip = g(pos);
+        const c = { i, cx, cy, pos, flip, ev: cardEv[i], init: closed ? 'back' : 'face', drop: tTitle != null ? tTitle + i * 2 * I : -INF };
+        c.shadow = rect(flip, -260 + 10, -100 + 10, 520, 200, 14, C.ink);
+        const ep = eps[i];
+        // dos
+        c.back = g(flip);
+        rect(c.back, -260, -100, 520, 200, 14, C.ink, C.paper, 4);
+        put(c.back, ep.n, 0, 22, 64, C.lime, M, { anchor: 'middle', mono: true });
+        // face / active
+        const title = ep.title.toUpperCase(), sub = (ep.sub || '').toUpperCase();
+        let sz = 42, tl = null, sl = null, blockH = 0;
+        for (; sz >= 30; sz--) {
+          tl = fitLines(M, title, sz, 336, 2, false); if (!tl) continue;
+          sl = sub ? (fitLines(M, sub, 18, 336, 2, true) || fitLines(M, sub, 15, 336, 2, true)) : { lines: [], w: 0 };
+          if (!sl) sl = { lines: [], w: 0 };
+          blockH = tl.lines.length * sz * 1.05 + (sl.lines.length ? 8 + sl.lines.length * 21.6 : 0);
+          if (blockH <= 140) break;
+        }
+        if (!tl) { sz = 30; tl = split(M, title, 2, 30, false); sl = sub ? split(M, sub, 2, 15, true) : { lines: [], w: 0 }; blockH = tl.lines.length * sz * 1.05 + (sl.lines.length ? 8 + sl.lines.length * 21.6 : 0); }
+        const subSz = sub && fitLines(M, sub, 18, 336, 2, true) ? 18 : 15;
+        const y0 = 14 - blockH / 2;
+        [['face', C.paper, C.ink, C.ink, C.ink, C.lime, C.ink], ['act', C.ink, C.paper, C.lime, C.paper, C.lime, C.ink]].forEach((m, mi) => {
+          const G = g(flip);
+          if (mi === 0) rect(G, -260, -100, 520, 200, 14, C.paper, C.ink, 6); else rect(G, -260, -100, 520, 200, 14, C.ink, C.ink, 6);
+          // onglet
+          if (mi === 0) { rect(G, -236, -114, 76, 50, 0, C.ink); put(G, ep.n, -198, -114 + 25 + 10.5, 30, C.lime, M, { anchor: 'middle', mono: true }); }
+          else { rect(G, -236, -114, 76, 50, 0, C.lime); put(G, ep.n, -198, -114 + 25 + 10.5, 30, C.ink, M, { anchor: 'middle', mono: true }); }
+          tl.lines.forEach((l, j) => put(G, l, -236, y0 + j * sz * 1.05 + sz * 0.88, sz, mi === 0 ? C.ink : C.paper, M, { maxW: 336 }));
+          const ys = y0 + tl.lines.length * sz * 1.05 + 8;
+          sl.lines.forEach((l, j) => put(G, l, -236, ys + j * 21.6 + 17, subSz, mi === 0 ? C.ink : C.lime, M, { mono: true, weight: 600, maxW: 336 }));
+          const pg2 = g(G, { transform: 'translate(175 0)' });
+          pic(pg2, ep.picto, mi === 0 ? 'face' : 'inv');
+          c[mi === 0 ? 'face' : 'actG'] = G;
+        });
+        // témoin
+        const w = witByCard[i];
+        c.hasW = !!w;
+        if (w) {
+          const G = c.witG = g(flip);
+          rect(G, -260, -100, 520, 200, 14, C.ink, C.lime, 6);
+          rect(G, -236, -114, 76, 50, 0, C.lime); put(G, ep.n, -198, -114 + 25 + 10.5, 30, C.ink, M, { anchor: 'middle', mono: true });
+          pic(g(G, { transform: 'translate(-171 8)' }), str(w.object, 'tophat'), 'face');
+          const role = str(w.role, '').toUpperCase(), ln = str(w.line, '');
+          let rs = 34, rl = null, ll = null, bh = 0;
+          for (; rs >= 26; rs--) {
+            rl = fitLines(M, role, rs, 330, 2, false); if (!rl) continue;
+            ll = ln ? (fitLines(M, ln, 18, 330, 3, true) || fitLines(M, ln, 15, 330, 3, true)) : { lines: [], w: 0 };
+            if (!ll) ll = { lines: [], w: 0 };
+            bh = rl.lines.length * rs * 1.05 + (ll.lines.length ? 8 + ll.lines.length * 21.6 : 0);
+            if (bh <= 150) break;
+          }
+          if (!rl) { rs = 26; rl = split(M, role, 2, 26, false); ll = ln ? split(M, ln, 3, 15, true) : { lines: [], w: 0 }; bh = rl.lines.length * rs * 1.05 + (ll.lines.length ? 8 + ll.lines.length * 21.6 : 0); }
+          const lsz = ln && fitLines(M, ln, 18, 330, 3, true) ? 18 : 15;
+          const yw = 14 - bh / 2;
+          rl.lines.forEach((l, j) => put(G, l, -90, yw + j * rs * 1.05 + rs * 0.88, rs, C.paper, M, { maxW: 330 }));
+          const yl = yw + rl.lines.length * rs * 1.05 + 8;
+          ll.lines.forEach((l, j) => put(G, l, -90, yl + j * 21.6 + 17, lsz, C.lime, M, { mono: true, weight: 600, maxW: 330 }));
+        }
+        c.veil = rect(flip, -260, -100, 520, 200, 14, C.ink); c.veil.setAttribute('opacity', 0);
+        cards.push(c);
+      });
+      st.cards = cards.slice().sort((a, b) => a.i - b.i);
+
+      // ---- titre (deux stickers : titre / « gens qui l'ont vécu »)
+      const mkStk = (label, maxW) => {
+        const o = g(root);
+        let s = 52, w = M(label, s); if (w > maxW) { s = 52 * maxW / w; w = maxW; }
+        const bw = Math.round(w + 80), bh = 70;
+        rect(o, -bw / 2, -bh / 2, bw, bh, 12, C.ink, C.ink, 6);
+        put(o, label, 0, s * 0.35, s, C.lime, M, { anchor: 'middle', maxW: w });
+        return o;
+      };
+      st.tA = mkStk(titleTxt, 1500); st.tB = mkStk(peopleTxt, 1500);
+      // sticker « premier épisode »
+      const fo = st.fo = g(root);
+      { const fs = 44, fw = Math.min(900, M(firstTxt, fs)), bw = Math.round(fw + 56), bh = Math.round(fs * 1.18 + 26);
+        rect(fo, -bw / 2 + 10, -bh / 2 + 10, bw, bh, 14, C.ink); rect(fo, -bw / 2, -bh / 2, bw, bh, 14, C.red, C.ink, 6);
+        put(fo, firstTxt, 0, fs * 0.35, fs, C.paper, M, { anchor: 'middle', maxW: fw });
+        const a = 4 * Math.PI / 180; st.foY = 218 - ((bh / 2 + 10) * Math.cos(a) + (bw / 2) * Math.sin(a)); }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const k = st.k;
+      // titre
+      const tp = k.title != null ? pg(t, k.title, 8 * I) : 1;
+      const pe = k.people != null ? pg(t, k.people, 4 * I) : 0;
+      const pf = k.first != null ? pg(t, k.first, 4 * I) : 0;
+      const bOn = k.people != null ? pe * (1 - pf) : 0;
+      const aOn = (1 - bOn) * (1 - pf);
+      const sc = tp > 0 ? Math.max(0.0001, E.back(tp)) : 0;
+      [[st.tA, aOn], [st.tB, bOn]].forEach((x) => { const o = x[0]; if (sc > 0 && x[1] > 0.001) { vis(o, true); tr(o, 960, 65, -2, sc); setA(o, 'opacity', f2(x[1])); } else vis(o, false); });
+      // sticker premier épisode
+      const fp = k.first != null ? pg(t, k.first + 0.3, 8 * I) : 0;
+      if (fp > 0) { vis(st.fo, true); tr(st.fo, 960, st.foY, -4, Math.max(0.0001, E.back(fp))); } else vis(st.fo, false);
+
+      const u1 = k.first != null ? E.out3(pg(t, k.first, 14 * I)) : 0;
+      // carte active
+      const act = st.act; let li = -1; for (let j = 0; j < act.length; j++) if (act[j].t <= t) li = j;
+      for (let n = 0; n < 9; n++) {
+        const c = st.cards[n], i = c.i;
+        // chute
+        if (t < c.drop) { vis(c.pos, false); continue; }
+        const dp = pg(t, c.drop, 8 * I);
+        const dy = c.drop === -INF ? 0 : -(c.cy + 130) * (1 - E.out3(dp));
+        // côté
+        let side = c.init, q = 1, prev = c.init, wA = 0;
+        let ev = null; for (let j = 0; j < c.ev.length; j++) if (c.ev[j].t <= t) ev = c.ev[j];
+        if (ev) {
+          q = clamp((t - ev.t) / (10 * I)); prev = ev.from; side = ev.to;
+          if (ev.to === 'wit') wA = q; else if (ev.from === 'wit') wA = 1 - q;
+        }
+        const e = E.io2(q);
+        const shown = q < 1 && e < 0.5 ? prev : side;
+        const sy = q < 1 ? Math.abs(Math.cos(Math.PI * e)) : 1;
+        // active
+        let a = 0;
+        if (li >= 0) { const cur = act[li].c === i, pv = li > 0 && act[li - 1].c === i; const qa = clamp((t - act[li].t) / (6 * I)); a = cur ? qa : pv ? 1 - qa : 0; }
+        // échelle / position
+        let s = (1 + 0.06 * a) * (1 + 0.04 * wA), x = c.cx, y = c.cy + dy;
+        if (i === 0) { s *= 1 + 0.9 * u1; x += (960 - c.cx) * u1; y += (430 - c.cy) * u1; }
+        vis(c.pos, true); tr(c.pos, x, y, 0, s);
+        setA(c.flip, 'transform', `scale(1 ${f2(Math.max(sy, 0.0001))})`);
+        vis(c.flip, sy > 0.004);
+        const sh = 10 + 4 * wA; setA(c.shadow, 'x', -260 + sh); setA(c.shadow, 'y', -100 + sh);
+        vis(c.back, shown === 'back');
+        vis(c.face, shown === 'face' && a < 0.5); vis(c.actG, shown === 'face' && a >= 0.5);
+        if (c.witG) vis(c.witG, shown === 'wit');
+        // voile
+        let v = 0;
+        if (k.people != null && !st.wSet.has(i)) v = pg(t, k.people, 4 * I);
+        if (k.first != null && i !== 0) v = Math.max(v, pg(t, k.first, 10 * I));
+        setA(c.veil, 'opacity', f2(0.62 * v)); vis(c.veil, v > 0.001);
+      }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/section-view.js ==== */
+// Composant `section-view` (épisode 6) : le bâtiment en COUPE (profil), pour la hauteur du plafond, la lumière, le décor. Voir EP6-COMPONENTS.md.
+// Mode `schools` : deux écoles, un seul but (cues left, right, versus, goal, verdict).
+// Mode `walk` : longue coupe parcourue par la caméra + bande-plan (cues enter, lower, narrow, shelter).
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter. Aucun nom d'entreprise.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, shakeAt } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
+  const tr = (n, x, y, r, sx, sy) => setA(n, 'transform', `translate(${f2(x)} ${f2(y)})` + (r ? ` rotate(${f2(r)})` : '') + ((sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) ? ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})` : ''));
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += size * (ch === ' ' ? 0.26 : /[0-9]/.test(ch) ? 0.6 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 0.66 : /[.,:;'’!|]/.test(ch) ? 0.3 : 0.56); return a; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  function T(parent, s, x, y, size, fill, o) {
+    o = o || {};
+    const est = (sz) => (o.mono ? mw(s, sz) : bw(s, sz));
+    if (o.maxW && est(size) > o.maxW) size = size * o.maxW / est(size);
+    const n = text(parent, s, x, y, size, fill, { mono: o.mono, anchor: o.anchor, weight: o.weight });
+    n.setAttribute('textLength', f2(est(size)));
+    n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    n.__size = size; n.__w = est(size);
+    return n;
+  }
+  function stk(parent, label, size, fill, textFill, h, maxW) {
+    h = h || Math.round(size * 1.7);
+    const sz = maxW && bw(label, size) + 56 > maxW ? (maxW - 56) / bw(label, size) * size : size;
+    const w = Math.round(bw(label, sz) + 56);
+    const grp = g(parent);
+    rect(grp, -w / 2 + 10, -h / 2 + 10, w, h, 14, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, 14, fill, C.ink, 6);
+    T(grp, label, 0, sz * 0.35, sz, textFill, { anchor: 'middle' });
+    grp.__w = w; grp.__h = h;
+    return grp;
+  }
+  const halo = (n) => { n.setAttribute('stroke', C.white); n.setAttribute('stroke-width', 8); n.setAttribute('paint-order', 'stroke'); n.setAttribute('stroke-linejoin', 'round'); };
+  const pop = (n, x, y, rot, p, k) => { if (p <= 0) { vis(n, false); return; } vis(n, true); const s = Math.max(0.0001, E.back(clamp(p))) * (k || 1); tr(n, x, y, rot, s, s); setA(n, 'opacity', f2(clamp(p * 5))); };
+  const smooth = (x, s) => { const u = clamp((x - s + 30) / 60); return u * u * (3 - 2 * u); };
+
+  // machine vue de face (centrée sur (0,0) au sol : le bas est à y = 0)
+  function machine(parent, w, h, red) {
+    const grp = g(parent);
+    rect(grp, -w / 2, -h, w, h, 8, red ? C.red : C.ink, C.ink, 5);
+    rect(grp, -w * 0.34, -h + 14, w * 0.68, h * 0.36, 5, red ? C.ink : C.paper);
+    rect(grp, -w * 0.3, -h * 0.4, w * 0.6, 10, 2, C.lime, C.ink, 3);
+    rect(grp, -w * 0.4, -14, w * 0.8, 14, 2, C.ink);
+    return grp;
+  }
+  function chair(parent) {                                                       // chaise de profil, tournée vers la droite, posée au sol
+    const grp = g(parent);
+    rect(grp, -22, -78, 10, 76, 2, C.ink);
+    rect(grp, -22, -42, 46, 12, 2, C.ink);
+    rect(grp, -22, -42, 6, 42, 0, C.ink);
+    rect(grp, 16, -42, 6, 42, 0, C.ink);
+    return grp;
+  }
+  function toiDisc(parent, r) {
+    const grp = g(parent);
+    circle(grp, 0, 0, r, C.lime, C.ink, 5);
+    T(grp, 'TOI', 0, 6, 17, C.ink, { mono: true, anchor: 'middle', weight: 800 });
+    return grp;
+  }
+  // flèche lime cernée d'ink, de (x1,y) vers (x2,y)
+  function arrow(parent) {
+    const grp = g(parent);
+    st_line(grp);
+    return grp;
+  }
+  function st_line(grp) {
+    grp.__a = line(grp, 0, 0, 0, 0, C.ink, 16, { 'stroke-linecap': 'butt' });
+    grp.__b = line(grp, 0, 0, 0, 0, C.lime, 8, { 'stroke-linecap': 'butt' });
+    grp.__h = path(grp, 'M0 -18 L28 0 L0 18 Z', C.lime, C.ink, 5);
+  }
+  function setArrow(grp, x1, x2, y, p) {
+    const xe = x1 + (x2 - x1) * p;
+    vis(grp, p > 0.01);
+    setA(grp.__a, 'x1', f2(x1)); setA(grp.__a, 'x2', f2(xe - 4)); setA(grp.__a, 'y1', y); setA(grp.__a, 'y2', y);
+    setA(grp.__b, 'x1', f2(x1)); setA(grp.__b, 'x2', f2(xe - 8)); setA(grp.__b, 'y1', y); setA(grp.__b, 'y2', y);
+    setA(grp.__h, 'transform', `translate(${f2(xe - 24)} ${y})`);
+  }
+
+  /* =========================================================== schools */
+  const PXL = 80, PXR = 980, PY = 140, PWD = 860, PHT = 560, FLOOR = 690, SLAB0 = 148;
+  const BAND = { x: 120, y: 540, w: 1680, h: 80 };
+
+  function initSchools(root, st, P, c, dur) {
+    const left = Object.assign({ kicker: 'ÉCOLE FRIEDMAN', title: 'LE LABYRINTHE' }, P.left && typeof P.left === 'object' ? P.left : {});
+    const right = Object.assign({ kicker: 'ÉCOLE THOMAS', title: 'LE TERRAIN DE JEU' }, P.right && typeof P.right === 'object' ? P.right : {});
+    const goal = str(P.goal, 'OBJECTIF : QUE TU RESTES'), verdict = str(P.verdict, 'LE DÉCOR CHANGE. LE BUT, JAMAIS.');
+    const uid = 'sv' + (++UID);
+    rect(root, 0, 0, 1920, 1080, 0, C.paper);
+    const defs = sv('defs', null, root);
+    st.sch = { uid };
+
+    /* en-têtes : au-dessus des panneaux, collés aux bords extérieurs (le milieu reste libre pour le tampon) */
+    T(root, left.kicker, 80, 70, 26, C.ink, { mono: true, weight: 800, maxW: 500 });
+    T(root, left.title, 80, 122, 44, C.ink, { maxW: 600 });
+    T(root, right.kicker, 1840, 70, 26, C.ink, { mono: true, weight: 800, anchor: 'end', maxW: 500 });
+    T(root, right.title, 1840, 122, 44, C.ink, { anchor: 'end', maxW: 600 });
+
+    const panel = (px, key) => {
+      const cp = sv('clipPath', { id: `${uid}${key}` }, defs);
+      rect(cp, px + 4, PY + 4, PWD - 8, PHT - 8, 0, '#000');
+      rect(root, px + 14, PY + 14, PWD, PHT, 0, C.ink);
+      rect(root, px, PY, PWD, PHT, 0, C.paper, C.ink, 8);
+      return g(root, { 'clip-path': `url(#${uid}${key})` });
+    };
+    /* ---- gauche : le labyrinthe ---- */
+    const L = st.L = {};
+    L.g = panel(PXL, 'l');
+    L.floor = rect(L.g, PXL + 8, FLOOR, PWD - 16, 10, 0, C.ink);
+    L.slab = rect(L.g, PXL + 8, SLAB0, PWD - 16, 40, 0, C.ink);
+    L.wl = rect(L.g, PXL + 8, FLOOR, 52, 10, 0, C.ink);
+    L.wr = rect(L.g, PXL + PWD - 60, FLOOR, 52, 10, 0, C.ink);
+    L.back = []; L.front = [];
+    [[425, 0], [515, 1], [605, 0], [695, 1]].forEach(([x, k], i) => {
+      const m = machine(L.g, 66, 120, false); m.__x = PXL + x; m.__y = FLOOR - 8; m.__s = 0.82; m.__t = 0.9 + i * 0.12; L.back.push(m);
+    });
+    [[470, 1], [560, 0], [650, 1], [740, 0]].forEach(([x, k], i) => {
+      const m = machine(L.g, 80, 150, !!k); m.__x = PXL + x; m.__y = FLOOR; m.__s = 1; m.__t = 0.85 + i * 0.12; L.front.push(m);
+    });
+    L.clock = g(L.g);
+    circle(L.clock, 0, 0, 26, C.paper, C.ink, 5); line(L.clock, 0, 0, 0, -16, C.ink, 4); line(L.clock, 0, 0, 12, 6, C.ink, 4);
+    L.clockX = g(L.clock); line(L.clockX, -24, -24, 24, 24, C.red, 7); line(L.clockX, 24, -24, -24, 24, C.red, 7);
+    L.chair = chair(L.g); L.toi = toiDisc(L.g, 26); L.arr = arrow(L.g);
+
+    /* ---- droite : le terrain de jeu ---- */
+    const R = st.R = {};
+    R.g = panel(PXR, 'r');
+    R.floor = rect(R.g, PXR + 8, FLOOR, PWD - 16, 10, 0, C.ink);
+    R.slab = rect(R.g, PXL + 8 + 900, SLAB0, PWD - 16, 40, 0, C.ink);
+    R.glass = g(R.g);                                                            // verrière sur le mur du fond
+    {
+      const gx = PXR + 300, gy = 215, gw = 400, gh = 160;
+      R.glassH = gh; R.glassY = gy + gh / 2;
+      const gg = R.glassIn = g(R.glass);
+      rect(gg, gx + 8, gy + 8, gw, gh, 0, C.ink);
+      rect(gg, gx, gy, gw, gh, 0, C.paper, C.ink, 8);
+      line(gg, gx + gw / 3, gy, gx + gw / 3, gy + gh, C.ink, 6); line(gg, gx + gw * 2 / 3, gy, gx + gw * 2 / 3, gy + gh, C.ink, 6);
+      line(gg, gx, gy + gh / 2, gx + gw, gy + gh / 2, C.ink, 6);
+      circle(gg, gx + 332, gy + 40, 40, C.lime, C.ink, 5);
+      R.glass.__c = [gx + gw / 2, gy + gh / 2];
+      gg.setAttribute('transform', `translate(${-R.glass.__c[0]} ${-R.glass.__c[1]})`);
+    }
+    R.art = g(R.g);
+    {
+      const ax = PXR + 70, ay = 235;
+      rect(R.art, -50 + 6, -80 + 6, 100, 160, 0, C.ink);
+      rect(R.art, -50, -80, 100, 160, 0, C.paper, C.ink, 7);
+      circle(R.art, -6, -28, 24, C.lime, C.ink, 4);
+      rect(R.art, -30, 8, 40, 40, 0, C.red, C.ink, 4);
+      path(R.art, 'M8 54 L34 14 L40 54 Z', C.paper, C.ink, 4);
+      R.art.__c = [ax + 40, ay + 80];
+    }
+    R.tree = g(R.g);
+    {
+      path(R.tree, 'M-34 0 L34 0 L26 -52 L-26 -52 Z', C.ink, C.ink, 4);
+      rect(R.tree, -5, -150, 10, 100, 0, C.ink);
+      circle(R.tree, 0, -190, 42, C.lime, C.ink, 5); circle(R.tree, -34, -160, 30, C.lime, C.ink, 5); circle(R.tree, 34, -166, 32, C.lime, C.ink, 5);
+      R.tree.__c = [PXR + 770, FLOOR];
+    }
+    R.mach = [[1530, 1], [1690, 0]].map(([x, k], i) => { const m = machine(R.g, 80, 150, !!k); m.__x = x; m.__y = FLOOR; m.__t = 1.6 + i * 0.15; return m; });
+    R.chair = chair(R.g); R.toi = toiDisc(R.g, 26); R.arr = arrow(R.g);
+
+    /* ---- ≠ / =, étiquettes, bandeau, tampon ---- */
+    st.vs = g(root);
+    {
+      circle(st.vs, 5, 5, 48, C.ink); circle(st.vs, 0, 0, 48, C.ink, C.paper, 6);
+      st.neq = T(st.vs, '≠', 0, 22, 64, C.paper, { anchor: 'middle', maxW: 60 });
+      st.eq = T(st.vs, '=', 0, 22, 64, C.lime, { anchor: 'middle', maxW: 60 });
+    }
+    const tag = (lab, cx) => { const grp = g(root); const w = Math.round(mw(lab, 28) + 40); rect(grp, -w / 2 + 6, -22 + 6, w, 44, 6, C.ink); rect(grp, -w / 2, -22, w, 44, 6, C.red, C.ink, 5); T(grp, lab, 0, 10, 28, C.ink, { mono: true, anchor: 'middle', weight: 800 }); grp.__cx = cx; return grp; };
+    st.tagL = tag('BAS · FERMÉ · SANS JOUR', PXL + PWD / 2);
+    st.tagR = tag('HAUT · OUVERT · LUMIÈRE', PXR + PWD / 2);
+    st.band = g(root);
+    {
+      rect(st.band, -BAND.w / 2 + 10, -BAND.h / 2 + 10, BAND.w, BAND.h, 6, C.red);
+      rect(st.band, -BAND.w / 2, -BAND.h / 2, BAND.w, BAND.h, 6, C.ink, C.paper, 5);
+      T(st.band, goal, 0, 20, 56, C.lime, { anchor: 'middle', maxW: BAND.w - 100 });
+    }
+    st.stamp = g(root);
+    {
+      const lines = verdict.indexOf('. ') > 0 ? [verdict.slice(0, verdict.indexOf('. ') + 1), verdict.slice(verdict.indexOf('. ') + 2)] : [verdict];
+      const fs = 36, w = Math.round(Math.max(...lines.map((l) => bw(l, fs))) + 64), h = Math.round(lines.length * fs * 1.2 + 36);
+      rect(st.stamp, -w / 2, -h / 2, w, h, 10, C.paper, C.red, 8);
+      rect(st.stamp, -w / 2 + 9, -h / 2 + 9, w - 18, h - 18, 4, 'none', C.red, 3);
+      lines.forEach((l, i) => T(st.stamp, l, 0, -h / 2 + 18 + fs * 0.95 + i * fs * 1.2, fs, C.red, { anchor: 'middle' }));
+      st.stamp.__h = h;
+    }
+  }
+
+  function updateSchools(st, t, c) {
+    const has = (x) => x != null && t >= x;
+    const pr = (t0, d) => (t0 == null ? 0 : prog(t, t0, t0 + d));
+    const L = st.L, R = st.R;
+    /* ---- panneau gauche ---- */
+    {
+      const lt = c.left == null ? -1 : t - c.left, on = lt >= 0;
+      vis(L.floor, on && lt >= 0);
+      setA(L.floor, 'width', f2((PWD - 16) * E.out2(prog(lt, 0, 0.2))));
+      const und = lerp(190, 470, E.in2(prog(lt, 0.4, 0.8)));
+      const wtop = lt < 0.4 ? lerp(FLOOR, 190, E.out2(prog(lt, 0.15, 0.4))) : und;
+      vis(L.wl, on && lt >= 0.15); vis(L.wr, on && lt >= 0.15);
+      for (const w of [L.wl, L.wr]) { setA(w, 'y', f2(wtop)); setA(w, 'height', f2(Math.max(0, FLOOR - wtop))); }
+      vis(L.slab, on && lt >= 0.4); setA(L.slab, 'height', f2(Math.max(1, und - SLAB0)));
+      L.back.forEach((m) => pop(m, m.__x, m.__y, 0, on ? prog(lt, m.__t, m.__t + 0.25) : 0, 0.82));
+      L.front.forEach((m) => pop(m, m.__x, m.__y, 0, on ? prog(lt, m.__t, m.__t + 0.25) : 0));
+      pop(L.clock, PXL + 610, 507, 0, on ? prog(lt, 1.5, 1.8) : 0);
+      const xp = on ? prog(lt, 1.85, 2.1) : 0;
+      vis(L.clockX, xp > 0);
+      pop(L.toi, PXL + 150, FLOOR - 26, 0, (on ? prog(lt, 2.0, 2.3) : 0) || (has(c.goal) ? 1 : 0));
+      const ch = (on ? prog(lt, 1.9, 2.2) : 0) || (has(c.goal) ? 1 : 0);
+      pop(L.chair, PXL + 300, FLOOR, 0, ch);
+    }
+    /* ---- panneau droit ---- */
+    {
+      const rt = c.right == null ? -1 : t - c.right, on = rt >= 0;
+      vis(R.floor, on); setA(R.floor, 'width', f2((PWD - 16) * E.out2(prog(rt, 0, 0.2))));
+      const und = lerp(470, 190, E.out3(prog(rt, 0.15, 0.55)));
+      vis(R.slab, on); setA(R.slab, 'x', PXR + 8); setA(R.slab, 'height', f2(Math.max(1, und - SLAB0)));
+      const gp = on ? E.out3(prog(rt, 0.65, 1.05)) : 0;
+      if (gp <= 0) vis(R.glass, false); else { vis(R.glass, true); tr(R.glass, R.glass.__c[0], R.glass.__c[1], 0, 1, gp); }
+      pop(R.art, R.art.__c[0], R.art.__c[1], 0, on ? prog(rt, 1.15, 1.45) : 0);
+      pop(R.tree, R.tree.__c[0], R.tree.__c[1], 0, on ? prog(rt, 1.35, 1.7) : 0);
+      R.mach.forEach((m) => { const p = on ? prog(rt, m.__t, m.__t + 0.25) : 0; pop(m, m.__x, m.__y, 0, p); });
+      pop(R.toi, PXR + 150, FLOOR - 26, 0, (on ? prog(rt, 1.95, 2.25) : 0) || (has(c.goal) ? 1 : 0));
+      pop(R.chair, PXR + 300, FLOOR, 0, (on ? prog(rt, 1.9, 2.2) : 0) || (has(c.goal) ? 1 : 0));
+    }
+    /* ---- ≠, étiquettes ---- */
+    const tvis = [c.versus, c.goal].filter((x) => x != null);
+    const tvs = tvis.length ? Math.min(...tvis) : null;
+    const eqOn = c.goal != null && t >= c.goal + 0.95;
+    if (tvs == null) vis(st.vs, false); else { pop(st.vs, 960, 420, 0, prog(t, tvs, tvs + 0.35)); }
+    const sw = c.goal == null ? 0 : prog(t, c.goal + 0.95, c.goal + 1.1);
+    op(st.neq, 1 - sw); op(st.eq, sw);
+    void eqOn;
+    for (const tg of [st.tagL, st.tagR]) {
+      const p = c.versus == null ? 0 : prog(t, c.versus + 0.3 + (tg === st.tagR ? 0.12 : 0), c.versus + 0.6 + (tg === st.tagR ? 0.12 : 0));
+      if (p <= 0) vis(tg, false); else { vis(tg, true); tr(tg, tg.__cx, 752 + 14 * (1 - E.out3(p)), 0, 1, 1); setA(tg, 'opacity', f2(p)); }
+    }
+    /* ---- but : flèches vers la chaise, bandeau ---- */
+    const ga = c.goal == null ? 0 : E.out2(prog(t, c.goal, c.goal + 0.45));
+    const gb = c.goal == null ? 0 : E.out2(prog(t, c.goal + 0.2, c.goal + 0.65));
+    setArrow(L.arr, PXL + 150 + 36, PXL + 300 - 34, 646, ga);
+    setArrow(R.arr, PXR + 150 + 36, PXR + 300 - 34, 646, gb);
+    const bp = c.goal == null ? 0 : E.out3(prog(t, c.goal + 0.7, c.goal + 1.15));
+    if (bp <= 0) vis(st.band, false); else { vis(st.band, true); tr(st.band, 960, 580, 0, bp, 1); }
+    /* ---- verdict ---- */
+    const vp = c.verdict == null ? 0 : prog(t, c.verdict, c.verdict + 0.22);
+    if (vp <= 0) vis(st.stamp, false);
+    else { vis(st.stamp, true); const s = 1 + 0.5 * (1 - E.out3(vp)); tr(st.stamp, 960, 100, -6, s, s); setA(st.stamp, 'opacity', f2(clamp(vp * 4))); }
+  }
+
+  /* =========================================================== walk */
+  const WORLD = 4200, GROUND = 560, PLAN_Y = 700;
+  const STEPS = [1500, 1900, 2500];
+  const aisleHalf = (x, p) => lerp(70, 70 - 48 * clamp((x - 1500) / 1500), p);
+  const ceilY = (x) => 150 + 110 * smooth(x, 1500) + 100 * smooth(x, 1900) + 60 * smooth(x, 2500);
+
+  function initWalk(root, st, P, c, dur) {
+    const first = str(P.first, 'LA PREMIÈRE MINUTE'), safe = str(P.safe, "UN JOUEUR À L'ABRI, IL RESTE.");
+    rect(root, 0, 0, 1920, 1080, 0, C.paper);
+    const W = st.W = {};
+    W.world = g(root);
+    const wd = W.world;
+    /* coupe : fond blanc, dalle du plafond en marches, sol */
+    rect(wd, -40, 130, WORLD + 80, GROUND - 130, 0, C.white);
+    path(wd, `M-40 120 L${WORLD + 40} 120 L${WORLD + 40} 420 L2500 420 L2500 360 L1900 360 L1900 260 L1500 260 L1500 150 L-40 150 Z`, C.ink, C.ink, 4).setAttribute('stroke-linejoin', 'miter');
+    rect(wd, -40, GROUND, WORLD + 80, 24, 0, C.ink);
+    /* entrée : colonnes, fontaine, tapis rouge */
+    W.enter = g(wd);
+    W.carpet = rect(W.enter, 0, GROUND - 14, 1500, 14, 0, C.red, C.ink, 4);
+    W.cols = [330, 530, 730].map((x) => {
+      const cg = g(W.enter);
+      rect(cg, -22, 176 - GROUND, 44, GROUND - 14 - 176 - 14, 0, C.ink);
+      rect(cg, -38, 150 - GROUND, 76, 30, 0, C.ink); rect(cg, -38, -28, 76, 14, 0, C.ink);
+      cg.__x = x;
+      return cg;
+    });
+    W.fount = g(W.enter);
+    {
+      const f = W.fount;
+      rect(f, -150, -34, 300, 34, 4, C.lime, C.ink, 6);
+      rect(f, -22, -112, 44, 80, 0, C.ink);
+      path(f, 'M-104 -116 Q0 -40 104 -116 Z', C.paper, C.ink, 6);
+      for (const d of ['M0 -116 L0 -240', 'M-6 -116 C-14 -230 -50 -270 -92 -214', 'M6 -116 C14 -230 50 -270 92 -214']) {
+        path(f, d, 'none', C.ink, 20); path(f, d, 'none', C.paper, 9);
+      }
+      f.__x = 1180; f.__y = GROUND - 14;
+    }
+    W.stFirst = stk(root, first, 44, C.paper, C.ink, 70, 900);
+    /* machines de la coupe (se rapprochent pendant `narrow`) */
+    W.mach = [];
+    for (let k = 0; k < 24; k++) { const m = machine(wd, 70, 112, k % 2 === 0); m.__k = k; W.mach.push(m); }
+    /* abri : aplat ink débordant sous le plafond, au-dessus de TOI */
+    W.shelter = rect(wd, 0, 420, 270, 56, 0, C.ink);
+    W.shelterEdge = rect(wd, 0, 470, 270, 6, 0, C.lime);
+    /* bande-plan */
+    rect(wd, -40, 596, WORLD + 80, 208, 0, C.ink);
+    W.aisle = path(wd, 'M0 700 L1 700 Z', C.white);
+    W.pm = [];
+    for (let k = 0; k < 70; k++) {
+      const x = 30 + k * 60, red = k % 2 === 0;
+      W.pm.push([rect(wd, x - 22, 600, 44, 24, 2, red ? C.red : C.paper, red ? C.paper : C.ink, 3), rect(wd, x - 22, 700, 44, 24, 2, red ? C.red : C.paper, red ? C.paper : C.ink, 3), x]);
+    }
+    /* TOI sur les deux vues */
+    W.toi1 = toiDisc(wd, 24); W.toi2 = toiDisc(wd, 20);
+    /* cotes qui suivent TOI */
+    W.cv = g(wd);
+    W.cvBar = rect(W.cv, -8, 0, 16, 10, 0, C.lime, C.ink, 4);
+    W.cvA = path(W.cv, 'M-14 8 L14 8 L0 -10 Z', C.ink); W.cvB = path(W.cv, 'M-14 0 L14 0 L0 18 Z', C.ink);
+    W.cvT = T(W.cv, 'PLAFOND', 24, 0, 22, C.ink, { mono: true, weight: 800 });
+    halo(W.cvT);
+    W.ch = g(wd);
+    W.chBar = rect(W.ch, -8, 0, 16, 10, 0, C.lime, C.ink, 4);
+    W.chA = path(W.ch, 'M-14 8 L14 8 L0 -10 Z', C.ink); W.chB = path(W.ch, 'M-14 0 L14 0 L0 18 Z', C.ink);
+    W.chT = T(W.ch, 'ALLÉE', 24, 0, 22, C.ink, { mono: true, weight: 800 });
+    halo(W.chT);
+    /* textes fixes à l'écran */
+    W.safe = T(root, safe, 960, 92, 60, C.ink, { anchor: 'middle', maxW: 1700 });
+    W.stStay = stk(root, 'IL RESTE', 52, C.red, C.ink, 84);
+  }
+
+  function walkGeom(st, c, dur) {
+    const tL = c.lower, tS = c.shelter;
+    let Dl = 5.5;
+    const nxt = [c.narrow, c.shelter].filter((x) => x != null && tL != null && x > tL);
+    if (nxt.length) Dl = clamp((Math.min(...nxt) - tL) * 0.92, 1.5, 5.5);
+    const x0 = 160, xL = 2700, xS = 3300;
+    const lowerX = (t) => (tL == null ? x0 : lerp(x0, xL, E.io2(prog(t, tL, tL + Dl))));
+    let Ds = 1.6;
+    if (tS != null) Ds = Math.max(1.6, Math.abs(xS - lowerX(tS)) / 900);
+    const xAt = (t) => {
+      if (tS != null && t >= tS) return lerp(lowerX(tS), xS, E.io2(prog(t, tS, tS + Ds)));
+      return lowerX(t);
+    };
+    // instants où TOI franchit chaque marche (secousse)
+    const hits = [];
+    let prev = xAt(0);
+    for (let t = 0.02; t <= dur + 0.5; t += 0.02) {
+      const x = xAt(t);
+      for (const s of STEPS) if (prev < s && x >= s) hits.push(t);
+      prev = x;
+    }
+    return { xAt, hits, Ds, Dl };
+  }
+
+  function updateWalk(st, t, c) {
+    const W = st.W, G = st.G;
+    const has = (x) => x != null && t >= x;
+    const pr = (t0, d) => (t0 == null ? 0 : prog(t, t0, t0 + d));
+    const x = G.xAt(t);
+    const camX = clamp(x - 520, 0, WORLD - 1920);
+    let sx = 0, sy = 0;
+    for (const h of G.hits) { const s = shakeAt(t, h, 6, 0.3); sx += s[0] * 0.4; sy += s[1]; }
+    setA(W.world, 'transform', `translate(${f2(-camX + sx)} ${f2(sy)})`);
+    const sc = (wx) => wx - camX;                                               // abscisse d'écran
+
+    /* entrée */
+    const pe = c.enter == null ? 1 : pr(c.enter, 0.5);
+    vis(W.enter, pe > 0);
+    W.cols.forEach((cg, i) => { const p = c.enter == null ? 1 : prog(t, c.enter + i * 0.1, c.enter + i * 0.1 + 0.3); pop(cg, cg.__x, GROUND, 0, p); });
+    pop(W.fount, W.fount.__x, W.fount.__y, 0, c.enter == null ? 1 : prog(t, c.enter + 0.3, c.enter + 0.7));
+    setA(W.carpet, 'width', f2(1500 * (c.enter == null ? 1 : E.out2(pr(c.enter, 0.5)))));
+    {
+      const so = c.enter == null ? 0 : pr(c.enter + 0.6, 0.3), si = c.lower == null ? 0 : pr(c.lower, 0.3);
+      if (so * (1 - si) <= 0) vis(W.stFirst, false); else { pop(W.stFirst, 960, 74, -2, so); setA(W.stFirst, 'opacity', f2(clamp(so * 5) * (1 - si))); }
+    }
+
+    /* resserrement */
+    const pN = c.narrow == null ? 0 : E.io2(pr(c.narrow, 1.6));
+    const pitch = lerp(170, 105, pN);
+    W.mach.forEach((m, k) => {
+      const mx = 1650 + k * pitch;
+      const vis_ = c.enter == null || t >= c.enter + 0.6;
+      if (!vis_ || mx > WORLD + 100) { vis(m, false); return; }
+      vis(m, true); tr(m, mx, GROUND, 0, 1, 1);
+    });
+    {
+      const key = Math.round(pN * 300);
+      if (W.aisle.__k !== key) {
+        W.aisle.__k = key;
+        let top = '', bot = '';
+        for (let xx = 0; xx <= WORLD; xx += 60) { const a = aisleHalf(xx, pN); top += `${xx === 0 ? 'M' : 'L'}${xx} ${f2(PLAN_Y - a)} `; bot = `L${xx} ${f2(PLAN_Y + a)} ` + bot; }
+        W.aisle.setAttribute('d', top + bot + 'Z');
+        for (const [r1, r2, px] of W.pm) { const a = aisleHalf(px, pN); r1.setAttribute('y', f2(PLAN_Y - a - 24)); r2.setAttribute('y', f2(PLAN_Y + a)); }
+      }
+    }
+
+    /* TOI, cotes */
+    vis(W.toi1, true); tr(W.toi1, x, GROUND - 24, 0, 1, 1);
+    vis(W.toi2, true); tr(W.toi2, x, PLAN_Y, 0, 1, 1);
+    {
+      const xc = x + 62, yc = ceilY(xc), aw = aisleHalf(xc, pN);
+      const on = c.enter == null ? 1 : pr(c.enter + 0.8, 0.3);
+      op(W.cv, on); op(W.ch, on);
+      setA(W.cv, 'transform', `translate(${f2(xc)} 0)`);
+      setA(W.cvBar, 'y', f2(yc + 8)); setA(W.cvBar, 'height', f2(Math.max(4, GROUND - 8 - yc - 8)));
+      setA(W.cvA, 'transform', `translate(0 ${f2(yc)})`); setA(W.cvB, 'transform', `translate(0 ${f2(GROUND - 18)})`);
+      setA(W.cvT, 'y', f2((yc + GROUND) / 2 + 8));
+      setA(W.ch, 'transform', `translate(${f2(xc)} 0)`);
+      setA(W.chBar, 'y', f2(PLAN_Y - aw + 8)); setA(W.chBar, 'height', f2(Math.max(4, aw * 2 - 16)));
+      setA(W.chA, 'transform', `translate(0 ${f2(PLAN_Y - aw)})`); setA(W.chB, 'transform', `translate(0 ${f2(PLAN_Y + aw - 18)})`);
+      setA(W.chT, 'y', PLAN_Y + 8);
+    }
+
+    /* abri + textes */
+    {
+      const arrive = c.shelter == null ? null : c.shelter + G.Ds;
+      const ov = arrive == null ? 0 : E.out2(pr(arrive, 0.4));
+      vis(W.shelter, ov > 0); vis(W.shelterEdge, ov > 0);
+      setA(W.shelter, 'x', f2(x - 135)); setA(W.shelter, 'height', f2(56 * ov)); setA(W.shelter, 'y', 420);
+      setA(W.shelterEdge, 'x', f2(x - 135)); setA(W.shelterEdge, 'y', f2(420 + 56 * ov - 6));
+      op(W.safe, arrive == null ? 0 : pr(arrive + 0.15, 0.3));
+      const sp = arrive == null ? 0 : pr(arrive + 0.9, 0.3);
+      if (sp <= 0) vis(W.stStay, false); else pop(W.stStay, clamp(sc(x), 160, 1760), 270, -3, sp);
+    }
+  }
+
+  ZV.define('section-view', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 10;
+      const cu = (n) => { const a = beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((x, y) => x - y); return a.length ? a[0] : null; };
+      const walk = P.mode === 'walk';
+      const names = walk ? ['enter', 'lower', 'narrow', 'shelter'] : ['left', 'right', 'versus', 'goal', 'verdict'];
+      let c = {};
+      names.forEach((n) => { c[n] = cu(n); });
+      if (names.every((n) => c[n] == null)) {                                    // aucun cue : une composition d'ensemble sobre et complète
+        const f = walk ? { enter: 0 } : { left: 0.04, right: 0.16, versus: 0.3, goal: 0.42, verdict: 0.62 };
+        for (const n in f) c[n] = f[n] * dur;
+        if (walk) c.enter = null;
+      }
+      const st = { dur, walk, c };
+      if (walk) { initWalk(root, st, P, c, dur); st.G = walkGeom(st, c, dur); }
+      else initSchools(root, st, P, c, dur);
+      return st;
+    },
+    update(st, t) {
+      try {
+        t = clamp(t, 0, st.dur + 1);
+        if (st.walk) updateWalk(st, t, st.c); else updateSchools(st, t, st.c);
+      } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/self-exclusion.js ==== */
+// Composant `self-exclusion` (épisode 9, S5, « Demain matin ») : l'interdiction volontaire de jeux. Deux tableaux enchaînés : `form` (formulaire générique plat + chrono comparant la demande à une mi-temps)
+// puis `doors` (4 façades : casinos, clubs, sites agréés, et en rouge hachuré les sites illégaux qui ne consultent pas le fichier). Voir EP9-COMPONENTS.md.
+// Cues : form, id, duration, send, timer, doors, bar, hole. Props : form_kicker, form_title, duration, you_label, half_label, faster, doors[], doors_kicker, illegal, bar_label, hole, layout (form|doors).
+// Fonction pure du temps ; aplats, aucun dégradé / flou / lueur / filter ; aucun shake ni tampon rouge sur la personne ; aucun nom de marque ; rien d'important sous y = 800.
+(() => {
+  'use strict';
+  const { C, F, E, clamp, prog, f2, sv, g, rect, circle, path, line, text } = ZV;
+  const I = 1 / 30;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.trim().length ? v.trim() : d);
+  const arr = (v, d) => (Array.isArray(v) && v.length ? v : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const dsp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');
+  const op = (n, o) => { o = clamp(o); setA(n, 'opacity', f2(o)); setA(n, 'visibility', o <= 0.001 ? 'hidden' : 'visible'); };
+  const tr = (n, x, y, r, sx, sy) => { let s = `translate(${f2(x)} ${f2(y)})`; if (r) s += ` rotate(${f2(r)})`; if (sx !== undefined && (sx !== 1 || (sy !== undefined && sy !== 1))) s += ` scale(${f2(Math.max(sx, 0.0001))} ${f2(Math.max(sy === undefined ? sx : sy, 0.0001))})`; setA(n, 'transform', s); };
+  const setT = (n, s) => { if (n.__t !== s) { n.__t = s; n.textContent = s; } };
+  const pop = (n, x, y, rot, p) => { if (p <= 0) { vis(n, false); return; } vis(n, true); tr(n, x, y, rot, Math.max(0.0001, E.back(clamp(p)))); };
+  // mesure réelle du texte (getComputedTextLength), repli sur une estimation hors DOM
+  function metric(root) {
+    const probe = sv('text', { x: 0, y: -3000, 'font-size': 100, 'font-weight': 800, visibility: 'hidden' }, root);
+    const cache = {};
+    const est = (s, mono) => { let a = 0; for (const ch of s) a += mono ? 60 : (ch === ' ' ? 26 : /[0-9]/.test(ch) ? 60 : /[A-ZÀÂÉÈÊÎÔÛÇ€%+×≠=?]/.test(ch) ? 68 : /[.,:;'’!|·]/.test(ch) ? 32 : 58); return a; };
+    return (s, size, mono) => {
+      s = String(s); const k = (mono ? 'm' : 'd') + s; let w = cache[k];
+      if (w === undefined) {
+        probe.setAttribute('font-family', mono ? F.mono : F.display); probe.textContent = s;
+        w = 0; try { w = probe.getComputedTextLength(); } catch (e) { w = 0; }
+        if (!(w > 0)) w = est(s, mono);
+        cache[k] = w;
+      }
+      return w * size / 100;
+    };
+  }
+  // texte ajusté : réduit la taille jusqu'à o.min si dépasse o.maxW, puis impose la largeur (textLength) ; o.free = pas de textLength (machine à écrire)
+  const mkT = (M) => function T(parent, s, x, y, size, fill, o) {
+    o = o || {}; s = String(s);
+    let w = M(s, size, o.mono);
+    if (o.maxW && w > o.maxW) { size = Math.max(o.min || 10, size * o.maxW / w); w = M(s, size, o.mono); }
+    const n = text(parent, s, x, y, f2(size), fill, { mono: o.mono, anchor: o.anchor });
+    if (!o.free) { const lim = o.maxW ? Math.min(w, o.maxW) : w; n.setAttribute('textLength', f2(lim)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); w = lim; }
+    n.__w = w; n.__s = size; return n;
+  };
+  // coupe en lignes équilibrées (≤ maxL) ; réduit la taille jusqu'à min si besoin
+  const mkWrap = (M) => {
+    const part = (words, n, sz, mono) => {
+      const wl = (a, b) => M(words.slice(a, b).join(' '), sz, mono);
+      let best = null;
+      const rec = (start, left, cuts, mx) => {
+        if (left === 1) { const m = Math.max(mx, wl(start, words.length)); if (!best || m < best.w - 0.5) best = { w: m, cuts: cuts.slice() }; return; }
+        for (let e = start + 1; e <= words.length - (left - 1); e++) { cuts.push(e); rec(e, left - 1, cuts, Math.max(mx, wl(start, e))); cuts.pop(); }
+      };
+      rec(0, n, [], 0);
+      const lines = []; let s0 = 0;
+      for (const c of best.cuts.concat([words.length])) { lines.push(words.slice(s0, c).join(' ')); s0 = c; }
+      return { w: best.w, lines };
+    };
+    return (s, size, maxW, maxL, mono, min) => {
+      const words = String(s).split(/\s+/).filter(Boolean); if (!words.length) words.push(' ');
+      maxL = Math.max(1, Math.min(maxL, words.length)); min = min || 12;
+      for (let sz = size; ; sz -= 1) {
+        for (let n = 1; n <= maxL; n++) { const p = part(words, n, sz, mono); if (p.w <= maxW) return { lines: p.lines, size: sz, w: p.w }; }
+        if (sz <= min) { const p = part(words, maxL, sz, mono); return { lines: p.lines, size: sz, w: Math.min(p.w, maxW) }; }
+      }
+    };
+  };
+  // bloc plat + ombre dure décalée
+  function blk(parent, x, y, w, h, fill, r, sw, sh) {
+    const grp = g(parent);
+    if (sh) rect(grp, x + sh, y + sh, w, h, r, C.ink);
+    rect(grp, x, y, w, h, r, fill, sw === 0 ? null : C.ink, sw || 6);
+    return grp;
+  }
+  // sticker centré sur (0,0), lignes centrées
+  function stk(parent, lines, size, fill, tfill, o, M, T) {
+    o = o || {}; lines = [].concat(lines);
+    const lh = size * 1.18;
+    let mw = 0; lines.forEach((l) => { mw = Math.max(mw, M(l, size, o.mono)); });
+    const padX = o.padX === undefined ? 30 : o.padX;
+    const w = Math.round(mw + padX * 2), h = Math.round(lines.length * lh + (o.padY === undefined ? 26 : o.padY));
+    const grp = g(parent), sh = o.sh === undefined ? 10 : o.sh;
+    if (sh) rect(grp, -w / 2 + sh, -h / 2 + sh, w, h, o.r === undefined ? 14 : o.r, C.ink);
+    rect(grp, -w / 2, -h / 2, w, h, o.r === undefined ? 14 : o.r, fill, C.ink, o.sw || 6);
+    lines.forEach((l, i) => T(grp, l, 0, -h / 2 + (h - lines.length * lh) / 2 + lh * (i + 0.5) + size * 0.34, size, tfill, { anchor: 'middle', mono: o.mono }));
+    grp.__w = w; grp.__h = h; return grp;
+  }
+
+  let UID = 0;
+  const lerp = ZV.lerp;
+  // case à cocher dessinée au trait (longueur ≈ 33)
+  const CHK = 'M-10 0 L-3 8 L11 -9';
+
+  ZV.define('self-exclusion', {
+    init(root, shot) {
+      const P = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const cu = (n) => { const a = beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((x, y) => x - y); return a.length ? a[0] : null; };
+      const M = metric(root), T = mkT(M), WR = mkWrap(M);
+      const uid = 'se' + (++UID);
+      const kicker = str(P.form_kicker, 'EN LIGNE · MAQUETTE'), title = str(P.form_title, "DEMANDE D'INTERDICTION VOLONTAIRE DE JEUX");
+      const duration = str(P.duration, '3 ANS MINIMUM'), youL = str(P.you_label, 'TA DEMANDE · ≈ 10 MIN'), halfL = str(P.half_label, 'UNE MI-TEMPS');
+      const faster = str(P.faster, "MOINS QU'UNE MI-TEMPS");
+      const doorsL = arr(P.doors, ['CASINOS', 'CLUBS DE JEUX', 'SITES AGRÉÉS']).slice(0, 3).map(String);
+      const doorsK = str(P.doors_kicker, 'EN FRANCE · POUR AU MOINS 3 ANS'), illegal = str(P.illegal, 'SITES ILLÉGAUX');
+      const barL = str(P.bar_label, 'INTERDIT DE JEUX'), holeL = str(P.hole, 'NE CONSULTENT PAS LE FICHIER');
+      const layout = P.layout === 'doors' ? 'doors' : 'form';
+      const c = {};
+      ['form', 'id', 'duration', 'send', 'timer', 'doors', 'bar', 'hole'].forEach((n) => { c[n] = cu(n); });
+
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+
+      /* ================= tableau FORM ================= */
+      const fs = g(root);
+      blk(fs, 120, 90, 780, 700, C.paper, 18, 8, 14);
+      path(fs, 'M124 146 V108 Q124 94 138 94 H882 Q896 94 896 108 V146 Z', C.ink);
+      T(fs, kicker, 150, 128, 22, C.paper, { mono: true, maxW: 640, min: 14 });
+      [[842, 120], [864, 120], [886, 120]].forEach(([x, y]) => circle(fs, x - 4, y, 6, C.paper));
+      { const w = WR(title, 46, 720, 2, false, 34); w.lines.forEach((l, i) => T(fs, l, 150, 208 + i * 54, w.size, C.ink, { maxW: 724 })); }
+      // rangée 1 : pièce d'identité
+      T(fs, "PIÈCE D'IDENTITÉ", 150, 314, 22, C.ink, { mono: true });
+      rect(fs, 150, 326, 720, 138, 12, C.white, C.ink, 4, { 'stroke-dasharray': '16 12' });
+      const plus = g(fs);
+      line(plus, 490, 395, 530, 395, C.grey, 6); line(plus, 510, 375, 510, 415, C.grey, 6);
+      const idc = g(fs);
+      rect(idc, -112, -50, 240, 116, 10, C.ink);
+      rect(idc, -120, -58, 240, 116, 10, C.white, C.ink, 5);
+      rect(idc, -100, -40, 52, 52, 0, C.pocket);
+      rect(idc, -26, -38, 108, 14, 4, C.ink); rect(idc, -26, -14, 84, 12, 4, C.ink); rect(idc, -26, 6, 98, 12, 4, C.ink);
+      rect(idc, -100, 26, 200, 12, 4, C.lime, C.ink, 3);
+      const idOk = g(fs);
+      circle(idOk, 0, 0, 24, C.lime, C.ink, 5);
+      const idChk = path(idOk, CHK, 'none', C.ink, 9); idChk.setAttribute('stroke-dasharray', '34 40');
+      // rangée 2 : durée
+      T(fs, 'DURÉE', 150, 502, 22, C.ink, { mono: true });
+      const selBox = rect(fs, 150, 514, 720, 60, 12, C.white, C.ink, 5);
+      const selGhost = rect(fs, 172, 536, 170, 16, 5, C.grey);
+      const selTxt = T(fs, duration, 176, 556, 34, C.ink, { maxW: 560, min: 22 });
+      const chev = g(fs); path(chev, 'M-12 -6 L0 7 L12 -6', 'none', C.ink, 7);
+      const lst = g(fs);
+      const rowsY = [580, 622, 664], opts = [];
+      rowsY.forEach((y, i) => { rect(lst, 150, y, 720, 42, 0, C.white, C.ink, 4); rect(lst, 172, y + 14, [120, 200, 150][i], 14, 5, C.grey); });
+      const hil = g(lst); rect(hil, 150, 0, 720, 42, 0, C.lime, C.ink, 5); T(hil, duration, 176, 30, 28, C.ink, { maxW: 560, min: 18 });
+      // bouton
+      const btn = g(fs);
+      const btnBody = rect(btn, -360, -30, 720, 60, 14, C.ink, C.ink, 5);
+      const btn1 = T(btn, 'ENVOYER', 0, 12, 34, C.paper, { anchor: 'middle', maxW: 400 });
+      const btn2 = g(btn);
+      { const sl = T(btn2, 'ENVOYÉ', 0, 12, 34, C.ink, { maxW: 400, min: 22 }); const tot = 40 + 14 + sl.__w, left = -tot / 2; sl.setAttribute('x', f2(left + 54)); path(btn2, `M${f2(left + 4)} 2 L${f2(left + 16)} 15 L${f2(left + 38)} -12`, 'none', C.ink, 9); }
+      // chrono (à droite)
+      const youLab = T(fs, youL, 1000, 252, 26, C.ink, { mono: true, maxW: 780, min: 16 });
+      const halfLab = T(fs, halfL, 1000, 422, 26, C.ink, { mono: true, maxW: 780, min: 16 });
+      rect(fs, 1000, 266, 760, 80, 6, 'none', C.grey, 3, { 'stroke-dasharray': '12 10' });
+      rect(fs, 1000, 436, 760, 80, 6, 'none', C.grey, 3, { 'stroke-dasharray': '12 10' });
+      const bar1 = rect(fs, 1000, 266, 10, 80, 6, C.lime, C.ink, 6);
+      const bar2 = rect(fs, 1000, 436, 10, 80, 6, C.paper, C.ink, 6);
+      const ball = g(fs);
+      circle(ball, 0, 0, 32, C.paper, C.ink, 6);
+      path(ball, 'M0 -12 L11 -4 L7 9 L-7 9 L-11 -4 Z', C.ink, C.ink, 3);
+      for (let k = 0; k < 5; k++) { const a = (k * 72) * Math.PI / 180; line(ball, f2(Math.sin(a) * 12), f2(-Math.cos(a) * 12), f2(Math.sin(a) * 24), f2(-Math.cos(a) * 24), C.ink, 4); }
+      const fastW = WR(faster, 44, 640, 1, false, 30);
+      const fastS = stk(fs, fastW.lines, fastW.size, C.lime, C.ink, { sh: 12, padX: 34, padY: 30, sw: 6 }, M, T);
+
+      /* ================= tableau DOORS ================= */
+      const ds = g(root);
+      const kick = T(ds, doorsK, 120, 116, 28, C.ink, { mono: true, maxW: 1680, min: 18 });
+      const FX = [120, 540, 960, 1380], FY = 200, FW = 380, FH = 460;
+      const facs = [];
+      const clipId = uid + 'h';
+      sv('rect', { x: FX[3], y: FY, width: FW, height: FH }, sv('clipPath', { id: clipId }, defs));
+      for (let i = 0; i < 4; i++) {
+        const fg = g(ds), x = FX[i], cx = x + FW / 2, ill = i === 3;
+        const lab = illegal, name = ill ? lab : (doorsL[i] || '');
+        T(fg, name, cx, 176, 38, C.ink, { anchor: 'middle', maxW: 372, min: 26 });
+        rect(fg, x + 12, FY + 12, FW, FH, 0, C.ink);
+        rect(fg, x, FY, FW, FH, 0, ill ? C.red : C.white, C.ink, 6);
+        if (ill) {
+          let d = ''; for (let x0 = x - FH; x0 < x + FW; x0 += 44) d += `M${x0} ${FY + FH} L${x0 + FH} ${FY} `;
+          path(fg, d, 'none', C.ink, 9, { 'clip-path': `url(#${clipId})`, 'stroke-linecap': 'butt' });
+          rect(fg, x, FY, FW, FH, 0, 'none', C.ink, 6);
+        } else circle(fg, cx, 296, 30, C.lime, C.ink, 5);
+        rect(fg, x + 3, FY + 3, FW - 6, 26, 0, C.ink);
+        const dw = g(fg);
+        rect(dw, cx - 80, 372, 160, 285, 0, C.ink);
+        const leaf = rect(dw, cx - 80, 372, 160, 285, 0, C.paper, C.ink, 6);
+        const knob = circle(dw, cx + 52, 528, 9, C.ink);
+        facs.push({ g: fg, leaf, knob, cx, ill });
+      }
+      // verrous
+      const locks = [0, 1, 2].map((i) => { const lg = g(ds); rect(lg, -22, 0, 44, 36, 6, C.ink); path(lg, 'M-12 2 V-12 A12 12 0 0 1 12 -12 V2', 'none', C.ink, 8); circle(lg, 0, 17, 5, C.paper); return { g: lg, x: FX[i] + FW / 2, y: 568 }; });
+      // barrière
+      const bar = g(ds);
+      const bw = 1240, cl2 = uid + 'b';
+      { const cp = sv('clipPath', { id: cl2 }, defs); sv('rect', { x: 4, y: -31, width: 190, height: 62 }, cp); sv('rect', { x: bw - 194, y: -31, width: 190, height: 62 }, cp); }
+      rect(bar, 8, -27, bw, 70, 6, C.ink);
+      rect(bar, 0, -35, bw, 70, 6, C.lime, C.ink, 8);
+      { let d = ''; for (let x0 = -40; x0 < bw; x0 += 40) d += `M${x0} 35 L${x0 + 40} -35 `; path(bar, d, 'none', C.ink, 14, { 'clip-path': `url(#${cl2})`, 'stroke-linecap': 'butt' }); }
+      T(bar, barL, bw / 2, 14, 40, C.ink, { anchor: 'middle', maxW: 800, min: 26 });
+      circle(bar, 28, 0, 22, C.ink, C.ink, 4); circle(bar, 28, 0, 8, C.paper);
+      // sticker du trou
+      const hw = WR(holeL, 32, 330, 2, false, 24);
+      const holeS = stk(ds, hw.lines, hw.size, C.red, C.ink, { sh: 10, padX: 26, padY: 24, sw: 6 }, M, T);
+
+      return { c, layout, fs, ds, plus, idc, idOk, idChk, selBox, selGhost, selTxt, chev, lst, hil, btn, btnBody, btn1, btn2, bar1, bar2, ball, fastS, facs, locks, bar, holeS, kick, rowsY };
+    },
+
+    update(st, t) {
+      const c = st.c, doorsMode = st.layout === 'doors';
+      /* ---- bascule entre les tableaux ---- */
+      const dp = doorsMode ? 1 : (c.doors == null ? 0 : E.io2(prog(t, c.doors, c.doors + 12 * I)));
+      const fp = c.form == null ? 1 : E.out3(prog(t, c.form, c.form + 10 * I));
+      const formOn = !doorsMode && dp < 1;
+      dsp(st.fs, formOn);
+      dsp(st.ds, doorsMode || dp > 0);
+      if (formOn) {
+        tr(st.fs, 0, (1 - fp) * 900 - 1100 * E.in3(dp));
+        // pièce d'identité
+        const ip = c.id == null ? 0 : prog(t, c.id, c.id + 12 * I);
+        dsp(st.plus, ip <= 0); dsp(st.idc, ip > 0);
+        tr(st.idc, lerp(-300, 510, E.out3(ip)), 392, 0);
+        const kp = c.id == null ? 0 : prog(t, c.id + 12 * I, c.id + 18 * I);
+        pop(st.idOk, 840, 354, 0, kp);
+        setA(st.idChk, 'stroke-dashoffset', f2(34 * (1 - kp)));
+        // durée : le sélecteur s'ouvre puis se fixe
+        const f = c.duration == null ? -1 : (t - c.duration) / I;
+        const o = f < 0 ? 0 : f < 8 ? E.out3(f / 8) : f < 22 ? 1 : f < 30 ? 1 - E.in2((f - 22) / 8) : 0;
+        dsp(st.lst, o > 0.001);
+        setA(st.lst, 'transform', `translate(0 580) scale(1 ${f2(Math.max(o, 0.001))}) translate(0 -580)`);
+        tr(st.hil, 0, lerp(st.rowsY[0], st.rowsY[1], E.io2(prog(f, 8, 18))), 0);
+        const sel = f >= 24;
+        setA(st.selBox, 'fill', sel ? C.lime : C.white);
+        dsp(st.selTxt, sel); dsp(st.selGhost, !sel);
+        tr(st.chev, 840, 544, f >= 0 && f < 26 ? 180 : 0);
+        // envoi
+        const dt = c.send == null ? -1 : t - c.send;
+        const sc = dt < 0 ? 1 : dt < 3 * I ? 1 - 0.06 * (dt / (3 * I)) : dt < 6 * I ? 0.94 + 0.06 * ((dt - 3 * I) / (3 * I)) : 1;
+        tr(st.btn, 510, 746, 0, sc);
+        const done = dt >= 3 * I;
+        setA(st.btnBody, 'fill', done ? C.lime : C.ink);
+        dsp(st.btn1, !done); dsp(st.btn2, done);
+        // chrono
+        const tf = c.timer == null ? -1 : (t - c.timer) / I;
+        const w1 = 760 * 10 / 45 * E.out2(prog(tf, 0, 6)), w2 = 760 * E.out2(prog(tf, 6, 16));
+        dsp(st.bar1, w1 >= 1); setA(st.bar1, 'width', f2(Math.max(w1, 0.01)));
+        dsp(st.bar2, w2 >= 1); setA(st.bar2, 'width', f2(Math.max(w2, 0.01)));
+        pop(st.ball, 1760, 476, 0, c.timer == null ? 0 : prog(t, c.timer + 16 * I, c.timer + 22 * I));
+        pop(st.fastS, 1400, 612, -2, c.timer == null ? 0 : prog(t, c.timer + 18 * I, c.timer + 26 * I));
+      }
+      if (!(doorsMode || dp > 0)) return;
+      st.facs.forEach((fc, i) => {
+        const e = doorsMode || c.doors == null ? 1 : E.out3(prog(t, c.doors + i * 4 * I, c.doors + i * 4 * I + 12 * I));
+        tr(fc.g, 0, (1 - e) * 900);
+      });
+      const e0 = doorsMode || c.doors == null ? 1 : E.out3(prog(t, c.doors, c.doors + 12 * I));
+      tr(st.kick, 0, (1 - e0) * 900);
+      /* ---- barrière, verrous, trou ---- */
+      const bp = c.bar == null ? 0 : prog(t, c.bar, c.bar + 16 * I);
+      if (bp <= 0) dsp(st.bar, false); else { dsp(st.bar, true); setA(st.bar, 'transform', `translate(120 455) rotate(${f2(-82 * (1 - E.out3(bp)))})`); }
+      st.locks.forEach((l, i) => { pop(l.g, l.x, l.y, 0, c.bar == null ? 0 : prog(t, c.bar + 18 * I + i * 4 * I, c.bar + 24 * I + i * 4 * I)); });
+      const hp = c.hole == null ? 0 : E.out3(prog(t, c.hole, c.hole + 8 * I));
+      const f4 = st.facs[3];
+      setA(f4.leaf, 'x', f2(f4.cx - 80 + 40 * hp)); setA(f4.leaf, 'width', f2(160 - 40 * hp)); setA(f4.knob, 'cx', f2(f4.cx + 52 + 0 * hp));
+      pop(st.holeS, 1590, 286, 3, c.hole == null ? 0 : prog(t, c.hole + 4 * I, c.hole + 12 * I));
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/signal-check.js ==== */
+// Composant `signal-check` : « Trois questions » et la règle de Nour (épisode 9, S3) : un signe = une conversation, deux = un appel ; un feu orange, pas un diagnostic.
+// Cues : card, q1..q4, check-1, rule-1, check-2, rule-2, orange, other. Props : title, aside, rows[{q,ex}], checked[] (numéros de rangée 1..4), rule1, rule2, orange, not_diag, other.
+// Fond lime (calme), aucun shake, amber #FFB21E réservé à la lampe du milieu et au sticker « FEU ORANGE ».
+// Sans aucun cue `card` / `q*` le plan montre carte et 4 questions complètes (état final) ; sinon chaque étape attend son cue. Pure fonction du temps.
+// Choix : `checked` est lu en numéros de rangée 1-4 (comme les carrés numérotés). Le feu passe lime -> amber au premier check posé (check-1, ou check-2 s'il est seul).
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, lerp, f2, sv, g, rect, circle, path, line, text, put, F } = ZV;
+  const FR = 1 / 30;
+  const AMBER = '#FFB21E';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' && v.trim() ? v.trim() : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const setT = (n, s) => { if (n.__s !== s) { n.__s = s; n.textContent = s; } };
+  const firstCue = (beats, n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r === null || b.t < r)) r = b.t; return r; };
+
+  function textW(n, size, mono, len) {
+    try { const w = n.getComputedTextLength(); if (w > 0) return w; } catch (e) { /* hors DOM */ }
+    return len * size * (mono ? 0.6 : 0.64);
+  }
+  function fit(n, maxW, base, min) {
+    n.setAttribute('font-size', base);
+    const mono = n.getAttribute('font-family') === F.mono, L = (n.textContent || '').length;
+    let w = textW(n, base, mono, L);
+    if (w > maxW && w > 0) {
+      const s = Math.max(min || base * 0.6, base * maxW / w);
+      n.setAttribute('font-size', f2(s));
+      w = textW(n, s, mono, L);
+      if (w > maxW) { n.setAttribute('textLength', f2(maxW)); n.setAttribute('lengthAdjust', 'spacingAndGlyphs'); w = maxW; }
+    }
+    return w;
+  }
+  // taille réduite seulement (sans textLength) : pour le texte qui s'écrit caractère par caractère
+  function fitSize(n, maxW, base, min) {
+    n.setAttribute('font-size', base);
+    const mono = n.getAttribute('font-family') === F.mono, L = (n.textContent || '').length;
+    const w = textW(n, base, mono, L);
+    if (w > maxW && w > 0) n.setAttribute('font-size', f2(Math.max(min, base * maxW / w)));
+    return Math.min(w, maxW);
+  }
+  function wrap(parent, s, size, maxW, maxLines) {
+    const probe = sv('text', { 'font-size': size, 'font-family': F.display, 'font-weight': 800, visibility: 'hidden' }, parent);
+    const w = (x) => { probe.textContent = x; return textW(probe, size, false, x.length); };
+    const lines = []; let cur = '';
+    for (const wd of s.split(/\s+/).filter(Boolean)) { const nx = cur ? cur + ' ' + wd : wd; if (cur && w(nx) > maxW) { lines.push(cur); cur = wd; } else cur = nx; }
+    if (cur) lines.push(cur);
+    if (maxLines && lines.length > maxLines) { const rest = lines.splice(maxLines - 1).join(' '); lines.push(rest); }
+    parent.removeChild(probe);
+    return lines;
+  }
+  const pivot = (n, cx, cy, s) => { n.setAttribute('transform', `translate(${f2(cx)} ${f2(cy)}) scale(${f2(Math.max(0.0001, s))}) translate(${f2(-cx)} ${f2(-cy)})`); };
+
+  const DEF_ROWS = [
+    { q: 'TU REJOUES POUR TE REFAIRE ?', ex: 'ÉPISODE 4 · UN CRITÈRE OFFICIEL DU TROUBLE' },
+    { q: "TU MENS SUR LE TEMPS OU SUR L'ARGENT ?", ex: 'UNE SOIRÉE → « UNE PETITE HEURE »' },
+    { q: 'TU Y PENSES QUAND TU NE JOUES PAS ?', ex: 'AU TRAVAIL · À TABLE · DANS LE BUS' },
+    { q: 'TU MISES PLUS POUR RESSENTIR PAREIL ?', ex: '10 € → 50 €' }
+  ];
+  const CX0 = 100, CX1 = 1200, CY0 = 80, CY1 = 790;
+  const ROW_Y = (i) => 200 + 140 * i;
+  const LX = 1530, LAMP_Y = [200, 400, 600], LAMP_R = 76;
+
+  ZV.define('signal-check', {
+    init(root, shot) {
+      const p = (shot && shot.props) || {};
+      const beats = Array.isArray(shot && shot.beats) ? shot.beats : [];
+      const st = {};
+      st.tCard = firstCue(beats, 'card');
+      st.tQ = [1, 2, 3, 4].map((n) => firstCue(beats, 'q' + n));
+      st.anyQ = st.tCard != null || st.tQ.some((x) => x != null);
+      st.tC1 = firstCue(beats, 'check-1'); st.tR1 = firstCue(beats, 'rule-1'); st.tC2 = firstCue(beats, 'check-2'); st.tR2 = firstCue(beats, 'rule-2');
+      st.tOr = firstCue(beats, 'orange'); st.tOt = firstCue(beats, 'other');
+
+      rect(root, 0, 0, 1920, 1080, 0, C.lime);
+
+      /* ---- carte ---- */
+      st.card = g(root);
+      rect(st.card, CX0 + 14, CY0 + 14, CX1 - CX0, CY1 - CY0, 0, C.ink);
+      rect(st.card, CX0, CY0, CX1 - CX0, CY1 - CY0, 0, C.paper, C.ink, 8);
+      const tt = text(st.card, str(p.title, '3 QUESTIONS'), 134, 160, 56, C.ink);
+      const tw = fit(tt, 520, 56, 36);
+      const as = text(st.card, str(p.aside, "DANS TA TÊTE · PERSONNE N'ÉCOUTE"), 0, 8, 24, C.paper, { mono: true, anchor: 'middle' });
+      const aw = fit(as, 1150 - (134 + tw + 36) - 44, 24, 15) + 44;
+      const ag = g(st.card);
+      ag.appendChild(as);
+      ag.insertBefore(rect(ag, -aw / 2, -26, aw, 52, 4, C.ink), as);
+      put(ag, 1150 - aw / 2, 130, 2, 1, 1, 1);
+      line(st.card, 120, 340, 1180, 340, C.ink, 3); line(st.card, 120, 480, 1180, 480, C.ink, 3);
+
+      /* ---- rangées ---- */
+      const rows = [];
+      const src = Array.isArray(p.rows) && p.rows.length ? p.rows : DEF_ROWS;
+      for (let i = 0; i < 4 && i < src.length; i++) {
+        const r = src[i] || {}, d = DEF_ROWS[i];
+        rows.push({ q: str(r.q, d.q), ex: str(r.ex, d.ex) });
+      }
+      let ck = Array.isArray(p.checked) ? p.checked.filter(isNum).map((x) => Math.round(x)) : [1, 3];
+      ck = ck.filter((x) => x >= 1 && x <= rows.length);
+      if (!ck.length) ck = [Math.min(1, rows.length), Math.min(3, rows.length)].filter((x, i, a) => a.indexOf(x) === i);
+      st.checked = ck;
+      st.rows = rows.map((r, i) => {
+        const top = ROW_Y(i), o = { top, cy: top + 70 };
+        o.hi = rect(st.card, 116, top + 4, 1068, 132, 0, C.lime);                 // surlignage quand la rangée est cochée
+        o.hi.setAttribute('visibility', 'hidden');
+        o.g = g(st.card);
+        rect(o.g, 132, top + 20, 64, 64, 0, C.ink);
+        text(o.g, String(i + 1), 164, top + 66, 40, C.paper, { mono: true, anchor: 'middle' });
+        const q = text(o.g, r.q, 220, top + 58, 44, C.ink);
+        fit(q, 840, 44, 32);
+        o.ex = text(o.g, '', 220, top + 98, 24, C.ink, { mono: true });
+        o.ex.textContent = r.ex; fitSize(o.ex, 840, 24, 16); o.ex.textContent = ''; o.full = r.ex;
+        // case à cocher
+        rect(o.g, 1090, top + 22, 72, 72, 0, C.white, C.ink, 6);
+        o.ck = path(o.g, `M${1090 + 14} ${top + 22 + 38} L${1090 + 30} ${top + 22 + 54} L${1090 + 60} ${top + 22 + 16}`, 'none', C.ink, 12, { pathLength: 1, 'stroke-dasharray': '1 1', 'stroke-dashoffset': 1 });
+        o.ck.setAttribute('visibility', 'hidden');
+        if (i === 3) {
+          rect(o.g, 118, top + 6, 1064, 102, 0, 'none', C.ink, 3, { 'stroke-dasharray': '14 10' });
+          const lb = g(o.g);
+          const lt = text(lb, 'SIGNE DISCRET', 0, 7, 20, C.ink, { mono: true, anchor: 'middle' });
+          const lw = fit(lt, 220, 20, 14) + 20;
+          lb.insertBefore(rect(lb, -lw / 2, -15, lw, 30, 0, C.paper), lt);
+          put(lb, 1040, top + 6, 0, 1, 1, 1);
+        }
+        // « 10 € » barré quand « 50 € » apparaît (dernière rangée, exemple de la forme « a → b »)
+        o.strike = null;
+        const ai = r.ex.indexOf('→');
+        if (i === 3 && ai > 0 && ai < r.ex.length - 1) {
+          const probe = text(o.g, r.ex.slice(0, ai).trim(), 220, top + 98, 24, C.ink, { mono: true });
+          probe.setAttribute('font-size', o.ex.getAttribute('font-size'));
+          probe.setAttribute('visibility', 'hidden');
+          const pw = textW(probe, 24, true, r.ex.slice(0, ai).trim().length);
+          o.g.removeChild(probe);
+          const fs = parseFloat(o.ex.getAttribute('font-size')) || 24;
+          o.strike = { line: line(o.g, 214, top + 98 - fs * 0.32, 214 + pw + 12, top + 98 - fs * 0.32, C.ink, 6, { visibility: 'hidden' }), x0: 214, w: pw + 12, at: ai + 2, y: top + 98 - fs * 0.32 };
+        }
+        return o;
+      });
+
+      /* ---- feu tricolore ---- */
+      rect(root, 1410 + 12, 100 + 12, 240, 600, 40, C.pocket);
+      rect(root, 1410, 100, 240, 600, 40, C.ink, C.paper, 4);
+      st.lamps = [AMBER, AMBER, AMBER].map((_, i) => circle(root, LX, LAMP_Y[i], LAMP_R, C.pocket, C.paper, 4));
+      st.lampCol = [C.red, AMBER, C.lime];
+
+      /* ---- étiquettes de règle ---- */
+      const mkRule = (s, y) => {
+        const gg = g(root);
+        const tx = text(gg, s, 0, 12, 34, C.ink, { anchor: 'middle' });
+        const w = fit(tx, 580, 34, 28) + 30;
+        gg.insertBefore(rect(gg, -w / 2 + 5, -21 + 5, w, 42, 0, C.ink), tx);
+        gg.insertBefore(rect(gg, -w / 2, -21, w, 42, 0, C.paper, C.ink, 4), tx);
+        return { g: gg, y };
+      };
+      st.r1 = mkRule(str(p.rule1, '1 SIGNE → UNE CONVERSATION'), 733);
+      st.r2 = mkRule(str(p.rule2, '2 SIGNES → UN APPEL'), 779);
+
+      /* ---- sticker « feu orange » (côté gauche du boîtier) ---- */
+      st.or = g(root);
+      const ol = wrap(st.or, str(p.orange, 'FEU ORANGE'), 40, 190, 2);
+      const oh = ol.length * 44 + 30;
+      const ots = ol.map((l, i) => text(st.or, l, 0, -oh / 2 + 15 + 36 + i * 44, 40, C.ink, { anchor: 'middle' }));
+      const ow = Math.max(...ots.map((n) => fit(n, 190, 40, 28))) + 44;
+      st.or.insertBefore(rect(st.or, -ow / 2 + 9, -oh / 2 + 9, ow, oh, 10, C.ink), st.or.firstChild);
+      st.or.insertBefore(rect(st.or, -ow / 2, -oh / 2, ow, oh, 10, AMBER, C.ink, 6), st.or.children[1]);
+      st.orX = Math.max(1222 + ow / 2, 1410 - 6 - ow / 2 + 40); st.orX = 1214 + 12 + ow / 2; st.orY = 400;
+
+      /* ---- tampon « pas un diagnostic » (ink, en travers du haut du boîtier) ---- */
+      st.nd = g(root);
+      const nl = wrap(st.nd, str(p.not_diag, 'PAS UN DIAGNOSTIC'), 40, 320, 2);
+      const nh = nl.length * 44 + 34;
+      const nts = nl.map((l, i) => text(st.nd, l, 0, -nh / 2 + 17 + 36 + i * 44, 40, C.ink, { anchor: 'middle' }));
+      const nw = Math.max(...nts.map((n) => fit(n, 330, 40, 26))) + 52;
+      st.nd.insertBefore(rect(st.nd, -nw / 2 + 8, -nh / 2 + 8, nw, nh, 6, C.ink), st.nd.firstChild);
+      st.nd.insertBefore(rect(st.nd, -nw / 2, -nh / 2, nw, nh, 6, C.paper, C.ink, 8), st.nd.children[1]);
+      st.nd.insertBefore(rect(st.nd, -nw / 2 + 9, -nh / 2 + 9, nw - 18, nh - 18, 2, 'none', C.ink, 3), st.nd.children[2]);
+      st.ndY = 100 + 8 + nh / 2 + 36;
+
+      /* ---- sticker « aussi quand c'est un proche » ---- */
+      st.ot = g(root);
+      const otx = text(st.ot, str(p.other, "AUSSI QUAND C'EST UN PROCHE"), 0, 10, 28, C.ink, { anchor: 'middle' });
+      const otw = fit(otx, 560, 28, 20) + 40;
+      st.ot.insertBefore(rect(st.ot, -otw / 2 + 6, -22 + 6, otw, 44, 6, C.ink), otx);
+      st.ot.insertBefore(rect(st.ot, -otw / 2, -22, otw, 44, 6, C.paper, C.ink, 4), otx);
+      st.otX = CX1 - 24 - otw / 2; st.otY = 761;
+      return st;
+    },
+
+    update(st, t) {
+      const live = st.anyQ;
+      /* ---- carte ---- */
+      let cy = 0, cardOn = true;
+      if (st.tCard != null) { if (t < st.tCard) cardOn = false; else cy = (1 - E.out3(prog(t, st.tCard, st.tCard + 10 * FR))) * 900; }
+      else if (live && st.tQ.some((x) => x != null)) cardOn = true;
+      setA(st.card, 'visibility', cardOn ? 'visible' : 'hidden');
+      st.card.setAttribute('transform', `translate(0 ${f2(cy)})`);
+
+      /* ---- rangées ---- */
+      const dy = cy;
+      const nCk = st.checked;
+      const tCk = [st.tC1, st.tC2];
+      for (let i = 0; i < st.rows.length; i++) {
+        const o = st.rows[i], tq = st.tQ[i];
+        let tt = tq;
+        if (!live) tt = -1e3;                                  // aucun cue de rangée : tout est posé
+        const on = cardOn && tt != null && t >= tt;
+        setA(o.g, 'visibility', on ? 'visible' : 'hidden');
+        if (on) {
+          const pq = prog(t, tt, tt + 8 * FR);
+          const s = 0.55 + 0.45 * E.back(pq);
+          pivot(o.g, 660, o.cy, s);
+          const n = Math.floor((t - (tt + 8 * FR)) / FR) + 1;
+          const k = clamp(n, 0, o.full.length);
+          setT(o.ex, o.full.slice(0, k));
+          if (o.strike) {
+            const ts = tt + 8 * FR + (o.strike.at - 1) * FR;
+            const q = prog(t, ts, ts + 4 * FR);
+            setA(o.strike.line, 'visibility', q > 0 ? 'visible' : 'hidden');
+            setA(o.strike.line, 'x2', f2(o.strike.x0 + o.strike.w * q));
+          }
+        }
+        // coche
+        let tc = null;
+        for (let j = 0; j < nCk.length && j < 2; j++) if (nCk[j] === i + 1 && tCk[j] != null) tc = tc == null ? tCk[j] : Math.min(tc, tCk[j]);
+        const cq = tc == null ? 0 : prog(t, tc, tc + 6 * FR);
+        const hiOn = tc != null && t >= tc;
+        setA(o.hi, 'visibility', hiOn && on && cardOn ? 'visible' : 'hidden');
+        setA(o.ck, 'visibility', cq > 0 ? 'visible' : 'hidden');
+        setA(o.ck, 'stroke-dashoffset', f2(1 - cq));
+      }
+
+      /* ---- feu ---- */
+      let tAmber = null;
+      for (const x of [st.tC1, st.tC2]) if (x != null && (tAmber == null || x < tAmber)) tAmber = x;
+      const amber = tAmber != null && t >= tAmber;
+      for (let i = 0; i < 3; i++) {
+        const lit = i === 2 ? !amber : (i === 1 ? amber : false);
+        setA(st.lamps[i], 'fill', lit ? st.lampCol[i] : C.pocket);
+        setA(st.lamps[i], 'stroke', lit ? C.ink : C.paper);
+        setA(st.lamps[i], 'stroke-width', lit ? 6 : 4);
+      }
+
+      /* ---- règles ---- */
+      const rl = (r, t0) => {
+        if (t0 == null || t < t0) { ZV.show(r.g, false); return; }
+        const q = prog(t, t0, t0 + 7 * FR);
+        const s = Math.max(0.01, E.back(q));
+        put(r.g, 1535, r.y - 16 * (1 - E.out2(q)), 0, s, s, 1);
+      };
+      rl(st.r1, st.tR1); rl(st.r2, st.tR2);
+
+      /* ---- feu orange + tampon ---- */
+      if (st.tOr == null || t < st.tOr) { ZV.show(st.or, false); ZV.show(st.nd, false); }
+      else {
+        const s = Math.max(0.01, E.back(prog(t, st.tOr, st.tOr + 8 * FR)));
+        put(st.or, st.orX, st.orY, -3, s, s, 1);
+        const t2 = st.tOr + 0.6;
+        if (t < t2) ZV.show(st.nd, false);
+        else { const q = E.out3(prog(t, t2, t2 + 5 * FR)); const sc = lerp(1.7, 1, q); put(st.nd, 1530, st.ndY, 4, sc, sc, clamp(q * 4, 0, 1)); }
+      }
+
+      /* ---- « aussi un proche » ---- */
+      if (st.tOt == null || t < st.tOt) ZV.show(st.ot, false);
+      else { const s = Math.max(0.01, E.back(prog(t, st.tOt, st.tOt + 8 * FR))); put(st.ot, st.otX, st.otY, -1.5, s, s, 1); }
+    }
+  });
+})();
+;
 /* ==== tools/video/composition/components/slot-machine.js ==== */
 // Composant `slot-machine` : machine à sous vue de face, plate, 1920×1080, fonction pure du temps.
 // Caisson ink bordé paper, fronton à ampoules, 3 rouleaux (flou de mouvement par symboles dupliqués, jamais de filtre), ligne de gain,
@@ -11686,6 +20004,277 @@
       } else { setA(st.veil, 'opacity', 0); setA(st.bigG, 'visibility', 'hidden'); }
     }
   });
+})();
+;
+/* ==== tools/video/composition/components/sms-invite.js ==== */
+// Composant `sms-invite` (épisode 7) : le texto d'invitation et le fichier client. Voir EP7-COMPONENTS.md.
+// Un téléphone générique plat (aucune heure, aucun logo), une bulle de message écrite lettre à lettre, puis le fichier « CLIENTS » où le prénom devient une ligne et une case chiffre.
+// Cues : buzz, message, name, sender, reveal, figure, question. Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, rng, shakeAt } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' ? v : v == null ? d : String(v));
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  // largeurs mesurées de Bricolage Grotesque 800 (em par caractère) : sert de textLength, donc indépendant de la police de secours
+  const BW = { '0': .67, '1': .36, '2': .61, '3': .61, '4': .64, '5': .62, '6': .66, '7': .52, '8': .66, '9': .66, A: .71, B: .69, C: .69, D: .71, E: .63, F: .6, G: .73, H: .73, I: .3, J: .38, K: .7, L: .51, M: .96, N: .79, O: .73, P: .65, Q: .73, R: .69, S: .66, T: .58, U: .73, V: .68, W: 1, X: .72, Y: .66, Z: .58, 'À': .71, 'Â': .71, 'É': .63, 'È': .63, 'Ê': .63, 'Ë': .63, 'Î': .3, 'Ï': .3, 'Ô': .73, 'Û': .73, 'Ù': .73, 'Ç': .69, 'Œ': 1, ' ': .22, ' ': .22, ' ': .22, ',': .21, '.': .25, ':': .26, ';': .24, "'": .19, '’': .22, '!': .3, '?': .43, '|': .28, '%': .99, '€': .75, '≈': .55, '×': .53, '−': .53, '+': .53, '→': 1, '·': .25, '(': .33, ')': .33, '-': .36, '/': .37, '"': .38, '–': .55 };
+  const bw = (s, z) => { let a = 0; for (const ch of String(s)) { const w = BW[ch]; a += z * (w !== undefined ? w : ch >= 'a' && ch <= 'z' ? 0.6 : 0.7); } return a; };
+  const mw = (s, z) => Array.from(String(s)).length * z * 0.6;
+  const fitSize = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, bw(s, z)));
+  const BT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ len: f2(bw(s, z)) }, o || {}));
+  const MT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ mono: true, len: f2(mw(s, z)) }, o || {}));
+  // texte « machine à écrire » : le texte entier porte un textLength fixe, un clipPath le découvre caractère par caractère (ancre à gauche)
+  function TY(parent, s, x, y, z, fill, o) {
+    o = o || {};
+    const chars = Array.from(s), w = o.mono ? mw(s, z) : bw(s, z);
+    const grp = g(parent), id = 'sm' + (++UID) + 'c';
+    const cr = sv('rect', { x: x - 6, y: y - z * 1.05, width: 0, height: z * 1.45 }, sv('clipPath', { id }, grp));
+    const tn = text(grp, s, x, y, z, fill, { mono: o.mono, len: f2(Math.max(1, w)) });
+    tn.setAttribute('clip-path', `url(#${id})`);
+    const cum = [0]; let a = 0;
+    for (const ch of chars) { a += o.mono ? z * 0.6 : bw(ch, z); cum.push(a); }
+    const k = w / Math.max(a, 1); for (let i = 0; i < cum.length; i++) cum[i] *= k;
+    return { g: grp, cr, cum, n: chars.length, w };
+  }
+  const tyShow = (o, n) => { n = clamp(Math.floor(n), 0, o.n); setA(o.cr, 'width', n === 0 ? 0 : f2(o.cum[n] + (n >= o.n ? 14 : 4))); };
+  const pop = (t, t0, d) => (t < t0 ? 0 : E.back(prog(t, t0, t0 + (d || 0.25))));
+  const shadowRect = (p, x, y, w, h, r, d, col) => rect(p, x + d, y + d, w, h, r, col || C.ink);
+
+  ZV.define('sms-invite', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 9;
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((a, b) => a - b);
+      const sender = str(P.sender, 'LA MAISON'), name = str(P.name, 'TOM');
+      const msg = str(P.text, 'TOM, VOTRE SUITE VOUS ATTEND VENDREDI.');
+      const figure = P.figure == null || P.figure === '' ? null : str(P.figure, null);
+      const verdict = P.verdict === '' ? '' : str(P.verdict, '→ ÇA VAUT UNE SUITE');
+      const question = str(P.question, 'COMBIEN ONT-ILS ESTIMÉ QUE JE VALAIS ?');
+      const st = { dur };
+
+      /* ---- repères ---- */
+      let c = { buzz: cl('buzz'), message: cl('message')[0], name: cl('name')[0], sender: cl('sender')[0], reveal: cl('reveal')[0], figure: cl('figure')[0], question: cl('question')[0] };
+      const any = c.buzz.length || [c.message, c.name, c.sender, c.reveal, c.figure, c.question].some((x) => x != null);
+      if (!any) { const k = Math.min(1, dur / 9); c = { buzz: [0.4 * k], message: 1.2 * k, name: 2.9 * k, sender: 3.6 * k, reveal: 4.6 * k, figure: 6.3 * k, question: null }; }
+      else if (c.message == null) c.message = -10;                                    // le message est déjà là (plan de suite)
+      st.c = c;
+
+      /* ---- décor ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      const bgs = g(root, { transform: 'rotate(-18 960 540)' });
+      for (let k = -4; k <= 4; k++) rect(bgs, 960 + k * 300 - 70, -600, 140, 2300, 0, C.pocket);
+
+      /* ---- le fichier (à droite) ---- */
+      const SX = 980, SY = 120, SW = 860, SH = 640, ROWY = 445;
+      st.fl = g(root);
+      shadowRect(st.fl, SX, SY, SW, SH, 6, 14, C.lime);
+      rect(st.fl, SX, SY, SW, SH, 6, C.paper, C.ink, 8);
+      MT(st.fl, 'CLIENTS', SX + 32, SY + 56, 34, C.ink, { anchor: 'start', spacing: 0 });
+      line(st.fl, SX + 32, SY + 78, SX + SW - 32, SY + 78, C.ink, 6);
+      const anon = [[222, 300], [280, 380], [338, 250], [592, 340], [642, 280]];
+      for (const [ay, aw] of anon) {
+        line(st.fl, SX + 40, ay + 22, SX + 40 + aw, ay + 22, C.ink, 14);
+        rect(st.fl, SX + SW - 32 - 150, ay, 150, 44, 6, C.pocket);
+      }
+      rect(st.fl, SX + 14, ROWY - 55, SW - 28, 110, 4, 'none', C.ink, 5);
+      const nm = fitSize(name, 60, 520);
+      BT(st.fl, name, SX + 40, ROWY + nm * 0.35, nm, C.ink, { anchor: 'start' });
+      st.box = g(st.fl, { transform: `translate(${SX + SW - 32 - 110} ${ROWY})` });
+      rect(st.box, -110 + 8, -45 + 8, 220, 90, 10, C.ink);
+      rect(st.box, -110, -45, 220, 90, 10, C.lime, C.ink, 6);
+      const fgTxt = figure != null ? figure : '?';
+      const fz = fitSize(fgTxt, 76, 188);
+      st.boxT = BT(st.box, fgTxt, 0, fz * 0.35, fz, C.ink, { anchor: 'middle' });
+      st.vd = g(st.fl);
+      if (verdict) {
+        const z = fitSize(verdict, 44, 760), w = bw(verdict, z) + 56, h = 66;
+        shadowRect(st.vd, -w / 2, -h / 2, w, h, 12, 9);
+        rect(st.vd, -w / 2, -h / 2, w, h, 12, C.red, C.ink, 6);
+        BT(st.vd, verdict, 0, z * 0.35, z, C.ink, { anchor: 'middle' });
+      }
+      st.vdX = SX + SW / 2; st.vdY = 538;
+
+      /* ---- le téléphone ---- */
+      st.ph = g(root);
+      const ph = st.ph;
+      st.arcs = g(ph);
+      for (const s of [-1, 1]) {
+        const cx = s < 0 ? 410 : 870;
+        path(st.arcs, `M ${cx} 405 Q ${cx + s * 22} 445 ${cx} 485`, 'none', C.paper, 7);
+        path(st.arcs, `M ${cx + s * 4} 365 Q ${cx + s * 52} 445 ${cx + s * 4} 525`, 'none', C.paper, 7);
+      }
+      shadowRect(ph, 440, 80, 400, 720, 56, 14, C.red);
+      rect(ph, 440, 80, 400, 720, 56, C.ink, C.paper, 8);
+      rect(ph, 458, 98, 364, 684, 40, C.paper);
+      for (let i = 0; i < 3; i++) rect(ph, 484 + i * 14, 140 - (10 + i * 6), 9, 10 + i * 6, 2, C.ink);
+      rect(ph, 752, 120, 46, 20, 5, 'none', C.ink, 4); rect(ph, 757, 125, 30, 10, 2, C.ink); rect(ph, 801, 126, 4, 8, 1, C.ink);
+      MT(ph, 'MARDI', 640, 188, 26, C.ink, { anchor: 'middle', spacing: 0 });
+      // cartouche de l'expéditeur
+      {
+        const z = fitSize(sender, 44, 270), w = Math.min(330, bw(sender, z) + 52), h = 64;
+        st.cart = rect(ph, 640 - w / 2, 200, w, h, 12, C.ink);
+        st.cartT = BT(ph, sender, 640, 200 + h / 2 + z * 0.35, z, C.paper, { anchor: 'middle' });
+        // sticker « PAS UN AMI » (collé au bord droit du cartouche, il suit le téléphone)
+        const lab = 'PAS UN AMI', sz = 30, sw = bw(lab, sz) + 40, shh = 52;
+        st.stk = g(ph);
+        shadowRect(st.stk, -sw / 2, -shh / 2, sw, shh, 8, 6);
+        rect(st.stk, -sw / 2, -shh / 2, sw, shh, 8, C.paper, C.ink, 5);
+        BT(st.stk, lab, 0, sz * 0.35, sz, C.ink, { anchor: 'middle' });
+        st.stkX = 640 + w / 2 + sw / 2 - 4; st.stkY = 208;
+      }
+      // zone de saisie décorative
+      rect(ph, 482, 714, 316, 44, 22, 'none', C.ink, 4);
+      circle(ph, 776, 736, 13, C.ink);
+      rect(ph, 590, 770, 100, 6, 3, C.ink);
+
+      /* ---- la bulle ---- */
+      let size = 36, lines = null;
+      const words = msg.split(/\s+/).filter(Boolean);
+      for (let z = 52; z >= 36; z -= 2) {
+        if (words.some((w) => bw(w, z) > 300)) continue;
+        const ls = []; let cur = '';
+        for (const w of words) { const tryS = cur ? cur + ' ' + w : w; if (cur && bw(tryS, z) > 300) { ls.push(cur); cur = w; } else cur = tryS; }
+        if (cur) ls.push(cur);
+        if (ls.length <= 4 || z === 36) { size = z; lines = ls; break; }
+      }
+      if (!lines) { size = 34; lines = [msg]; }
+      const lh = size * 1.12, bh = lines.length * lh + 40, BX = 478, BTOP = 312, BBOT = BTOP + bh;
+      st.bb = g(ph);
+      const bb = st.bb;
+      rect(bb, 8, -bh + 8, 336, bh, 28, C.ink, null);
+      rect(bb, 0, -bh, 336, bh, 28, C.paper, C.ink, 5);
+      path(bb, 'M 3 -44 L -22 -6 L 13 -12 Z', C.paper, C.ink, 5);
+      line(bb, 0, -39, 0, -15, C.paper, 8, { 'stroke-linecap': 'butt' });
+      // surlignage du prénom (sous le texte)
+      const nU = name.toUpperCase().replace(/[^A-ZÀ-Ý]/g, '');
+      let hl = null;
+      lines.forEach((ln, li) => {
+        if (hl) return;
+        const ws = ln.split(' '); let pre = '';
+        for (const w of ws) {
+          if (w.toUpperCase().replace(/[^A-ZÀ-Ý]/g, '') === nU && nU) { const core = w.replace(/[,.;:!?]+$/, ''); hl = { li, x: 18 + bw(pre, size) + (pre ? bw(' ', size) : 0), w: bw(core, size) }; return; }
+          pre += (pre ? ' ' : '') + w;
+        }
+      });
+      st.hl = null;
+      if (hl) {
+        const top = -bh + 20 + hl.li * lh;
+        st.hl = rect(bb, hl.x - 4, top + size * 0.02, hl.w + 8, size * 1.02, 4, C.lime);
+        st.hlW = hl.w + 8; st.hlAbs = { x: BX + hl.x + hl.w / 2, y: BTOP + 20 + hl.li * lh };
+      } else st.hlAbs = { x: BX + 80, y: BTOP + 20 };
+      st.ty = []; st.tyOff = []; let acc = 0;
+      lines.forEach((ln, li) => {
+        const o = TY(bb, ln, 18, -bh + 20 + li * lh + size * 0.84, size, C.ink);
+        st.ty.push(o); st.tyOff.push(acc); acc += o.n + 1;
+      });
+      st.nLet = acc; st.bBot = BBOT; st.bX = BX;
+
+      /* ---- la flèche lime du prénom à la ligne ---- */
+      st.arw = g(root);
+      {
+        const ax = st.hlAbs.x - 300, ay = st.hlAbs.y - 14, rx = SX + 20, d = `M ${f2(ax)} ${f2(ay)} L ${f2(ax)} 284 L 900 284 L 900 ${ROWY} L ${rx - 44} ${ROWY}`;
+        st.arwU = path(st.arw, d, 'none', C.ink, 24, { pathLength: 1000, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+        st.arwL = path(st.arw, d, 'none', C.lime, 14, { pathLength: 1000, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+        st.head = g(st.arw);
+        path(st.head, `M ${rx + 8} ${ROWY} L ${rx - 44} ${ROWY - 30} L ${rx - 44} ${ROWY + 30} Z`, C.ink, C.ink, 10);
+        path(st.head, `M ${rx + 8} ${ROWY} L ${rx - 44} ${ROWY - 30} L ${rx - 44} ${ROWY + 30} Z`, C.lime, null);
+        st.headX = rx + 8;
+      }
+
+      /* ---- la bande de la question (au premier plan) ---- */
+      st.qb = g(root);
+      {
+        const z = fitSize(question, 56, 1560), w = bw(question, z);
+        shadowRect(st.qb, -840, -50, 1680, 100, 10, 10, C.lime);
+        rect(st.qb, -840, -50, 1680, 100, 10, C.paper, C.ink, 6);
+        st.qt = TY(st.qb, question, -w / 2, z * 0.35, z, C.ink);
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const c = st.c;
+      /* téléphone : entrée, vibration, glissement */
+      let bz = 0, arcs = false;
+      for (const tb of c.buzz) { const u = t - tb; if (u >= 0 && u <= 0.8) { bz = 6 * Math.sin(u * 2 * Math.PI * 2.5) * (1 - prog(u, 0.68, 0.8)); arcs = true; } }
+      const tR = c.reveal;
+      const sh = tR != null ? -300 * E.out3(prog(t, tR, tR + 0.4)) : 0;
+      const dy = 120 * (1 - E.out3(prog(t, 0, 0.35)));
+      setA(st.ph, 'transform', `translate(${f2(sh + bz)} ${f2(dy)})`);
+      vis(st.arcs, arcs);
+
+      /* bulle */
+      const tM = c.message;
+      const has = tM != null && t >= tM;
+      vis(st.bb, has);
+      if (has) {
+        const s = E.back(prog(t, tM, tM + 8 / 30));
+        setA(st.bb, 'transform', `translate(${st.bX} ${f2(st.bBot)}) scale(${f2(Math.max(0.001, s))})`);
+        const n = Math.floor(Math.max(0, t - tM - 8 / 30) * 30) + (t >= tM + 8 / 30 ? 1 : 0);
+        for (let i = 0; i < st.ty.length; i++) tyShow(st.ty[i], n - st.tyOff[i]);
+        if (st.hl) {
+          const tN = c.name;
+          const p = tN != null ? E.out2(prog(t, tN, tN + 0.2)) : 0;
+          setA(st.hl, 'width', f2(Math.max(0, st.hlW * p)));
+          vis(st.hl, p > 0);
+        }
+      }
+
+      /* expéditeur */
+      const tS = c.sender, sOn = tS != null && t >= tS;
+      setA(st.cart, 'fill', sOn ? C.red : C.ink);
+      setA(st.cartT, 'fill', sOn ? C.ink : C.paper);
+      {
+        const s = tS != null ? pop(t, tS + 0.08, 0.25) : 0;
+        setA(st.stk, 'transform', `translate(${f2(st.stkX)} ${f2(st.stkY)}) rotate(-8) scale(${f2(Math.max(0.001, s))})`);
+        vis(st.stk, s > 0.001);
+      }
+
+      /* fichier */
+      if (tR == null) { vis(st.fl, false); vis(st.arw, false); }
+      else {
+        const p = E.out3(prog(t, tR + 0.1, tR + 0.1 + 14 / 30));
+        vis(st.fl, t >= tR + 0.1);
+        setA(st.fl, 'transform', `translate(${f2(1000 * (1 - p))} 0)`);
+        const pa = E.out2(prog(t, tR + 0.55, tR + 1.15));
+        vis(st.arw, pa > 0);
+        setA(st.arwU, 'stroke-dasharray', `${f2(pa * 1000)} 1100`);
+        setA(st.arwL, 'stroke-dasharray', `${f2(pa * 1000)} 1100`);
+        const hp = pa >= 1 ? E.back(prog(t, tR + 1.15, tR + 1.4)) : 0;
+        setA(st.head, 'transform', `translate(${st.headX} ${ROWY_()}) scale(${f2(Math.max(0.001, hp))}) translate(${-st.headX} ${-ROWY_()})`);
+        vis(st.head, hp > 0.001);
+      }
+
+      /* case chiffre + verdict */
+      const tF = c.figure;
+      if (tF == null || t < tF) { vis(st.boxT, false); vis(st.vd, false); setA(st.box, 'transform', st.boxBase || (st.boxBase = st.box.getAttribute('transform'))); }
+      else {
+        const base = st.boxBase || (st.boxBase = st.box.getAttribute('transform'));
+        const m = /translate\(([-\d.]+) ([-\d.]+)\)/.exec(base);
+        const [dx, dy2] = shakeAt(t, tF, 6, 0.4);
+        const sc = 1 + 0.5 * (1 - E.out3(prog(t, tF, tF + 0.2)));
+        setA(st.box, 'transform', `translate(${f2(+m[1] + dx)} ${f2(+m[2] + dy2)}) scale(${f2(sc)})`);
+        vis(st.boxT, true);
+        const v = pop(t, tF + 0.3, 0.25);
+        setA(st.vd, 'transform', `translate(${st.vdX} ${st.vdY}) rotate(-2) scale(${f2(Math.max(0.001, v))})`);
+        vis(st.vd, v > 0.001);
+      }
+
+      /* question */
+      const tQ = c.question;
+      if (tQ == null || t < tQ) vis(st.qb, false);
+      else {
+        const s = E.back(prog(t, tQ, tQ + 0.25));
+        setA(st.qb, 'transform', `translate(960 740) scale(1 ${f2(Math.max(0.001, s))})`);
+        vis(st.qb, true);
+        tyShow(st.qt, (t - tQ - 0.15) / 0.035);
+      }
+    }
+  });
+  const ROWY_ = () => 445;
 })();
 ;
 /* ==== tools/video/composition/components/strategy-chart.js ==== */
@@ -12149,6 +20738,485 @@
       }
     }
   });
+})();
+;
+/* ==== tools/video/composition/components/theo-file.js ==== */
+// Composant `theo-file` (épisode 7) : la perte théorique (le « théo ») et la valeur à vie. Voir EP7-COMPONENTS.md.
+// Mode `formula` : 4 tuiles (mise × tours × avantage = théo) puis UN panneau à la fois (tonight, card, free, comps, barman).
+// Mode `lifetime` : 52 vendredis, compteur, escalade. Cues formula : formula, bet, rounds, edge, theo, tonight, card, free, comps, barman.
+// Cues lifetime : one, year, total, easier, escalade. Fonction pure du temps ; aplats, aucun dégradé / flou / filter.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, rng, shakeAt } = ZV;
+  let UID = 0;
+  const NB = ' ', NNB = ' ';
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const str = (v, d) => (typeof v === 'string' ? v : v == null ? d : String(v));
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => setA(n, 'visibility', on ? 'visible' : 'hidden');
+  const BW = { '0': .67, '1': .36, '2': .61, '3': .61, '4': .64, '5': .62, '6': .66, '7': .52, '8': .66, '9': .66, A: .71, B: .69, C: .69, D: .71, E: .63, F: .6, G: .73, H: .73, I: .3, J: .38, K: .7, L: .51, M: .96, N: .79, O: .73, P: .65, Q: .73, R: .69, S: .66, T: .58, U: .73, V: .68, W: 1, X: .72, Y: .66, Z: .58, 'À': .71, 'Â': .71, 'É': .63, 'È': .63, 'Ê': .63, 'Ë': .63, 'Î': .3, 'Ï': .3, 'Ô': .73, 'Û': .73, 'Ù': .73, 'Ç': .69, 'Œ': 1, ' ': .22, ' ': .22, ' ': .22, ',': .21, '.': .25, ':': .26, ';': .24, "'": .19, '’': .22, '!': .3, '?': .43, '|': .28, '%': .99, '€': .75, '≈': .55, '×': .53, '−': .53, '+': .53, '→': 1, '·': .25, '(': .33, ')': .33, '-': .36, '/': .37, '"': .38, '–': .55 };
+  const bw = (s, z) => { let a = 0; for (const ch of String(s)) { const w = BW[ch]; a += z * (w !== undefined ? w : ch >= 'a' && ch <= 'z' ? 0.6 : 0.7); } return a; };
+  const mw = (s, z) => Array.from(String(s)).length * z * 0.6;
+  const fitSize = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, bw(s, z)));
+  const fitMono = (s, z, maxW) => Math.min(z, z * maxW / Math.max(1, mw(s, z)));
+  const BT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ len: f2(bw(s, z)) }, o || {}));
+  const MT = (p, s, x, y, z, fill, o) => text(p, s, x, y, z, fill, Object.assign({ mono: true, len: f2(mw(s, z)) }, o || {}));
+  function TY(parent, s, x, y, z, fill, o) {                                    // texte « machine à écrire » : textLength fixe + clipPath (ancre à gauche)
+    o = o || {};
+    const chars = Array.from(s), w = o.mono ? mw(s, z) : bw(s, z);
+    const grp = g(parent), id = 'tf' + (++UID) + 'c';
+    const cr = sv('rect', { x: x - 6, y: y - z * 1.05, width: 0, height: z * 1.45 }, sv('clipPath', { id }, grp));
+    const tn = text(grp, s, x, y, z, fill, { mono: o.mono, len: f2(Math.max(1, w)) });
+    tn.setAttribute('clip-path', `url(#${id})`);
+    const cum = [0]; let a = 0;
+    for (const ch of chars) { a += o.mono ? z * 0.6 : bw(ch, z); cum.push(a); }
+    const k = w / Math.max(a, 1); for (let i = 0; i < cum.length; i++) cum[i] *= k;
+    return { g: grp, tn, cr, cum, n: chars.length, w };
+  }
+  const tyShow = (o, n) => { n = clamp(Math.floor(n), 0, o.n); setA(o.cr, 'width', n === 0 ? 0 : f2(o.cum[n] + (n >= o.n ? 14 : 4))); };
+  const pop = (t, t0, d) => (t < t0 ? 0 : E.back(prog(t, t0, t0 + (d || 0.25))));
+  const sc = (s) => Math.max(0.001, s);
+  const shadowRect = (p, x, y, w, h, r, d, col) => rect(p, x + d, y + d, w, h, r, col || C.ink);
+
+  /* ---- pictos plats (centrés sur 0,0, ±75) : verre, assiette, clé, carte ---- */
+  const PIC = {
+    glass: [['p', 'M -44 -66 L 44 -66 Q 44 2 0 12 Q -44 2 -44 -66 Z', C.white], ['p', 'M -38 -34 L 38 -34 Q 35 -5 0 5 Q -35 -5 -38 -34 Z', C.lime, 0], ['r', -5, 10, 10, 46, 0, C.ink], ['r', -38, 54, 76, 14, 7, C.ink]],
+    plate: [['c', 0, 4, 46, C.white], ['c', 0, 4, 28, C.paper], ['r', -76, -58, 22, 40, 6, C.white], ['r', -70, -22, 10, 74, 5, C.white], ['p', 'M 60 -58 Q 76 -40 72 -14 L 72 -10 L 60 -10 Z', C.white], ['r', 60, -14, 12, 66, 5, C.white]],
+    key: [['c', -34, -10, 32, C.white], ['c', -34, -10, 11, C.ink, 0], ['r', -4, -19, 76, 17, 4, C.white], ['r', 40, -4, 12, 24, 2, C.white], ['r', 22, -4, 10, 15, 2, C.white], ['r', -62, 28, 56, 40, 8, C.red], ['c', -34, 40, 6, C.paper, 0]],
+    card: [['r', -70, -46, 140, 92, 12, C.white], ['r', -70, -28, 140, 22, 0, C.ink, 0], ['r', -56, 10, 32, 24, 5, C.lime], ['r', -12, 14, 54, 7, 3, C.ink, 0], ['r', -12, 28, 36, 7, 3, C.ink, 0]]
+  };
+  function picto(parent, kind, shadow) {
+    const grp = g(parent), spec = PIC[kind] || PIC.card;
+    const BASE = { p: 3, r: 7, c: 5 };
+    const draw = (gr, sh) => {
+      for (const s of spec) {
+        const base = BASE[s[0]], noStroke = s.length > base && s[base] === 0;
+        const fill = sh ? C.ink : s[base - 1], stroke = sh || !noStroke ? C.ink : null;
+        if (s[0] === 'p') path(gr, s[1], fill, stroke, 6);
+        else if (s[0] === 'r') rect(gr, s[1], s[2], s[3], s[4], s[5], fill, stroke, 6);
+        else circle(gr, s[1], s[2], s[3], fill, stroke, 6);
+      }
+    };
+    if (shadow !== false) draw(g(grp, { transform: 'translate(8 8)' }), true);
+    draw(g(grp), false);
+    return grp;
+  }
+
+  ZV.define('theo-file', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 20;
+      const cl = (n) => beats.filter((b) => b && b.do === 'cue' && b.name === n && isNum(b.t)).map((b) => b.t).sort((a, b) => a - b);
+      const FNAMES = ['formula', 'bet', 'rounds', 'edge', 'theo', 'tonight', 'card', 'free', 'comps', 'barman'];
+      const LNAMES = ['one', 'year', 'total', 'easier', 'escalade'];
+      const hasF = FNAMES.some((n) => cl(n).length), hasL = LNAMES.some((n) => cl(n).length);
+      const lifeProps = ['nights', 'theo_night', 'steps', 'first', 'you'].some((k) => P[k] != null);
+      const life = P.mode === 'lifetime' || (P.mode !== 'formula' && (hasL && !hasF || (!hasF && !hasL && lifeProps)));
+      const st = { life, dur, uid: 'tf' + (++UID) };
+
+      /* ---- fond paper, trame ink très légère ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.paper);
+      const defs = sv('defs', null, root);
+      const pt = sv('pattern', { id: st.uid + 'h', width: 32, height: 32, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+      sv('rect', { x: 0, y: 0, width: 32, height: 32, fill: C.paper }, pt);
+      sv('rect', { x: 0, y: 0, width: 4, height: 32, fill: '#E6E2D6' }, pt);
+      rect(root, 0, 0, 1920, 1080, 0, `url(#${st.uid}h)`);
+      return life ? buildLife(root, st, P, cl, dur, defs) : buildForm(root, st, P, cl, dur, defs);
+    },
+    update(st, t, shot) { return st.life ? updLife(st, t) : updForm(st, t); }
+  });
+
+  /* =========================================================== MODE FORMULA */
+  function buildForm(root, st, P, cl, dur, defs) {
+    const bet = str(P.bet, '10' + NB + '€'), rounds = str(P.rounds, '200'), edge = str(P.edge, '2,7' + NB + '%');
+    const staked = str(P.staked, '2' + NNB + '000' + NB + '€' + NB + 'MISÉS'), theo = str(P.theo, '≈' + NB + '54' + NB + '€');
+    const gifts = (Array.isArray(P.gifts) && P.gifts.length ? P.gifts : ['LE VERRE', 'LE REPAS', 'LA CHAMBRE', 'LE CRÉDIT']).slice(0, 6).map((x) => (typeof x === 'string' ? x : str(x && x.label, '')));
+    st.gifts = gifts;
+    /* repères */
+    const cues = { formula: cl('formula')[0], bet: cl('bet')[0], rounds: cl('rounds')[0], edge: cl('edge')[0], theo: cl('theo')[0] };
+    const ev = [];
+    for (const n of ['tonight', 'card', 'free', 'comps', 'barman']) for (const t of cl(n)) ev.push({ t, id: n });
+    ev.sort((a, b) => a.t - b.t);
+    const any = ev.length || Object.values(cues).some((x) => x != null);
+    if (!any) {
+      const k = Math.min(1, dur / 24), at = (x) => x * k;
+      Object.assign(cues, { formula: at(0.3), bet: at(1.3), rounds: at(2.2), edge: at(3.3), theo: at(4.4) });
+      [['tonight', 6], ['card', 10], ['free', 14.5], ['comps', 18], ['barman', 22]].forEach(([id, x]) => ev.push({ t: at(x), id }));
+    } else if (cues.formula == null) { cues.formula = -20; for (const n of ['bet', 'rounds', 'edge', 'theo']) if (cues[n] == null) cues[n] = -20; }
+    st.cues = cues; st.ev = ev;
+
+    /* tuiles */
+    const TW = 340, TH = 230, TY0 = 130, GAP = (1920 - 160 - 4 * TW) / 3;
+    const labs = ['MISE MOYENNE', 'NOMBRE DE TOURS', 'AVANTAGE DE LA MAISON', 'TON THÉO'], vals = [bet, rounds, edge, theo];
+    const lz = Math.min(26, ...labs.map((l) => fitMono(l, 26, TW - 44)));
+    st.tiles = [];
+    for (let i = 0; i < 4; i++) {
+      const x = 80 + i * (TW + GAP), cx = x + TW / 2, cy = TY0 + TH / 2;
+      const tg = g(root); const o = { g: tg, x, cx, cy, i };
+      shadowRect(tg, -TW / 2, -TH / 2, TW, TH, 10, 12);
+      o.plate = rect(tg, -TW / 2, -TH / 2, TW, TH, 10, i === 3 ? C.red : C.paper, C.ink, 8);
+      o.lab = MT(tg, labs[i], 0, -TH / 2 + 56, lz, i === 3 ? C.paper : C.ink, { anchor: 'middle' });
+      const z = fitSize(vals[i], 96, TW - 44), w = bw(vals[i], z);
+      o.vg = g(tg, { transform: `translate(0 ${f2(34)})` });
+      o.val = TY(o.vg, vals[i], -w / 2, z * 0.35, z, i === 3 ? C.paper : C.ink);
+      st.tiles.push(o);
+    }
+    st.GAP = GAP; st.TW = TW; st.TY0 = TY0; st.TH = TH;
+    st.signs = ['×', '×', '='].map((s, i) => {
+      const n = g(root);
+      BT(n, s, 0, 120 * 0.35, 120, C.ink, { anchor: 'middle' });
+      return { g: n, x: 80 + i * (TW + GAP) + TW + GAP / 2, y: TY0 + TH / 2 };
+    });
+    st.sub = g(root);
+    {
+      const lab = '= ' + staked, z = fitSize(lab, 36, 520), w = bw(lab, z) + 44, h = 54;
+      shadowRect(st.sub, -w / 2, -h / 2, w, h, 10, 7);
+      rect(st.sub, -w / 2, -h / 2, w, h, 10, C.paper, C.ink, 5);
+      BT(st.sub, lab, 0, z * 0.35, z, C.ink, { anchor: 'middle' });
+      st.subX = (80 + 80 + 2 * TW + GAP) / 2 + 0; st.subY = 394;
+    }
+    /* zone des panneaux */
+    const slot = g(root, { 'clip-path': `url(#${st.uid}s)` });
+    rect(sv('clipPath', { id: st.uid + 's' }, defs), 0, 428, 1920, 408, 0, '#000');
+    st.P = {};
+    st.P.tonight = pTonight(slot, st);
+    st.P.card = pCard(slot, st, bet, rounds, theo);
+    st.P.free = pFree(slot);
+    st.P.comps = pComps(slot, st, theo, gifts);
+    st.P.barman = pBarman(slot);
+    return st;
+  }
+
+  function pTonight(parent, st) {
+    const p = { g: g(parent) }, G = p.g, X0 = 210, X1 = 1710, AX = 560;
+    p.l1 = MT(G, 'CE SOIR', X0, 472, 30, C.ink, { anchor: 'start' });
+    p.axis = line(G, X0, AX, X1, AX, C.ink, 3, { 'stroke-dasharray': '14 12', 'stroke-linecap': 'butt' });
+    p.plus = MT(G, '+', 160, AX - 52, 46, C.ink, { anchor: 'middle' });
+    p.minus = MT(G, '−', 160, AX + 66, 46, C.ink, { anchor: 'middle' });
+    const r = rng(1307); let d = '', s = 1;
+    for (let i = 0; i <= 40; i++) {
+      const x = X0 + (X1 - X0) * i / 40, a = i === 0 ? 0 : (22 + r() * 56) * s * (0.55 + 0.45 * Math.sin(i * 0.55));
+      d += (i ? ' L ' : 'M ') + f2(x) + ' ' + f2(AX + a); s = -s;
+    }
+    p.trace = path(G, d, 'none', C.ink, 7, { pathLength: 1000, 'stroke-linejoin': 'round' });
+    p.l2 = MT(G, 'TON THÉO', X0, 694, 30, C.ink, { anchor: 'start' });
+    p.bar = rect(G, X0, 712, X1 - X0, 28, 0, C.red);
+    p.stk = g(G);
+    { const lab = 'NE BOUGE PAS', z = 30, w = mw(lab, z) + 36, h = 46; rect(p.stk, -w / 2, -h / 2, w, h, 8, C.ink); MT(p.stk, lab, 0, z * 0.33, z, C.paper, { anchor: 'middle' }); p.stkW = w; }
+    p.lock = g(G);
+    path(p.lock, 'M -17 -6 L -17 -22 Q -17 -42 0 -42 Q 17 -42 17 -22 L 17 -6', 'none', C.ink, 9);
+    rect(p.lock, -28, -8, 56, 44, 6, C.ink); circle(p.lock, 0, 12, 6, C.paper);
+    p.upd = (tau) => {
+      vis(p.l1, tau >= 0); vis(p.axis, tau >= 0); vis(p.plus, tau >= 0.1); vis(p.minus, tau >= 0.1);
+      const a = E.io2(prog(tau, 0.25, 1.7)); setA(p.trace, 'stroke-dasharray', `${f2(a * 1000)} 1100`); vis(p.trace, a > 0);
+      vis(p.l2, tau >= 1.9);
+      const b = E.out3(prog(tau, 1.9, 2.6)); setA(p.bar, 'width', f2(Math.max(0.01, 1500 * b))); vis(p.bar, b > 0);
+      const k = pop(tau, 2.6, 0.3); setA(p.lock, 'transform', `translate(1768 726) scale(${f2(sc(k))})`); vis(p.lock, k > 0.001);
+      const k2 = pop(tau, 2.9, 0.3); setA(p.stk, 'transform', `translate(${f2(1710 - p.stkW / 2)} 678) scale(${f2(sc(k2))})`); vis(p.stk, k2 > 0.001);
+    };
+    return p;
+  }
+
+  function pCard(parent, st, bet, rounds, theo) {
+    const p = { g: g(parent) }, G = p.g;
+    const nPts = Math.max(10, parseInt(String(rounds).replace(/\D/g, ''), 10) || 200);
+    MT(G, 'TU CROIS CUMULER :', 70, 470, 28, C.ink, { anchor: 'start' });
+    BT(G, 'DES POINTS', 70, 540, fitSize('DES POINTS', 64, 440), C.ink, { anchor: 'start' });
+    p.left = g(G);
+    shadowRect(p.left, 70, 580, 380, 84, 10, 8);
+    rect(p.left, 70, 580, 380, 84, 10, C.white, C.ink, 6);
+    p.cnt = MT(p.left, '0 PTS', 436, 636, 44, C.ink, { anchor: 'end' });
+    p.nPts = nPts;
+    /* lecteur + carte */
+    p.card = g(G);
+    rect(p.card, -125, 0, 250, 150, 14, C.white, C.ink, 6);
+    rect(p.card, -122, 3, 244, 32, 11, C.lime);
+    line(p.card, -122, 35, 122, 35, C.ink, 5, { 'stroke-linecap': 'butt' });
+    rect(p.card, -102, 48, 38, 26, 5, C.ink);
+    MT(p.card, 'CARTE DE FIDÉLITÉ', -102, 98, 20, C.ink, { anchor: 'start' });
+    p.rd = g(G);
+    shadowRect(p.rd, 575, 612, 250, 86, 14, 8);
+    rect(p.rd, 575, 612, 250, 86, 14, C.ink);
+    rect(p.rd, 592, 628, 216, 10, 4, C.lime);
+    MT(p.rd, 'LECTEUR', 700, 678, 18, C.paper, { anchor: 'middle' });
+    /* colonne de droite : deux fois plus grande */
+    MT(G, 'LE CASINO CUMULE :', 870, 470, 30, C.ink, { anchor: 'start' });
+    const dz = fitSize('DES DONNÉES', 84, 900);
+    BT(G, 'DES DONNÉES', 870, 552, dz, C.ink, { anchor: 'start' });
+    p.rows = [`MISE MOYENNE · ${bet}`, `TOURS · ${rounds}`, `THÉO · ${theo}`].map((s, i) => {
+      const y = 584 + i * 74, o = { s, i, y }; o.g = g(G);
+      shadowRect(o.g, 870, y, 960, 62, 8, 7);
+      rect(o.g, 870, y, 960, 62, 8, i === 2 ? C.red : C.white, C.ink, 5);
+      o.ty = TY(o.g, s, 896, y + 43, fitMono(s, 34, 900), C.ink, { mono: true });
+      return o;
+    });
+    p.upd = (tau) => {
+      const c = E.out3(prog(tau, 0, 0.7));
+      setA(p.card, 'transform', `translate(700 ${f2(440 + (497 - 440) * c)})`);
+      const q = Math.floor(clamp((tau - 0.9) / 1.6) * 6) / 6, n = tau >= 2.5 ? p.nPts : Math.round(p.nPts * E.in2(q));
+      const tx = n + NB + 'PTS'; if (p.cnt.__s !== tx) { p.cnt.__s = tx; p.cnt.textContent = tx; p.cnt.setAttribute('textLength', f2(mw(tx, 44))); }
+      vis(p.left, tau >= 0.1);
+      p.rows.forEach((o, i) => { const a = 1.1 + 0.6 * i; vis(o.g, tau >= a); tyShow(o.ty, (tau - a - 0.1) / 0.04); });
+    };
+    return p;
+  }
+
+  function pFree(parent) {
+    const p = { g: g(parent) }, G = p.g;
+    p.tab = g(G);
+    { const lab = 'UN CLIENT DU JEU', w = mw(lab, 26) + 40; rect(p.tab, 330, 438, w, 42, 6, C.ink); MT(p.tab, lab, 330 + w / 2, 467, 26, C.paper, { anchor: 'middle' }); }
+    p.bub = g(G);
+    const B = p.bub;
+    shadowRect(B, 330, 478, 1260, 132, 34, 10);
+    rect(B, 330, 478, 1260, 132, 34, C.white, C.ink, 6);
+    path(B, 'M 400 606 L 392 646 L 458 608', C.white, C.ink, 6);
+    line(B, 406, 606, 452, 606, C.white, 9, { 'stroke-linecap': 'butt' });
+    const lab = 'LA CARTE DE FIDÉLITÉ, C’EST GRATUIT', z = fitSize(lab, 64, 1130), w = bw(lab, z);
+    BT(B, lab, 960, 544 + z * 0.35, z, C.ink, { anchor: 'middle' });
+    p.strike = path(G, `M ${f2(960 - w / 2 - 26)} 556 L ${f2(960 + w / 2 + 26)} 534`, 'none', C.red, 18, { pathLength: 1000 });
+    const l2 = 'CE SONT TES MISES QUI LA PAIENT', z2 = fitSize(l2, 84, 1560);
+    p.t2 = g(G);
+    BT(p.t2, l2, 0, z2 * 0.35, z2, C.ink, { anchor: 'middle' });
+    const pre = 'CE SONT ', ux = -bw(l2, z2) / 2 + bw(pre, z2);
+    rect(p.t2, ux, z2 * 0.35 + 12, bw('TES MISES', z2), 12, 0, C.red);
+    p.t2y = 722;
+    p.upd = (tau) => {
+      const k = pop(tau, 0, 0.3); setA(p.bub, 'transform', `translate(960 544) scale(${f2(sc(k))}) translate(-960 -544)`); vis(p.bub, k > 0.001);
+      setA(p.tab, 'transform', `translate(0 0)`); vis(p.tab, tau >= 0.05);
+      const s = E.out2(prog(tau, 0.9, 1.3)); setA(p.strike, 'stroke-dasharray', `${f2(s * 1000)} 1100`); vis(p.strike, s > 0);
+      const k2 = pop(tau, 1.8, 0.3); setA(p.t2, 'transform', `translate(960 ${p.t2y}) scale(${f2(sc(k2))})`); vis(p.t2, k2 > 0.001);
+    };
+    return p;
+  }
+
+  function pComps(parent, st, theo, gifts) {
+    const p = { g: g(parent) }, G = p.g, n = Math.max(1, gifts.length);
+    const kinds = ['glass', 'plate', 'key', 'card'];
+    shadowRect(G, 210, 440, 1500, 110, 0, 10);
+    rect(G, 210, 440, 1500, 110, 0, C.red, C.ink, 6);
+    const bl = 'TON THÉO ' + theo;
+    BT(G, bl, 960, 495 + 64 * 0.35, 64, C.paper, { anchor: 'middle', len: f2(Math.min(bw(bl, 64), 1300)) });
+    const cw = Math.min(330, (1500 - (n - 1) * 40) / n), gap = n > 1 ? (1500 - n * cw) / (n - 1) : 0;
+    p.cards = gifts.map((s, i) => {
+      const x = 210 + i * (cw + gap), o = { x, cx: x + cw / 2, t0: 0.6 + 0.5 * i }; o.g = g(G);
+      shadowRect(o.g, 0, 0, cw, 150, 10, 8);
+      rect(o.g, 0, 0, cw, 150, 10, C.paper, C.ink, 6);
+      const pg = g(o.g, { transform: `translate(${f2(cw / 2)} 56) scale(0.58)` }); picto(pg, kinds[i % 4], false);
+      BT(o.g, s, cw / 2, 134, fitSize(s, 30, cw - 28), C.ink, { anchor: 'middle' });
+      o.sl = rect(G, 0, 0, 46, 42, 4, C.red, C.ink, 5);                          // la tranche qui se détache
+      return o;
+    });
+    p.leg = MT(G, 'UNE FRACTION, PRÉVUE, DE CE QUE TU VAS PERDRE', 210, 798, 28, C.ink, { anchor: 'start' });
+    p.stk = g(G);
+    { const lab = 'PAS UNE GÉNÉROSITÉ', z = 28, w = mw(lab, z) + 44, h = 52; rect(p.stk, -w / 2, -h / 2, w, h, 8, C.ink); MT(p.stk, lab, 0, z * 0.33, z, C.paper, { anchor: 'middle' }); }
+    p.upd = (tau) => {
+      p.cards.forEach((o) => {
+        const u = prog(tau, o.t0, o.t0 + 0.45), arrived = u >= 1;
+        const sx = 232, sy = 552, ex = o.cx, ey = 600;
+        const e = E.out2(u), fall = E.in2(u);
+        const x = sx + (ex - sx) * e, y = sy + (ey - sy) * fall - 30 * Math.sin(Math.PI * u) * (1 - u);
+        vis(o.sl, tau >= o.t0 && !arrived);
+        setA(o.sl, 'transform', `translate(${f2(x - 23)} ${f2(y)}) scale(${f2(1 - 0.2 * u)})`);
+        const k = arrived ? pop(tau, o.t0 + 0.45, 0.25) : 0;
+        setA(o.g, 'transform', `translate(${f2(o.cx)} 660) scale(${f2(sc(k))}) translate(${f2(-p.cw / 2)} -75)`);
+        vis(o.g, k > 0.001);
+      });
+      const tl = 0.6 + 0.5 * (p.cards.length - 1) + 0.8;
+      vis(p.leg, tau >= tl);
+      const k = pop(tau, tl + 0.3, 0.3); setA(p.stk, 'transform', `translate(1500 784) rotate(-3) scale(${f2(sc(k))})`); vis(p.stk, k > 0.001);
+    };
+    p.cw = cw;
+    return p;
+  }
+  
+  function pBarman(parent) {
+    const p = { g: g(parent) }, G = p.g;
+    shadowRect(G, 260, 700, 1400, 90, 0, 10);
+    rect(G, 260, 700, 1400, 90, 0, C.ink);
+    p.glass = g(G); const gg = g(p.glass, { transform: 'translate(760 570) scale(1.7)' }); picto(gg, 'glass', true);
+    p.tag = g(G);
+    const T = p.tag, lab = 'IL CONNAÎT TON THÉO', z = fitSize(lab, 52, 470);
+    shadowRect(T, -300, -56, 600, 112, 16, 9);
+    rect(T, -300, -56, 600, 112, 16, C.white, C.ink, 6);
+    circle(T, -268, 0, 11, C.paper, C.ink, 5);
+    BT(T, lab, 14, z * 0.35, z, C.ink, { anchor: 'middle' });
+    p.str = line(G, 838, 572, 952, 578, C.ink, 5);
+    p.upd = (tau) => {
+      const k = pop(tau, 0, 0.3); setA(p.glass, 'transform', `translate(760 700) scale(${f2(sc(k))}) translate(-760 -700)`); vis(p.glass, k > 0.001);
+      const k2 = pop(tau, 0.6, 0.35), bob = 8 * Math.sin(tau * 3.1);
+      setA(p.tag, 'transform', `translate(1220 ${f2(560 + bob)}) rotate(-4) scale(${f2(sc(k2))})`); vis(p.tag, k2 > 0.001);
+      setA(p.str, 'y2', f2(578.7 + bob)); vis(p.str, k2 > 0.5);
+    };
+    return p;
+  }
+
+  function updForm(st, t) {
+    const c = st.cues, tF = c.formula;
+    /* tuiles, signes */
+    st.tiles.forEach((o, i) => {
+      const t0 = tF == null ? Infinity : tF + i * 0.2, u = prog(t, t0, t0 + 0.4), on = t >= t0;
+      const e = E.back(u);
+      setA(o.g, 'transform', `translate(${f2(o.cx)} ${f2(o.cy - 520 * (1 - e))})`);
+      vis(o.g, on);
+      const tv = i === 0 ? c.bet : i === 1 ? c.rounds : i === 2 ? c.edge : c.theo;
+      if (i === 2) { const inv = tv != null && t >= tv; setA(o.plate, 'fill', inv ? C.ink : C.paper); setA(o.lab, 'fill', inv ? C.paper : C.ink); setA(o.val.tn, 'fill', inv ? C.lime : C.ink); }
+      if (tv == null || t < tv) { tyShow(o.val, 0); setA(o.vg, 'transform', 'translate(0 34)'); return; }
+      if (i === 3) {
+        const s = 1 + 0.12 * (1 - E.out3(prog(t, tv, tv + 0.3))), [dx, dy] = shakeAt(t, tv, 8, 0.4);
+        setA(o.vg, 'transform', `translate(${f2(dx)} ${f2(34 + dy)}) scale(${f2(s)})`); tyShow(o.val, 99);
+      } else tyShow(o.val, (t - tv) / 0.07 + 1);
+    });
+    st.signs.forEach((s, i) => {
+      const t0 = tF == null ? Infinity : tF + (i + 1) * 0.2 + 0.1, k = pop(t, t0, 0.25);
+      setA(s.g, 'transform', `translate(${f2(s.x)} ${f2(s.y)} ) scale(${f2(sc(k))})`); vis(s.g, k > 0.001);
+    });
+    {
+      const tr = c.rounds; const k = tr != null ? pop(t, tr + 0.07 * 3 + 0.2, 0.3) : 0;
+      setA(st.sub, 'transform', `translate(${f2(st.subX)} ${f2(st.subY)}) rotate(-2) scale(${f2(sc(k))})`); vis(st.sub, k > 0.001);
+    }
+    /* panneaux : le dernier cue remplace le précédent (sortie vers le bas 8 i, entrée par le haut 10 i) */
+    const ev = st.ev; let j = -1;
+    for (let i = 0; i < ev.length; i++) if (ev[i].t <= t) j = i;
+    for (const id in st.P) vis(st.P[id].g, false);
+    if (j >= 0) {
+      const cur = ev[j], prev = j > 0 ? ev[j - 1] : null, ex = prev && prev.id !== cur.id ? 8 / 30 : 0;
+      if (prev && prev.id !== cur.id && t < cur.t + ex) {
+        const pp = st.P[prev.id]; vis(pp.g, true);
+        setA(pp.g, 'transform', `translate(0 ${f2(430 * E.in2(prog(t, cur.t, cur.t + ex)))})`);
+        pp.upd(1e3);
+      } else if (t >= cur.t + ex) {
+        const cp = st.P[cur.id]; vis(cp.g, true);
+        setA(cp.g, 'transform', `translate(0 ${f2(-430 * (1 - E.out3(prog(t, cur.t + ex, cur.t + ex + 10 / 30))))})`);
+        cp.upd(t - (cur.t + ex + 0.2));
+      }
+    }
+  }
+
+  /* =========================================================== MODE LIFETIME */
+  function buildLife(root, st, P, cl, dur) {
+    const nights = clamp(Math.round(isNum(+P.nights) && P.nights != null ? +P.nights : 52), 1, 52), tn = isNum(+P.theo_night) && P.theo_night != null ? +P.theo_night : 54;
+    const total = str(P.total, '≈' + NB + '2' + NNB + '800' + NB + '€'), first = str(P.first, 'TA PREMIÈRE SOIRÉE : PAS GRAND-CHOSE'), you = str(P.you, 'TOI, SI.');
+    const steps = (Array.isArray(P.steps) && P.steps.length ? P.steps : ['LA CARTE DANS TA POCHE', 'L’HÔTE TE SALUE', 'LE VERRE ARRIVE TOUT SEUL', 'LA MISE MIN. TE PARAÎT PETITE']).slice(0, 6).map((s) => str(s, ''));
+    const amt = tn + NB + '€', theoTxt = '≈' + NB + amt;
+    const cues = { one: cl('one')[0], year: cl('year')[0], total: cl('total')[0], easier: cl('easier')[0], escalade: cl('escalade')[0] };
+    if (Object.values(cues).every((x) => x == null)) { const k = Math.min(1, dur / 13); Object.assign(cues, { one: 0.6 * k, year: 2.2 * k, total: 6.0 * k, easier: 8.0 * k, escalade: 10.8 * k }); }
+    st.cues = cues; st.nights = nights; st.tn = tn; st.total = total; st.amt = amt;
+    /* tuile du haut */
+    const tl = g(root);
+    shadowRect(tl, 90, 90, 450, 160, 10, 11);
+    rect(tl, 90, 90, 450, 160, 10, C.paper, C.ink, 8);
+    MT(tl, '1 SOIRÉE', 315, 138, 30, C.ink, { anchor: 'middle' });
+    { const z = fitSize(theoTxt, 96, 400); BT(tl, theoTxt, 315, 220 + (96 - z) * 0.1, z, C.ink, { anchor: 'middle' }); }
+    /* compteur */
+    st.cntSize = 140; st.cnt = g(root);
+    st.cntT = text(st.cnt, '', 0, 0, 140, C.ink, { anchor: 'end' });
+    /* stickers */
+    st.stkFirst = g(root);
+    { const z = fitSize(first, 28, 760), w = bw(first, z) + 40, h = 44; shadowRect(st.stkFirst, -w / 2, -h / 2, w, h, 8, 6); rect(st.stkFirst, -w / 2, -h / 2, w, h, 8, C.paper, C.ink, 5); BT(st.stkFirst, first, 0, z * 0.35, z, C.ink, { anchor: 'middle' }); st.stkFirstX = 90 + w / 2 + 6; }
+    st.stkYou = g(root);
+    { const z = fitSize(you, 64, 360), w = bw(you, z) + 56, h = 90; shadowRect(st.stkYou, -w / 2, -h / 2, w, h, 12, 9); rect(st.stkYou, -w / 2, -h / 2, w, h, 12, C.red, C.ink, 6); BT(st.stkYou, you, 0, z * 0.35, z, C.ink, { anchor: 'middle' }); }
+    /* grille */
+    const GX = 90, GY = 322, PX = 118, PY = 94;
+    st.cells = [];
+    for (let i = 0; i < nights; i++) {
+      const x = GX + (i % 13) * PX, y = GY + Math.floor(i / 13) * PY, o = { x, y };
+      o.r = rect(root, x, y, 104, 80, 6, C.paper, C.ink, 4);
+      o.l = MT(root, 'VEN.', x + 8, y + 22, 18, C.ink, { anchor: 'start' });
+      o.a = MT(root, amt, x + 52, y + 64, 26, C.ink, { anchor: 'middle' });
+      st.cells.push(o);
+    }
+    st.ring = g(root);
+    if (nights > 1) {
+      const c2 = st.cells[1];
+      rect(st.ring, c2.x - 10, c2.y - 10, 124, 100, 14, 'none', C.ink, 18);
+      rect(st.ring, c2.x - 10, c2.y - 10, 124, 100, 14, 'none', C.lime, 10);
+    }
+    /* étiquettes d'escalade */
+    const lz0 = 26;
+    let lz = lz0, widths = steps.map((s) => mw(s, lz) + 40);
+    const gapL = 26, avail = 1740;
+    const tot = () => widths.reduce((a, b) => a + b, 0) + gapL * (steps.length - 1);
+    while (tot() > avail && lz > 18) { lz -= 1; widths = steps.map((s) => mw(s, lz) + 40); }
+    let x = (1920 - tot()) / 2;
+    st.steps = steps.map((s, i) => {
+      const o = { x, w: widths[i], i }; o.g = g(root);
+      shadowRect(o.g, 0, 0, widths[i], 56, 8, 6);
+      rect(o.g, 0, 0, widths[i], 56, 8, C.paper, C.ink, 5);
+      MT(o.g, s, widths[i] / 2, 56 / 2 + lz * 0.33, lz, C.ink, { anchor: 'middle' });
+      x += widths[i] + gapL; return o;
+    });
+    /* flèche-escalier */
+    st.esc = g(root);
+    {
+      const n = st.steps.length, y0 = 745, dy = 12;
+      let d = `M ${f2(st.steps[0].x)} ${y0}`;
+      for (let i = 1; i < n; i++) { const bx = st.steps[i].x - gapL / 2; d += ` L ${f2(bx)} ${y0 - dy * (i - 1)} L ${f2(bx)} ${y0 - dy * i}`; }
+      const last = st.steps[n - 1], xe = last.x + last.w + 8, ye = y0 - dy * (n - 1);
+      d += ` L ${f2(xe)} ${ye}`;
+      st.escP = path(st.esc, d, 'none', C.ink, 20, { pathLength: 1000, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' });
+      st.escR = path(st.esc, d, 'none', C.red, 12, { pathLength: 1000, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' });
+      st.escH = g(st.esc);
+      path(st.escH, `M ${f2(xe + 46)} ${ye} L ${f2(xe)} ${ye - 22} L ${f2(xe)} ${ye + 22} Z`, C.red, C.ink, 6);
+      st.escXe = xe; st.escYe = ye;
+    }
+    st.stamp = g(root);
+    { const lab = 'L’ESCALADE', z = 38, w = bw(lab, z) + 44, h = 78; rect(st.stamp, -w / 2, -h / 2, w, h, 6, C.ink); rect(st.stamp, -w / 2 + 6, -h / 2 + 6, w - 12, h - 12, 3, 'none', C.paper, 3); BT(st.stamp, lab, 0, z * 0.35, z, C.paper, { anchor: 'middle' }); }
+    return st;
+  }
+
+  function updLife(st, t) {
+    const c = st.cues, n = st.nights, tn = st.tn;
+    const fillT = 3.0;
+    let filled = 0;                                                              // nombre de cases pleines (1re comprise)
+    if (c.one != null && t >= c.one) filled = 1;
+    let q = 0;                                                                   // état du compteur : nombre affiché
+    if (c.year != null && t >= c.year) { const p = prog(t - c.year, 0, fillT); filled = 1 + Math.floor((n - 1) * Math.pow(p, 2.1) + 1e-6); if (p >= 1) filled = n; q = p >= 1 ? n : Math.max(1, 1 + Math.floor((n - 1) * Math.pow(Math.floor(p * fillT * 6) / (fillT * 6), 2.1))); }
+    else if (filled) q = 1;
+    st.cells.forEach((o, i) => {
+      const on = i < filled;
+      setA(o.r, 'fill', on ? C.lime : C.paper);
+      vis(o.a, on);
+      if (i === 0 && c.one != null && t >= c.one && t < c.one + 0.3) { /* petit pop de la 1re case */ }
+    });
+    /* compteur */
+    let label = '', ts = 0;
+    const tT = c.total;
+    if (tT != null && t >= tT) { label = st.total; ts = tT; }
+    else if (q) label = st.amt + NB + '×' + NB + q;
+    const z = Math.min(140, 140 * 740 / Math.max(1, bw(label, 140)));
+    if (st.cntT.__s !== label || st.cntT.__z !== z) {
+      st.cntT.__s = label; st.cntT.__z = z; st.cntT.textContent = label;
+      setA(st.cntT, 'font-size', f2(z)); setA(st.cntT, 'textLength', f2(Math.max(1, bw(label, z))));
+    }
+    setA(st.cntT, 'fill', tT != null && t >= tT ? C.red : C.ink);
+    if (tT != null && t >= tT) {
+      const s = 1 + 0.15 * (1 - E.out3(prog(t, tT, tT + 0.3))), [dx, dy] = shakeAt(t, tT, 8, 0.4);
+      setA(st.cnt, 'transform', `translate(${f2(1820 + dx)} ${f2(232 + dy)}) translate(0 -50) scale(${f2(s)}) translate(0 50)`);
+    } else setA(st.cnt, 'transform', 'translate(1820 232)');
+    vis(st.cnt, !!label);
+    /* stickers */
+    const kf = c.one != null ? pop(t, c.one + 0.3, 0.3) : 0;
+    setA(st.stkFirst, 'transform', `translate(${f2(st.stkFirstX)} 292) rotate(-1) scale(${f2(sc(kf))})`); vis(st.stkFirst, kf > 0.001);
+    const ky = tT != null ? pop(t, tT + 0.15, 0.3) : 0;
+    setA(st.stkYou, 'transform', `translate(880 190) rotate(-6) scale(${f2(sc(ky))})`); vis(st.stkYou, ky > 0.001);
+    /* 2e case cerclée, étiquettes, escalade */
+    const tE = c.easier;
+    const kr = tE != null ? pop(t, tE, 0.3) : 0;
+    if (st.cells.length > 1) { const c2 = st.cells[1], cx = c2.x + 52, cy = c2.y + 40; setA(st.ring, 'transform', `translate(${cx} ${cy}) scale(${f2(sc(kr))}) translate(${-cx} ${-cy})`); }
+    vis(st.ring, kr > 0.001);
+    st.steps.forEach((o, i) => {
+      const t0 = tE == null ? Infinity : tE + 0.15 + 0.4 * i, u = prog(t, t0, t0 + 0.32), e = E.back(u);
+      setA(o.g, 'transform', `translate(${f2(o.x)} ${f2(760 - 90 * (1 - e))})`); vis(o.g, t >= t0);
+    });
+    const tX = c.escalade;
+    const a = tX != null ? E.io2(prog(t, tX, tX + 1.1)) : 0;
+    setA(st.escP, 'stroke-dasharray', `${f2(a * 1000)} 1100`); setA(st.escR, 'stroke-dasharray', `${f2(a * 1000)} 1100`);
+    vis(st.esc, a > 0.001);
+    vis(st.escH, a >= 1);
+    const [sx, sy] = tX != null ? shakeAt(t, tX + 1.1, 6, 0.35) : [0, 0];
+    setA(st.stamp, 'transform', `translate(${f2(1770 + sx)} ${f2(520 + sy)}) rotate(-8) scale(${f2(1 + 0.8 * (1 - E.out3(prog(t, (tX == null ? 0 : tX) + 1.1, (tX == null ? 0 : tX) + 1.4))))})`); vis(st.stamp, tX != null && t >= tX + 1.1);
+  }
 })();
 ;
 /* ==== tools/video/composition/components/tick-grid.js ==== */
@@ -12837,6 +21905,277 @@
           put(st.verdict, 0, 40 * (1 - p), 0, 1, 1, at(7) ? p : 0);
         }
       } catch (e) { /* jamais d'exception */ }
+    }
+  });
+})();
+;
+/* ==== tools/video/composition/components/volume-slice.js ==== */
+// Composant `volume-slice` (épisode 7) : « le pourcentage est minuscule, le volume fait le reste ». Voir EP7-COMPONENTS.md.
+// Un mur de blocs (la mise), une tranche red en haut de chaque bloc (la part de la maison), un compteur MISÉ / PERDU, une loupe,
+// la colonne des tranches réunies, puis la part d'un seul homme dans les recettes (barre graduée, 1/20). Fonction pure du temps ;
+// aplats, aucun dégradé / flou / filter. Cues : wagered, blocks, hand, unit (param text), sum, share, twentieth.
+(() => {
+  'use strict';
+  const { C, E, clamp, prog, f2, sv, g, rect, circle, path, line, text, put, fr } = ZV;
+  let UID = 0;
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  const num = (v, d) => (v != null && v !== '' && isFinite(+v) ? +v : d);
+  const str = (v, d) => (typeof v === 'string' && v.length ? v : v != null && typeof v !== 'object' && String(v).length ? String(v) : d);
+  const setA = (n, k, v) => { const c = n.__c || (n.__c = {}); if (c[k] !== v) { c[k] = v; n.setAttribute(k, v); } };
+  const vis = (n, on) => n.setAttribute('visibility', on ? 'visible' : 'hidden');   // non mis en cache : ZV.put pose aussi cet attribut
+  const disp = (n, on) => setA(n, 'display', on ? 'inline' : 'none');      // pour les groupes dont les enfants posent leur propre visibility
+  const WT = {};
+  '0:.67 1:.36 2:.61 3:.61 4:.64 5:.62 6:.66 7:.52 8:.66 9:.66 A:.71 B:.69 C:.69 D:.71 E:.63 F:.6 G:.73 H:.73 I:.3 J:.38 K:.7 L:.51 M:.96 N:.79 O:.73 P:.65 Q:.73 R:.69 S:.66 T:.58 U:.73 V:.68 W:1 X:.72 Y:.66 Z:.58 À:.71 Â:.71 É:.63 È:.63 Ê:.63 Î:.3 Ô:.73 Û:.73 Ç:.69 €:.75 %:.99 +:.53 ×:.53 −:.53 -:.36 .:.25 ,:.21 ::.26 ;:.24 \':.19 ’:.22 !:.3 ?:.43 |:.28 (:.33 ):.33 $:.65 ¢:.57 ≈:.55 →:1 ·:.25 /:.37 «:.48 »:.48 –:.55'.split(' ').forEach((p) => { WT[p[0]] = parseFloat(p.slice(2)); });
+  const bw = (s, size) => { let a = 0; for (const ch of String(s)) a += WT[ch] !== undefined ? WT[ch] : /\s/.test(ch) ? 0.22 : 0.6; return a * size; };
+  const mw = (s, size) => String(s).length * size * 0.6;
+  const fitSize = (s, size, maxW, minS, mono) => Math.max(minS, Math.min(size, Math.floor(maxW / Math.max(0.01, mono ? mw(s, 1) : bw(s, 1)))));
+  const setTxt = (n, s, size) => { if (n.__s !== s) { n.__s = s; n.textContent = s; n.setAttribute('textLength', f2(Math.max(1, bw(s, size)))); } };
+  function typed(parent, defs, id, s, x, y, size, fill, o) {
+    o = o || {};
+    const w = o.mono ? mw(s, size) : bw(s, size), W = Math.min(w, o.maxW || 1e9);
+    const x0 = o.anchor === 'middle' ? x - W / 2 : x;
+    const cp = sv('clipPath', { id }, defs), cr = rect(cp, x0 - 6, y - size * 1.1, 0, size * 1.5, 0, '#000');
+    const t = text(parent, s, x0, y, size, fill, { mono: o.mono, len: f2(W) });
+    t.setAttribute('clip-path', `url(#${id})`);
+    const chars = Array.from(s), cum = [0]; let acc = 0;
+    for (const ch of chars) { acc += o.mono ? 0.6 : (WT[ch] !== undefined ? WT[ch] : 0.4); cum.push(acc); }
+    return { t, W, n: chars.length, set(k) { k = Math.max(0, Math.min(chars.length, Math.floor(k))); setA(cr, 'width', f2(k <= 0 ? 0 : k >= chars.length ? W + 12 : (cum[k] / acc) * W + 6)); vis(t, k > 0); } };
+  }
+  // « 1,43 MD$ » → { pre, suf, val, dec } ; null si illisible
+  function parseAmt(s) {
+    const m = /^([^0-9]*)([0-9]+(?:[\s\u00a0\u202f][0-9]{3})*(?:[.,][0-9]+)?)(.*)$/.exec(String(s)); if (!m) return null;
+    const raw = m[2].replace(/[\s  ]/g, ''), dm = /[.,]([0-9]+)$/.exec(raw);
+    const v = parseFloat(raw.replace(',', '.')); if (!isFinite(v)) return null;
+    return { pre: m[1], suf: m[3], val: v, dec: dm ? dm[1].length : 0 };
+  }
+  const fmtAmt = (a, v) => { const fx = Math.max(0, v).toFixed(a.dec), i = fx.indexOf('.'); return a.pre + fr(+(i < 0 ? fx : fx.slice(0, i))) + (i < 0 ? '' : ',' + fx.slice(i + 1)) + a.suf; };
+  const quant = (t) => Math.floor(t * 6 + 1e-6) / 6;                       // les compteurs changent au plus 6 fois par seconde
+
+  const X0 = 80, WWID = 1600, WY0 = 280, WH = 420, WY1 = 700;
+  const COLX = 1710, COLW = 120;
+  const BX = 160, BY = 380, BWID = 1600, BH = 160;                           // barre de la part
+
+  ZV.define('volume-slice', {
+    init(root, shot) {
+      const P = shot.props || {};
+      const beats = Array.isArray(shot.beats) ? shot.beats : [];
+      const dur = isNum(shot.dur) && shot.dur > 0 ? shot.dur : 14;
+      const first = (n) => { let r = null; for (const b of beats) if (b && b.do === 'cue' && b.name === n && isNum(b.t) && (r === null || b.t < r)) r = b.t; return r; };
+      const NAMES = ['wagered', 'blocks', 'hand', 'unit', 'sum', 'share', 'twentieth'];
+      const T = {}; NAMES.forEach((n) => { T[n] = first(n); });
+      const kicker = str(P.kicker, 'TERRANCE WATANABE · LAS VEGAS · 2007');
+      const wagered = str(P.wagered, '825 M$'), lost = str(P.lost, '127 M$');
+      const rate = clamp(num(P.rate, 0.154), 0.001, 0.6);
+      const rateText = str(P.rate_text, '≈ 15 ¢ PAR DOLLAR'), unit = str(P.unit, '1 $');
+      const n = clamp(Math.round(num(P.blocks, 12)), 1, 24);
+      const blockLabel = typeof P.block_label === 'string' && P.block_label ? P.block_label : null;
+      const sumLabel = str(P.sum_label, 'LE VOLUME FAIT LE RESTE');
+      const maxHand = typeof P.max_hand === 'string' && P.max_hand ? P.max_hand : null;
+      const share = clamp(num(P.share, 5.6), 0.1, 100), shareText = str(P.share_text, '5,6 %');
+      const shareLabel = str(P.share_label, 'RECETTES DE JEU DE SES HÔTES À LAS VEGAS'), shareNote = str(P.share_note, 'DANS LE RÉCIT DU JEU'), who = str(P.who, 'UN SEUL HOMME');
+      if (NAMES.every((k) => T[k] == null)) {
+        const k = Math.min(1, dur / 14);
+        const d = { wagered: 0.5, blocks: blockLabel ? 2.5 : null, hand: maxHand ? 3.3 : null, unit: 4.4, sum: 7.0, share: 10.0, twentieth: 12.6 };
+        NAMES.forEach((q) => { T[q] = d[q] == null ? null : d[q] * k; });
+      }
+      let unitText = null;
+      for (const b of beats) if (b && b.do === 'cue' && b.name === 'unit' && typeof b.text === 'string' && b.text) { unitText = b.text; break; }
+      const uid = 'vs' + (++UID);
+      const st = { T, n, rate, dur, wagered: parseAmt(wagered), lost: parseAmt(lost), wagTxt: wagered, lostTxt: lost, share, uid };
+      const defs = sv('defs', null, root);
+
+      /* ---- fond, kicker, compteurs ---- */
+      rect(root, 0, 0, 1920, 1080, 0, C.ink);
+      text(root, kicker, X0, 84, fitSize(kicker, 30, 1760, 18, true), C.paper, { mono: true, len: f2(Math.min(mw(kicker, 30), 1760)) });
+      text(root, 'MISÉ', X0, 128, 26, '#B9B5A8', { mono: true, spacing: 4, len: f2(mw('MISÉ', 26) + 3 * 4) });
+      text(root, 'PERDU', 780, 128, 26, '#B9B5A8', { mono: true, spacing: 4, len: f2(mw('PERDU', 26) + 4 * 4) });
+      st.cW = text(root, '', X0, 220, 110, C.paper, { anchor: 'start' });
+      st.cL = text(root, '', 780, 220, 110, C.red, { anchor: 'start' });
+
+      /* ---- le mur (groupe qui s'efface vers le bas) ---- */
+      st.wall = g(root);
+      const W = st.wall;
+      const bwid = WWID / n, hs = clamp(rate * WH, 4, 200);
+      st.hs = hs;
+      line(W, X0 - 20, WY1 + 3, X0 + WWID + 20, WY1 + 3, C.paper, 6);
+      st.ghost = []; st.blocks = []; st.slots = []; st.slices = []; st.labels = [];
+      for (let i = 0; i < n; i++) st.ghost.push(rect(W, X0 + i * bwid, WY0, bwid, WH, 0, 'none', '#303030', 3, { 'stroke-dasharray': '10 8' }));
+      for (let i = 0; i < n; i++) {
+        const x = X0 + i * bwid;
+        st.blocks.push(rect(W, x, WY1, bwid, 0, 0, C.paper, C.ink, 6));
+        st.slots.push(rect(W, x + 4, WY0 + 4, bwid - 8, Math.max(2, hs - 4), 0, 'none', '#5A5A5A', 3, { 'stroke-dasharray': '8 6' }));
+      }
+      for (let i = 0; i < n; i++) st.slices.push(rect(W, X0 + i * bwid, WY1, bwid, 0, 0, C.red, C.ink, hs < 14 ? 1.5 : 4));
+      if (blockLabel) {
+        const sz = fitSize(blockLabel, 24, bwid - 14, 12, true);
+        for (let i = 0; i < n; i++) { const t = text(W, blockLabel, 0, 0, sz, C.paper, { mono: true, anchor: 'middle', len: f2(Math.min(mw(blockLabel, sz), bwid - 10)) }); st.labels.push(t); }
+        st.labelSz = sz;
+      }
+      // sticker « plafond de la main »
+      st.hand = null;
+      if (maxHand) {
+        st.hand = g(W);
+        const sz = fitSize(maxHand, 26, 700, 16, true), w = Math.min(760, mw(maxHand, sz) + 44), h = 54;
+        rect(st.hand, -w / 2 + 8, -h / 2 + 8, w, h, 10, C.ink);
+        rect(st.hand, -w / 2, -h / 2, w, h, 10, C.lime, C.ink, 5);
+        text(st.hand, maxHand, 0, sz * 0.35, sz, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(maxHand, sz), w - 30)) });
+        st.handW = w;
+      }
+      // colonne des tranches réunies
+      st.hh = Math.min(hs, 440 / n);
+      st.colLab = typed(W, defs, uid + 'l', sumLabel, 960, 812, fitSize(sumLabel, 60, 1500, 34), C.paper, { anchor: 'middle', maxW: 1500 });
+      // loupe
+      st.lens = g(W);
+      {
+        line(st.lens, 40, 40, 112, 112, C.ink, 24); line(st.lens, 40, 40, 112, 112, C.paper, 10);
+        circle(st.lens, 0, 0, 58, 'none', C.ink, 22); circle(st.lens, 0, 0, 58, 'none', C.paper, 8);
+      }
+      st.lensX = X0 + Math.min(bwid, 140) / 2; st.lensY = WY0 + 14;
+      // pastille agrandie
+      st.pas = g(W);
+      {
+        const cp = sv('clipPath', { id: uid + 'c' }, defs); circle(cp, 0, 0, 212, '#000');
+        circle(st.pas, 14, 14, 220, C.grey);
+        circle(st.pas, 0, 0, 220, C.ink, C.paper, 8);
+        const ig = g(st.pas, { 'clip-path': `url(#${uid}c)` });
+        const hs2 = clamp(rate * 400, 14, 150);
+        rect(ig, -260, -112, 520, 360, 0, C.paper, C.ink, 6);
+        rect(ig, -262, -112, 524, hs2, 0, C.red, C.ink, hs2 < 24 ? 3 : 6);
+        const us = fitSize(unit, 76, 330, 36);
+        text(ig, unit, 0, 62, us, C.ink, { anchor: 'middle', len: f2(Math.min(bw(unit, us), 330)) });
+        const rs = fitSize(rateText, 30, 290, 16, true);
+        text(ig, rateText, 0, 134, rs, C.ink, { mono: true, anchor: 'middle', len: f2(Math.min(mw(rateText, rs), 290)) });
+        const x6 = g(st.pas); x6.setAttribute('transform', 'translate(-168 -168) rotate(-8)');
+        rect(x6, -44 + 6, -28 + 6, 88, 56, 8, C.grey); rect(x6, -44, -28, 88, 56, 8, C.lime, C.ink, 5); text(x6, '×6', 0, 12, 34, C.ink, { mono: true, anchor: 'middle', len: f2(mw('×6', 34)) });
+        st.pasTxt = null;
+        if (unitText) {
+          st.pasTxt = g(st.pas);
+          const sz = fitSize(unitText, 42, 400, 24), w = Math.min(440, bw(unitText, sz) + 46), h = 70;
+          rect(st.pasTxt, -w / 2 + 8, -h / 2 + 8, w, h, 12, C.grey); rect(st.pasTxt, -w / 2, -h / 2, w, h, 12, C.red, C.ink, 6);
+          text(st.pasTxt, unitText, 0, sz * 0.35, sz, C.paper, { anchor: 'middle', len: f2(Math.min(bw(unitText, sz), w - 36)) });
+          st.pasTxtX = Math.min(200, 1880 - 1500 - w / 2);
+        }
+      }
+
+      /* ---- la part d'un seul homme ---- */
+      st.bar = g(root);
+      const B = st.bar;
+      rect(B, BX + 12, BY + 12, BWID, BH, 4, C.grey);
+      rect(B, BX, BY, BWID, BH, 4, C.paper, C.ink, 8);
+      st.fill = rect(B, BX + 4, BY + 4, 0, BH - 8, 0, C.lime);
+      st.ticks = [];
+      for (let k = 0; k <= 20; k++) {
+        const x = BX + BWID * k / 20, major = k % 5 === 0;
+        st.ticks.push(line(B, x, BY + BH + 8, x, BY + BH + (major ? 36 : 22), C.paper, major ? 5 : 3));
+      }
+      st.tk20 = line(B, BX + BWID / 20, BY + BH + 8, BX + BWID / 20, BY + BH + 44, C.red, 8);
+      st.redLine = rect(B, BX + BWID / 20 - 4, BY - 4, 8, BH + 8, 0, C.red);
+      text(B, '0', BX, BY + BH + 72, 22, C.paper, { mono: true, anchor: 'middle', len: f2(mw('0', 22)) });
+      text(B, '100 %', BX + BWID, BY + BH + 72, 22, C.paper, { mono: true, anchor: 'end', len: f2(mw('100 %', 22)) });
+      st.lab20 = text(B, '1/20', BX + BWID / 20, BY + BH + 78, 30, C.paper, { mono: true, anchor: 'middle', len: f2(mw('1/20', 30)) });
+      {
+        const ls = fitSize(shareLabel, 26, 1130, 14, true);
+        st.sLab = typed(B, defs, uid + 's', shareLabel, 330, BY - 24, ls, C.paper, { mono: true, maxW: 1130 });
+        const nsz = fitSize(shareNote, 22, 400, 14, true), nx = 330 + st.sLab.W + 36;
+        st.sNote = text(B, shareNote, Math.min(nx, 1760 - mw(shareNote, nsz)), BY - 24, nsz, '#B9B5A8', { mono: true, len: f2(Math.min(mw(shareNote, nsz), 1760 - nx)) });
+      }
+      {
+        const z = 52, a = shareText, b = '· ' + who, wa = bw(a, z), gap = 18, wb = Math.min(bw(b, z), 1760 - BX - wa - gap);
+        st.sTxtA = text(B, a, BX, 700, z, C.lime, { len: f2(wa) });
+        st.sTxtB = text(B, b, BX + wa + gap, 700, z, C.paper, { len: f2(wb) });
+      }
+      // flèche « plus d'un vingtième »
+      st.twG = g(root);
+      {
+        const lab = 'PLUS D\'UN VINGTIÈME DE LA CAISSE', sz = fitSize(lab, 46, 1500, 28);
+        text(st.twG, lab, BX, 300, sz, C.lime, { len: f2(Math.min(bw(lab, sz), 1500)) });
+        const x = BX + BWID / 20;
+        line(st.twG, x, 322, x, 354, C.lime, 16, { 'stroke-linecap': 'butt' });
+        sv('polygon', { points: `${x},378 ${x - 26},350 ${x + 26},350`, fill: C.lime }, st.twG);
+      }
+      return st;
+    },
+
+    update(st, t, shot) {
+      const T = st.T, n = st.n, W = st.wall;
+      const U = (k) => (T[k] == null ? -1 : t - T[k]);
+      const tw = T.wagered, tb = T.blocks, ts = T.sum, tsh = T.share;
+      const bwid = WWID / n, hs = st.hs;
+
+      /* ---- le mur ---- */
+      const wallOut = tsh != null && t >= tsh ? E.in3(prog(t - tsh, 0, 0.6)) : 0;
+      if (wallOut >= 1) disp(W, false); else { disp(W, true); setA(W, 'transform', `translate(0 ${f2(900 * wallOut)})`); }
+      let grown = 0;
+      for (let i = 0; i < n; i++) {
+        const u = tw == null ? -1 : t - (tw + i * 0.12);
+        const hgt = u < 0 ? 0 : WH * E.out3(prog(u, 0, 0.3));
+        const x = X0 + i * bwid, top = WY1 - hgt;
+        vis(st.ghost[i], hgt < WH - 0.5);
+        // tranche : détachée vers la colonne pendant `sum`
+        const pu = ts == null ? 0 : E.io2(prog(t - (ts + i * 0.05), 0, 0.7));
+        const detached = pu > 0;
+        const blk = st.blocks[i], sl = st.slices[i];
+        if (hgt <= 0.5) { vis(blk, false); vis(sl, false); vis(st.slots[i], false); if (st.labels[i]) vis(st.labels[i], false); continue; }
+        const slotH = detached ? Math.min(hs, hgt) : 0;
+        vis(blk, hgt - slotH > 0.5); setA(blk, 'y', f2(top + slotH)); setA(blk, 'height', f2(Math.max(0, hgt - slotH)));
+        vis(st.slots[i], detached && hgt >= WH - 0.5);
+        const sh0 = Math.min(hs, hgt);
+        const tx = COLX, ty = WY1 - (i + 1) * st.hh, th = st.hh;
+        const sx = x + (tx - x) * pu, sy = top + (ty - top) * pu - Math.sin(Math.PI * pu) * 70, sw = bwid + (COLW - bwid) * pu, sht = sh0 + (th - sh0) * pu;
+        vis(sl, true); setA(sl, 'x', f2(sx)); setA(sl, 'y', f2(sy)); setA(sl, 'width', f2(sw)); setA(sl, 'height', f2(Math.max(0.5, sht)));
+        if (hgt >= WH - 0.5) grown++;
+        if (st.labels[i]) {
+          const lu = tb == null ? -1 : t - (tb + i * 0.05), p = lu < 0 ? 0 : E.back(prog(lu, 0, 0.18));
+          put(st.labels[i], x + bwid / 2, WY1 + 40, 0, p, undefined, 1);
+        }
+      }
+      // sticker « plafond de la main »
+      if (st.hand) { const u = U('hand'); if (u < 0) vis(st.hand, false); else { const p = E.back(prog(u, 0, 0.25)); put(st.hand, X0 + 30 + st.handW / 2, 440, -3, p, undefined, 1); } }
+      // loupe + pastille
+      const uu = U('unit'), closing = ts != null && t >= ts ? E.in2(prog(t - ts, 0, 0.25)) : 0;
+      if (uu < 0 || closing >= 1) { vis(st.lens, false); vis(st.pas, false); } else {
+        const k = 1 - closing;
+        put(st.lens, st.lensX, st.lensY, -12, E.back(prog(uu, 0, 0.25)) * k, undefined, 1);
+        put(st.pas, 1500, 470, 0, E.back(prog(uu, 0.25, 0.65)) * k, undefined, 1);
+        if (st.pasTxt) { const q = E.back(prog(uu, 0.9, 1.15)); put(st.pasTxt, st.pasTxtX, 180, -3, q, undefined, 1); }
+      }
+      // légende de la somme
+      {
+        const u = U('sum'), k = u < 1.2 ? 0 : (u - 1.2) * 30;
+        st.colLab.set(k);
+      }
+
+      /* ---- compteurs ---- */
+      {
+        let s;
+        if (st.wagered == null) s = tw != null && t >= tw ? st.wagTxt : '0';
+        else if (tw == null || t < tw) s = fmtAmt(st.wagered, 0);
+        else { const dd = (n - 1) * 0.12 + 0.3, p = clamp((quant(t) - tw) / dd); s = p >= 1 || t >= tw + dd ? st.wagTxt : fmtAmt(st.wagered, st.wagered.val * E.in2(p)); }
+        setTxt(st.cW, s, 110);
+        if (st.lost == null) s = ts != null && t >= ts + 1.8 ? st.lostTxt : '0';
+        else if (ts == null || t < ts + 0.2) s = fmtAmt(st.lost, 0);
+        else { const p = clamp((quant(t) - ts - 0.2) / 1.6); s = p >= 1 || t >= ts + 1.8 ? st.lostTxt : fmtAmt(st.lost, st.lost.val * E.io2(p)); }
+        setTxt(st.cL, s, 110);
+      }
+
+      /* ---- la barre de la part ---- */
+      const us = tsh == null ? -1 : t - tsh;
+      if (us < 0.4) disp(st.bar, false); else {
+        disp(st.bar, true);
+        setA(st.bar, 'transform', `translate(0 ${f2(260 * (1 - E.out3(prog(us, 0.4, 0.9))))})`);
+        st.sLab.set((us - 0.9) * 30);
+        vis(st.sNote, us > 0.9 + st.sLab.n / 30);
+        st.ticks.forEach((tk, k) => vis(tk, us > 0.7 + k * 0.03));
+        const fp = E.out2(prog(us, 1.1, 2.0));
+        setA(st.fill, 'width', f2((BWID - 8) * (st.share / 100) * fp)); vis(st.fill, fp > 0);
+        const tt = us > 2.0 ? 1 : 0;
+        vis(st.sTxtA, tt > 0); vis(st.sTxtB, tt > 0);
+        const ut = tsh == null || T.twentieth == null ? -1 : t - T.twentieth;
+        vis(st.tk20, ut >= 0); vis(st.redLine, ut >= 0 && ut < 99);
+        setA(st.lab20, 'fill', ut >= 0 ? C.red : C.paper);
+      }
+      const ut2 = T.twentieth == null || tsh == null || us < 0.4 ? -1 : t - T.twentieth;
+      if (ut2 < 0.15) vis(st.twG, false); else { vis(st.twG, true); setA(st.twG, 'transform', `translate(0 ${f2(-60 * (1 - E.out3(prog(ut2, 0.15, 0.5))))})`); }
     }
   });
 })();
