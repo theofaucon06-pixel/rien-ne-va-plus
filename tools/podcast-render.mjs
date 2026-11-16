@@ -79,7 +79,7 @@ const header = (current) => `<header class="pod-header">
     <a href="/podcast#episodes"${current === 'episodes' ? ' aria-current="page"' : ''}>Épisodes</a>
     <a href="/podcast#zero">C’est quoi ?</a>
     <a href="/podcast#suivre">S’abonner</a>
-    <a class="pod-game" href="/">Jouer <span aria-hidden="true">↗</span></a>
+    <a class="pod-game" href="/jeu">Jouer <span aria-hidden="true">↗</span></a>
   </nav>
 </header>`;
 
@@ -103,7 +103,7 @@ const footer = () => `<footer class="pod-footer">
   <span class="foot-note">Un podcast de prévention. Aucun conseil pour gagner : il n’en existe pas.</span>
   <a href="/podcast/feed.xml">Flux RSS</a>
   <a href="/brand/charte-graphique">Charte graphique</a>
-  <a href="/">Jouer à Rien ne va plus</a>
+  <a href="/jeu">Jouer à Rien ne va plus</a>
 </footer>`;
 
 const frame = (inner, current, { motion = false, experience = false } = {}) => `<body class="pod${experience ? ' pod-motion' : motion ? ' pod-ep' : ' pod-home'}">
@@ -260,7 +260,7 @@ ${teasers}
       <div class="prose">
         <p>À la roulette européenne, il y a 36 numéros… et un zéro. Il est vert.</p>
         <p>Quand tu mises sur un numéro et qu’il sort, le casino te paie 35 contre 1. Sauf qu’il y a 37 cases, pas 36. Cette case en plus, c’est toute la marge de la maison : chaque euro misé te revient, en moyenne, à 97,3 centimes.</p>
-        <p>${esc(SHOW.name)} est présenté par ${esc(SHOW.host)}. Il prolonge le jeu <a href="/">Rien ne va plus</a>, une simulation en 3D où l’argent est faux mais les probabilités sont vraies.</p>
+        <p>${esc(SHOW.name)} est présenté par ${esc(SHOW.host)}. Il prolonge le jeu <a href="/jeu">Rien ne va plus</a>, une simulation en 3D où l’argent est faux mais les probabilités sont vraies.</p>
         <p><strong>Ce que tu n’y trouveras pas :</strong> un système pour gagner. Il n’y en a pas, et c’est le sujet.</p>
       </div>
       <ul class="stats" aria-label="Les chiffres du zéro vert">
@@ -302,7 +302,7 @@ ${voices ? `    <div class="voices" id="voix">
     <h2 id="play-title">Un casino pour de faux.<br>Les probabilités pour de vrai.</h2>
     <div class="play-side">
       <p>Quinze mécaniques à découvrir, quatorze témoins à rencontrer, seul ou jusqu’à huit amis. Aucun argent réel, aucun compte.</p>
-      <a class="btn btn-ink btn-xl" href="/">Jouer à Rien ne va plus <span class="ico" aria-hidden="true">↗</span></a>
+      <a class="btn btn-ink btn-xl" href="/jeu">Jouer à Rien ne va plus <span class="ico" aria-hidden="true">↗</span></a>
     </div>
   </div>
 </section>
@@ -610,7 +610,7 @@ ${ep.witnesses.length ? `    <section class="people" id="personnes" aria-labelle
       <ul>
         ${game}
       </ul>
-      <a class="btn btn-ink" href="/">Entrer dans le casino <span class="ico" aria-hidden="true">↗</span></a>
+      <a class="btn btn-ink" href="/jeu">Entrer dans le casino <span class="ico" aria-hidden="true">↗</span></a>
     </section>
 
     <details class="sources" id="sources">
