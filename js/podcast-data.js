@@ -14,6 +14,7 @@ export const SHOW = {
     'Sans conseil pour gagner, sans sermon : des chiffres, des histoires et des sources. Un podcast de prévention par le récit, ' +
     'compagnon du jeu Rien ne va plus.',
   host: 'Théo Faucon',
+  email: 'theofaucon06@gmail.com',
   language: 'fr-FR',
   baseUrl: 'https://zerovert.fr',
   category: 'Society & Culture',
@@ -48,6 +49,7 @@ export const EPISODES = [
     slug: 'bande-annonce',
     status: 'published',
     number: 0,
+    published: '2026-11-07',
     kind: 'trailer',
     title: 'Bande-annonce',
     hook: 'Trois mots, une case verte, neuf épisodes : comment la maison gagne, raconté par des gens qui l’ont vécu.',
@@ -104,6 +106,7 @@ export const EPISODES = [
     slug: 'la-bille-n-a-pas-de-memoire',
     status: 'published',
     number: 1,
+    published: '2026-11-08',
     title: 'La bille n’a pas de mémoire',
     hook: 'Un homme fait sauter la banque, le noir sort vingt-six fois : et c’est quand même le zéro vert qui gagne.',
     summary:
@@ -210,6 +213,7 @@ export const EPISODES = [
     slug: 'la-zone',
     status: 'published',
     number: 2,
+    published: '2026-11-09',
     title: 'La zone',
     hook: 'Une joueuse qui déteste gagner, une machine qui fête tes pertes, et un jackpot de 42 millions à 2,25 $.',
     summary:
@@ -307,6 +311,7 @@ export const EPISODES = [
     slug: 'le-systeme-infaillible',
     status: 'published',
     number: 3,
+    published: '2026-11-10',
     title: 'Le système infaillible',
     hook: 'Dostoïevski croyait avoir trouvé le secret de la roulette. Anna, elle, comptait les heures dans la chambre.',
     summary:
@@ -406,6 +411,7 @@ export const EPISODES = [
     slug: 'se-refaire',
     status: 'published',
     number: 4,
+    published: '2026-11-11',
     title: 'Se refaire',
     hook: 'Il a transformé cinquante dollars en quarante millions. Puis il a voulu se refaire.',
     summary:
@@ -503,6 +509,7 @@ export const EPISODES = [
     slug: 'le-seul-jeu-quon-peut-battre',
     status: 'published',
     number: 5,
+    published: '2026-11-12',
     title: 'Le seul jeu qu’on peut battre',
     hook: 'Au blackjack, on peut battre la maison. Ken Uston l’a fait. Alors la maison a changé les règles.',
     summary:
@@ -652,6 +659,7 @@ export const EPISODES = [
     slug: 'une-maison-sans-horloges',
     status: 'published',
     number: 6,
+    published: '2026-11-13',
     title: 'Une maison sans horloges',
     hook: 'Depuis que tu es entré, as-tu vu une fenêtre ? Une horloge ? Un panneau Sortie ? Ce n’est pas un oubli.',
     summary:
@@ -749,6 +757,7 @@ export const EPISODES = [
     slug: 'le-tapis-rouge',
     status: 'published',
     number: 7,
+    published: '2026-11-14',
     title: 'Le tapis rouge',
     hook: 'Un texto t’offre une suite, avec ton prénom. Le casino connaît ton chiffre. Tout a été calculé dessus.',
     summary:
@@ -907,6 +916,7 @@ export const EPISODES = [
     slug: 'le-casino-dans-la-poche',
     status: 'published',
     number: 8,
+    published: '2026-11-15',
     title: 'Le casino dans la poche',
     hook: 'Il n’a jamais mis les pieds dans un casino. Il n’en a pas eu besoin : le casino tenait dans sa poche.',
     summary:
@@ -1005,6 +1015,7 @@ export const EPISODES = [
     slug: 'la-sortie',
     status: 'published',
     number: 9,
+    published: '2026-11-16',
     title: 'La sortie',
     hook: 'Dans un casino, il n’y a jamais de panneau vers la sortie. Ce dernier épisode en dessine un.',
     summary:
