@@ -102,6 +102,7 @@ const footer = () => `<footer class="pod-footer">
   <span>Saison ${SHOW.season}, ${esc(SHOW.seasonTitle)}</span>
   <span class="foot-note">Un podcast de prévention. Aucun conseil pour gagner : il n’en existe pas.</span>
   <a href="/podcast/feed.xml">Flux RSS</a>
+  <a href="/brand/charte-graphique">Charte graphique</a>
   <a href="/">Jouer à Rien ne va plus</a>
 </footer>`;
 
