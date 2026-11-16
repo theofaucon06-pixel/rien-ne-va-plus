@@ -478,7 +478,7 @@ export function createApp({
       } catch {
         fail(400, "Adresse invalide.");
       }
-      if (pathname === "/") pathname = "/index.html";
+      if (pathname === "/" || pathname === "/jeu") pathname = "/index.html";
       if (pathname === "/classic") pathname = "/classic.html";
       // The podcast pages are generated into /podcast: /podcast and /podcast/ are its home, /podcast/<slug> an episode.
       if (pathname === "/podcast" || pathname === "/podcast/")

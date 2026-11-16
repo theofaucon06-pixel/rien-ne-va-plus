@@ -5,6 +5,8 @@ const secret =
   JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}").default ||
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const origins = new Set([
+  "https://zerovert.fr",
+  "https://www.zerovert.fr",
   "https://rien-ne-va-plus.vercel.app",
   "http://localhost:8787",
   "http://127.0.0.1:8787",

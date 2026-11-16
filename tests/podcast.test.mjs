@@ -185,7 +185,7 @@ test("the home page teases the soon episodes without linking them, and counts ho
   const liveMin = live.reduce((n, e) => n + minutes(e), 0);
   assert.ok(html.includes(`${live.length} épisode${live.length > 1 ? "s" : ""} · ≈ ${liveMin} min`));
   assert.match(html, /class="marquee"/);
-  assert.match(html, /href="\/">Jouer à Rien ne va plus/);
+  assert.match(html, /href="\/jeu">Jouer à Rien ne va plus/);
   // voices: only those of published episodes
   const liveWitnesses = new Set(live.flatMap((e) => e.witnesses));
   for (const w of WITNESSES) if (!liveWitnesses.has(w.id)) assert.ok(!html.includes(`<b>${w.name}</b>`), `${w.id} should not be listed`);
@@ -210,7 +210,7 @@ test("every page has one h1, valid JSON-LD, and only working internal links", ()
       }
       assert.ok(link.startsWith("/"), `${rel}: relative link ${link}`);
       const [p, hash] = link.split("#");
-      const file = p === "/" ? "index.html" : p === "/podcast" ? "podcast/index.html" : p === "/brand/charte-graphique" ? "brand/charte-graphique.html" : /^\/podcast\/[\w-]+$/.test(p) ? p.slice(1) + ".html" : p.slice(1);
+      const file = p === "/" || p === "/jeu" ? "index.html" : p === "/podcast" ? "podcast/index.html" : p === "/brand/charte-graphique" ? "brand/charte-graphique.html" : /^\/podcast\/[\w-]+$/.test(p) ? p.slice(1) + ".html" : p.slice(1);
       if (file.startsWith("podcast/") && file.endsWith(".html")) assert.ok(pages.has(file), `${rel}: link to a page that is not published: ${link}`);
       if (!file.startsWith("assets/podcast/") && !file.startsWith("css/podcast-") && !file.startsWith("js/podcast-motion"))
         assert.ok(existsSync(path.join(root, file)), `${rel}: dead link ${link}`); // brand, fonts and motion files are checked in their own test
@@ -397,9 +397,9 @@ test("publishing a recording switches the page to a real player and adds the epi
     assert.match(html, /"timeRequired":"PT3M35S"/);
     const xml = renderFeed();
     assert.equal((xml.match(/<item>/g) || []).length, live.filter((e) => e !== ep && hasAudio(e)).length + 1);
-    assert.match(xml, /<enclosure url="https:\/\/rien-ne-va-plus\.vercel\.app\/assets\/podcast\/essai\.mp3" length="3456789" type="audio\/mpeg"\/>/);
+    assert.match(xml, /<enclosure url="https:\/\/zerovert\.fr\/assets\/podcast\/essai\.mp3" length="3456789" type="audio\/mpeg"\/>/);
     assert.match(xml, /<itunes:duration>215<\/itunes:duration>/);
-    assert.ok(xml.includes(`<podcast:transcript url="https://rien-ne-va-plus.vercel.app/podcast/${ep.slug}"`));
+    assert.ok(xml.includes(`<podcast:transcript url="https://zerovert.fr/podcast/${ep.slug}"`));
   } finally {
     ep.audio = before;
     ep.experience = beforeExp;
