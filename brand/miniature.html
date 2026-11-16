@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Miniatures ZÉRO VERT</title>
+<!-- Gabarit des miniatures du podcast. Paramètres d'URL : ?fmt=yt|cover|tiktok  &ep=0..9 (sans ep : miniature générique de la saison).
+     Rendu : tools/podcast-thumbs.mjs (Chrome headless). Tout est en aplats : aucun dégradé, flou ni lueur. -->
+<link rel="stylesheet" href="/css/podcast-fonts.css">
+<style>
+  :root { --ink:#0A0A0A; --lime:#C8FF2E; --paper:#F3F0E8; --red:#FF4A36; --white:#FFFFFF; --pocket:#161616; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #888; }
+  .art { position: relative; overflow: hidden; font-family: "Bricolage Grotesque", sans-serif; color: var(--ink); background: var(--bg); }
+  .art.yt { width: 1280px; height: 720px; --u: 1px; }
+  .art.cover { width: 3000px; height: 3000px; --u: 2.34375px; }
+  .art.tiktok { width: 1080px; height: 1920px; --u: 1px; }
+  .sticker { position: absolute; display: inline-block; font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1; white-space: nowrap;
+    padding: calc(14 * var(--u)) calc(24 * var(--u)); border: calc(6 * var(--u)) solid var(--ink); border-radius: calc(20 * var(--u)); box-shadow: calc(8 * var(--u)) calc(8 * var(--u)) 0 var(--ink); }
+  .mono { font-family: "JetBrains Mono", monospace; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .title { position: absolute; margin: 0; font-weight: 800; text-transform: uppercase; letter-spacing: -0.04em; line-height: 0.9; }
+  .ghost { position: absolute; font-weight: 800; line-height: 0.8; letter-spacing: -0.06em; color: transparent; -webkit-text-stroke: calc(7 * var(--u)) var(--ink); }
+  .mark { position: absolute; }
+  .dot { position: absolute; border-radius: 50%; background: var(--white); border: calc(6 * var(--u)) solid var(--ink); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+  import { EPISODES, SHOW } from '/js/podcast-data.js';
+  const q = new URLSearchParams(location.search);
+  const fmt = q.get('fmt') || 'yt';
+  const epn = q.get('ep');
+  const ep = epn == null ? null : EPISODES.find((e) => e.number === Number(epn));
+  // chiffre-choc affiché dans le sticker rouge de chaque miniature (celui de l'épisode)
+  const FIG = { 0: '9 ÉPISODES', 1: '26 NOIRS', 2: '42 M$ → 2,25 $', 3: '10 230 €', 4: '50 $ → 0', 5: '24 %', 6: '?? H ??', 7: '≈ 54 €', 8: '105,6 %', 9: '3 ANS' };
+  // fond de chaque épisode : on alterne lime / ink / paper pour qu'une grille de miniatures respire
+  const BG = { 0: 'lime', 1: 'lime', 2: 'ink', 3: 'paper', 4: 'ink', 5: 'lime', 6: 'ink', 7: 'paper', 8: 'ink', 9: 'lime' };
+  const COL = { lime: ['#C8FF2E', '#0A0A0A'], ink: ['#0A0A0A', '#C8FF2E'], paper: ['#F3F0E8', '#0A0A0A'] };
+  const MARK = (h) => `<img class="mark" src="/assets/podcast/mark.svg" alt="" style="height:${h}px;width:${h}px">`;
+  const root = document.getElementById('root');
+
+  if (fmt === 'cover' && !ep) {
+    root.innerHTML = `<div class="art cover" style="--bg:#C8FF2E"><img src="/assets/podcast/cover.svg" alt="" style="width:3000px;height:3000px;display:block"></div>`;
+  } else if (fmt === 'yt' && !ep) {
+    // miniature générique de la saison : le zéro géant, la bille, le mot-symbole
+    root.innerHTML = `<div class="art yt" style="--bg:#C8FF2E">
+      <div class="ghost" style="left:700px;top:-40px;font-size:860px;-webkit-text-stroke-color:#0A0A0A">0</div>
+      <div class="dot" style="left:1055px;top:380px;width:140px;height:140px"></div>
+      <h1 class="title" style="left:64px;top:150px;font-size:200px;color:#0A0A0A">Zéro<br>Vert</h1>
+      <span class="sticker mono" style="left:64px;top:64px;font-size:30px;background:#0A0A0A;color:#C8FF2E;transform:rotate(-3deg);box-shadow:8px 8px 0 #fff, 8px 8px 0 6px #0A0A0A">Le podcast</span>
+      <span class="sticker" style="left:64px;bottom:140px;font-size:40px;background:#FF4A36;transform:rotate(-2deg)">Saison 1 · 9 épisodes</span>
+      <span class="sticker" style="left:64px;bottom:50px;font-size:30px;background:#fff;transform:rotate(1deg)">Comment la maison gagne</span>
+    </div>`;
+  } else if (fmt === 'tiktok' && !ep) {
+    root.innerHTML = `<div class="art tiktok" style="--bg:#C8FF2E">
+      <span class="sticker mono" style="left:64px;top:90px;font-size:34px;background:#0A0A0A;color:#C8FF2E;transform:rotate(-3deg)">Le podcast</span>
+      <h1 class="title" style="left:56px;top:240px;font-size:330px;color:#0A0A0A">Zéro<br>Vert</h1>
+      <div class="ghost" style="left:420px;top:940px;font-size:1100px">0</div>
+      <div class="dot" style="left:720px;top:1400px;width:170px;height:170px"></div>
+      <span class="sticker" style="left:64px;bottom:360px;font-size:54px;background:#FF4A36;transform:rotate(-3deg)">Saison 1 · 9 épisodes</span>
+      <span class="sticker" style="left:64px;bottom:250px;font-size:40px;background:#fff;transform:rotate(2deg)">Comment la maison gagne</span>
+    </div>`;
+  } else if (ep) {
+    const [bg, fg] = COL[BG[ep.number]];
+    const title = ep.title.toUpperCase();
+    const n = String(ep.number).padStart(2, '0');
+    const long = title.length;
+    const size = long > 22 ? 100 : long > 18 ? 116 : 160;
+    const tw = long > 18 ? 880 : 760;
+    const redInk = '#0A0A0A';
+    if (fmt === 'yt') {
+      root.innerHTML = `<div class="art yt" style="--bg:${bg}">
+        <div class="ghost" style="right:-30px;top:40px;font-size:640px;-webkit-text-stroke-color:${fg}">${ep.number === 0 ? '0' : ep.number}</div>
+        <span class="sticker mono" style="left:64px;top:60px;font-size:34px;background:${bg === '#0A0A0A' ? '#C8FF2E' : '#0A0A0A'};color:${bg === '#0A0A0A' ? '#0A0A0A' : '#C8FF2E'};transform:rotate(-3deg);${bg === '#0A0A0A' ? 'box-shadow:8px 8px 0 #fff, 8px 8px 0 6px #0A0A0A;' : ''}">${ep.number === 0 ? 'Bande-annonce' : 'Épisode ' + n}</span>
+        <h1 class="title" style="left:64px;top:170px;width:${tw}px;font-size:${size}px;color:${fg}">${ep.title.replace(/’/g, '’')}</h1>
+        <span class="sticker" style="left:64px;bottom:170px;font-size:52px;background:#FF4A36;color:#0A0A0A;transform:rotate(-2deg)">${FIG[ep.number]}</span>
+        <img src="/assets/podcast/mark.svg" alt="" style="position:absolute;left:64px;bottom:44px;width:84px;height:84px">
+        <span class="mono" style="position:absolute;left:166px;bottom:70px;font-size:28px;color:${fg}">Zéro Vert · Saison 1</span>
+      </div>`;
+    } else {
+      root.innerHTML = '<p>format inconnu pour un épisode</p>';
+    }
+  }
+  document.fonts.ready.then(() => { window.__ready = true; });
+</script>
+</body>
+</html>

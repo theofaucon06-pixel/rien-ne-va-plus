@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Charte graphique — Zéro Vert</title>
+<link rel="stylesheet" href="../css/podcast-fonts.css">
+<style>
+  :root { --ink:#0A0A0A; --lime:#C8FF2E; --paper:#F3F0E8; --red:#FF4A36; --white:#FFFFFF; --pocket:#161616; --soft:#D9D9D9;
+    --display:"Bricolage Grotesque", system-ui, sans-serif; --mono:"JetBrains Mono", ui-monospace, monospace; --bw:4px; --gutter:clamp(18px,5vw,72px); }
+  * { box-sizing:border-box; }
+  html { background:var(--ink); }
+  body { margin:0; background:var(--paper); color:var(--ink); font:450 17px/1.55 var(--display); -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1240px; margin:0 auto; padding-inline:var(--gutter); }
+  h1,h2,h3 { margin:0; font-weight:800; text-transform:uppercase; letter-spacing:-0.04em; line-height:0.92; }
+  p { margin:0 0 1em; max-width:68ch; }
+  .mono { font:700 13px/1.3 var(--mono); letter-spacing:0.04em; text-transform:uppercase; }
+  .sticker { display:inline-block; font:800 15px/1 var(--display); letter-spacing:0.02em; text-transform:uppercase; padding:.55em .9em; border:var(--bw) solid var(--ink); border-radius:14px; box-shadow:5px 5px 0 var(--ink); background:var(--lime); color:var(--ink); white-space:nowrap; }
+  .st-red { background:var(--red); } .st-white { background:var(--white); } .st-ink { background:var(--ink); color:var(--lime); box-shadow:5px 5px 0 var(--white), 5px 5px 0 var(--bw) var(--ink); }
+  .tl { transform:rotate(-4deg); } .tr { transform:rotate(3deg); }
+  header.cover { background:var(--lime); border-bottom:var(--bw) solid var(--ink); padding:56px 0 64px; position:relative; overflow:hidden; }
+  header.cover h1 { font-size:clamp(64px,13vw,190px); margin:28px 0 22px; }
+  header.cover p { font-size:clamp(18px,2.2vw,24px); font-weight:600; }
+  section { padding:72px 0; border-bottom:var(--bw) solid var(--ink); }
+  section.dark { background:var(--ink); color:var(--paper); } section.lime { background:var(--lime); }
+  section h2 { font-size:clamp(40px,7vw,88px); margin:14px 0 30px; }
+  section h3 { font-size:clamp(22px,2.6vw,32px); margin:34px 0 12px; letter-spacing:-0.03em; }
+  .grid { display:grid; gap:22px; } .g2 { grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); } .g3 { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }
+  .card { border:var(--bw) solid var(--ink); border-radius:24px; box-shadow:8px 8px 0 var(--ink); padding:26px; background:var(--white); }
+  .dark .card { box-shadow:8px 8px 0 var(--lime); border-color:var(--lime); background:var(--pocket); color:var(--paper); }
+  .sw { border:var(--bw) solid var(--ink); border-radius:24px; box-shadow:8px 8px 0 var(--ink); overflow:hidden; background:var(--white); }
+  .sw .c { height:150px; display:flex; align-items:flex-end; padding:14px 18px; font:800 34px/1 var(--display); text-transform:uppercase; letter-spacing:-0.03em; }
+  .sw .m { padding:16px 18px 18px; font:600 14px/1.5 var(--mono); }
+  .sw .m b { font-family:var(--display); font-size:17px; }
+  table { border-collapse:collapse; width:100%; font:600 14px/1.4 var(--mono); }
+  td,th { border:3px solid var(--ink); padding:10px 12px; text-align:left; } th { background:var(--ink); color:var(--lime); text-transform:uppercase; }
+  .ok { color:#0a6b00; font-weight:800; } .no { color:#b3261e; font-weight:800; }
+  .do,.dont { border:var(--bw) solid var(--ink); border-radius:20px; padding:20px 22px; }
+  .do { background:var(--lime); } .dont { background:var(--red); }
+  .do b,.dont b { display:block; font:800 20px/1 var(--display); text-transform:uppercase; margin-bottom:8px; letter-spacing:-.02em; }
+  ul { margin:0 0 1em; padding-left:1.15em; } li { margin:.3em 0; }
+  .logo-box { display:flex; align-items:center; justify-content:center; min-height:200px; border:var(--bw) solid var(--ink); border-radius:24px; padding:26px; box-shadow:8px 8px 0 var(--ink); }
+  .logo-box img { max-width:100%; height:auto; }
+  .spec { display:grid; gap:0; border:var(--bw) solid var(--ink); border-radius:24px; overflow:hidden; box-shadow:8px 8px 0 var(--ink); background:var(--white); }
+  .spec > div { padding:20px 24px; border-bottom:3px solid var(--ink); } .spec > div:last-child { border:0; }
+  .chip { display:inline-flex; align-items:center; gap:8px; font:800 15px/1 var(--display); padding:.4em .8em; border:var(--bw) solid var(--ink); border-radius:999px; }
+  .thumbs { display:grid; gap:20px; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); }
+  .thumbs img { width:100%; height:auto; border:var(--bw) solid var(--ink); border-radius:16px; display:block; box-shadow:6px 6px 0 var(--ink); }
+  pre { background:var(--ink); color:var(--lime); border:var(--bw) solid var(--ink); border-radius:20px; padding:22px; overflow:auto; font:500 14px/1.6 var(--mono); white-space:pre-wrap; box-shadow:8px 8px 0 var(--lime); }
+  footer { background:var(--ink); color:var(--soft); padding:40px 0; }
+  .marquee { background:var(--ink); color:var(--lime); font:800 22px/1 var(--display); text-transform:uppercase; padding:14px 0; white-space:nowrap; overflow:hidden; border-bottom:var(--bw) solid var(--ink); letter-spacing:-.01em; }
+  .marquee span { display:inline-block; padding-right:40px; }
+</style>
+</head>
+<body>
+<div class="marquee" aria-hidden="true"><span>Zéro Vert · La maison gagne toujours · Zéro Vert · La maison gagne toujours · Zéro Vert · La maison gagne toujours · Zéro Vert · La maison gagne toujours ·</span></div>
+
+<header class="cover">
+  <div class="wrap">
+    <span class="sticker st-ink tl">Charte graphique · v1.0</span>
+    <h1>Zéro<br>Vert</h1>
+    <p>Le podcast qui t’explique comment la maison gagne. Ce document fixe tout ce qui fait qu’un visuel, une vidéo ou une miniature est reconnaissable comme un Zéro Vert.</p>
+    <p class="mono">Saison 1 · 10 épisodes · voix de Théo, Tom et Arthur · Podcast de prévention par le récit</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <span class="mono">01 · L’idée</span>
+    <h2>Le zéro est vert.</h2>
+    <p>À la roulette européenne, la case 0 est la seule qui n’est ni rouge ni noire. C’est la case verte : celle qui garde l’avantage de la maison sur chaque mise, sans jamais faire de pause. Le podcast porte son nom, et toute l’identité en découle : un zéro géant, une petite bille blanche, une couleur qui ne se confond avec aucune autre.</p>
+    <div class="grid g3">
+      <div class="card"><b class="mono">Ce qu’on est</b><p>Direct, jeune, précis. On explique des mécanismes réels avec des chiffres, des histoires vraies et des sources.</p></div>
+      <div class="card"><b class="mono">Ce qu’on n’est pas</b><p>Ni moralisateur, ni éditorial « raffiné », ni IA lisse. Aucun système pour gagner, aucun gain présenté comme désirable.</p></div>
+      <div class="card"><b class="mono">Le style</b><p>Néo-brutalisme « sticker » : aplats francs, bordures épaisses, ombres dures décalées, stickers inclinés. Pas de dégradé, pas de flou, pas de lueur.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="lime">
+  <div class="wrap">
+    <span class="mono">02 · Logo</span>
+    <h2>Un zéro, une bille.</h2>
+    <p>Le symbole est une tuile lime à coins arrondis qui contient un « 0 » ultra-gras. Dans son centre repose la petite bille blanche de la roulette. Le mot-symbole est écrit en Bricolage Grotesque ExtraBold condensé : le « O » de ZÉRO est le seul large, c’est lui qui accueille la bille.</p>
+    <div class="grid g2">
+      <div class="logo-box" style="background:var(--lime)"><img src="../assets/podcast/logo.svg" alt="Logo ZÉRO VERT horizontal" width="460"></div>
+      <div class="logo-box" style="background:var(--ink)"><img src="../assets/podcast/logo-dark.svg" alt="Logo ZÉRO VERT sur fond ink" width="460"></div>
+      <div class="logo-box" style="background:var(--paper)"><img src="../assets/podcast/mark.svg" alt="Symbole" width="150"> &nbsp;&nbsp; <img src="../assets/podcast/favicon.svg" alt="Favicon" width="64"></div>
+      <div class="logo-box" style="background:var(--white);padding:0;overflow:hidden"><img src="../assets/podcast/cover.svg" alt="Couverture" width="320" style="display:block"></div>
+    </div>
+    <h3>Règles</h3>
+    <div class="grid g2">
+      <div class="do"><b>À faire</b><ul><li>Logo ink sur lime, paper ou blanc ; logo « dark » (mot en lime) sur ink.</li><li>Zone de protection autour du logo : au moins la hauteur du « 0 » du symbole.</li><li>Taille minimale : symbole 16 px (utiliser <i>favicon.svg</i> sous 48 px) ; logo horizontal 120 px de large.</li></ul></div>
+      <div class="dont"><b>À ne pas faire</b><ul><li>Ne pas étirer, incliner, ajouter une ombre portée, un contour ou un dégradé.</li><li>Ne pas recolorer (le lime est toujours #C8FF2E, la bille toujours blanche).</li><li>Ne pas poser le logo lime sur du paper (même luminosité) ni sur une photo.</li></ul></div>
+    </div>
+    <p class="mono" style="margin-top:22px">Fichiers : assets/podcast/mark.svg · favicon.svg · logo.svg · logo-dark.svg · cover.svg · cover.png (1400×1400). Générés par tools/podcast-brand.mjs.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="mono">03 · Couleurs</span>
+    <h2>Six aplats.</h2>
+    <p>Une palette courte, sans dégradé. Le lime est la signature (la case verte), le rouge est l’alerte et le piège, l’ink porte le texte.</p>
+    <div class="grid g3">
+      <div class="sw"><div class="c" style="background:#C8FF2E">Lime</div><div class="m"><b>Signature · la case verte</b><br>#C8FF2E · RGB 200 255 46<br>Fonds, pastilles, accents, mise en avant d’un chiffre.</div></div>
+      <div class="sw"><div class="c" style="background:#0A0A0A;color:#C8FF2E">Ink</div><div class="m"><b>Texte · fonds sombres</b><br>#0A0A0A · RGB 10 10 10<br>Titres, bordures, ombres dures, fonds « nuit ».</div></div>
+      <div class="sw"><div class="c" style="background:#F3F0E8">Paper</div><div class="m"><b>Fond clair</b><br>#F3F0E8 · RGB 243 240 232<br>Pages, cartes, fonds de respiration.</div></div>
+      <div class="sw"><div class="c" style="background:#FF4A36">Red</div><div class="m"><b>Alerte · le piège</b><br>#FF4A36 · RGB 255 74 54<br>Pertes, « faux gains », tampons, stickers de chiffre-choc.</div></div>
+      <div class="sw"><div class="c" style="background:#FFFFFF;border-bottom:3px solid #0A0A0A">White</div><div class="m"><b>Bille · surfaces</b><br>#FFFFFF<br>La bille, les cartes sur fond clair, le sous-titre karaoké.</div></div>
+      <div class="sw"><div class="c" style="background:#161616;color:#F3F0E8">Pocket</div><div class="m"><b>Cases · cartes sombres</b><br>#161616 · gris soft #D9D9D9<br>Cases noires de la roue, cartes sur fond ink.</div></div>
+    </div>
+    <h3>Contrastes (WCAG)</h3>
+    <table>
+      <tr><th>Texte sur fond</th><th>Ratio</th><th>Usage</th></tr>
+      <tr><td>Ink sur lime</td><td>16,8 : 1</td><td class="ok">Tous textes</td></tr>
+      <tr><td>Ink sur paper</td><td>17,4 : 1</td><td class="ok">Tous textes</td></tr>
+      <tr><td>Lime sur ink</td><td>16,8 : 1</td><td class="ok">Tous textes</td></tr>
+      <tr><td>Red sur ink</td><td>5,9 : 1</td><td class="ok">Titres et chiffres (AA)</td></tr>
+      <tr><td>Soft #D9D9D9 sur ink</td><td>14,0 : 1</td><td class="ok">Texte secondaire</td></tr>
+      <tr><td>Red sur paper</td><td>2,9 : 1</td><td class="no">Pas de texte courant : uniquement gros chiffres / pastilles avec bordure ink</td></tr>
+      <tr><td>Lime sur paper</td><td>1,0 : 1</td><td class="no">Interdit pour du texte</td></tr>
+    </table>
+    <h3>Répartition d’une page ou d’une image</h3>
+    <p>≈ 60 % de la couleur de fond (lime, ink ou paper selon l’ambiance), ≈ 30 % d’ink ou de paper en contraste, ≈ 10 % de rouge et de blanc en accents. On alterne les fonds d’un plan à l’autre : lime pour l’énergie, ink pour la tension, paper pour la respiration.</p>
+  </div>
+</section>
+
+<section class="dark">
+  <div class="wrap">
+    <span class="mono" style="color:var(--lime)">04 · Typographie</span>
+    <h2 style="color:var(--lime)">Gros, gras, direct.</h2>
+    <div class="grid g2">
+      <div class="card">
+        <b class="mono" style="color:var(--lime)">Bricolage Grotesque · titres</b>
+        <div style="font:800 76px/.9 var(--display);letter-spacing:-.04em;text-transform:uppercase;margin:16px 0">La bille n’a pas de mémoire</div>
+        <p>Graisse 800, MAJUSCULES, interlettrage −0,04 em, interligne 0,9. Pour le texte courant : graisse 450, interligne 1,55, corps 17 px minimum.</p>
+      </div>
+      <div class="card">
+        <b class="mono" style="color:var(--lime)">JetBrains Mono · étiquettes et chiffres</b>
+        <div style="font:700 34px/1.2 var(--mono);text-transform:uppercase;margin:16px 0">Épisode 03 · 10 230 €</div>
+        <p>Graisse 700, MAJUSCULES, interlettrage +0,04 em. Pour les pastilles, les légendes, les sources, les numéros, les montants.</p>
+      </div>
+    </div>
+    <h3 style="color:var(--paper)">Échelle</h3>
+    <table style="background:var(--paper);color:var(--ink)">
+      <tr><th>Rôle</th><th>Police</th><th>Taille / graisse</th></tr>
+      <tr><td>Titre géant (couverture, miniature)</td><td>Bricolage</td><td>180–330 px · 800 · MAJ</td></tr>
+      <tr><td>Titre de section</td><td>Bricolage</td><td>40–88 px · 800 · MAJ</td></tr>
+      <tr><td>Sticker</td><td>Bricolage</td><td>14–52 px · 800 · MAJ</td></tr>
+      <tr><td>Étiquette / pastille</td><td>JetBrains Mono</td><td>13–34 px · 700 · MAJ</td></tr>
+      <tr><td>Texte courant</td><td>Bricolage</td><td>17 px · 450</td></tr>
+    </table>
+    <p class="mono" style="margin-top:18px;color:var(--soft)">Polices auto-hébergées (SIL OFL 1.1) : assets/fonts/. Jamais de serif, jamais d’or.</p>
+  </div>
+</section>
+
+<section class="lime">
+  <div class="wrap">
+    <span class="mono">05 · Éléments graphiques</span>
+    <h2>Le sticker book.</h2>
+    <div class="grid g2" style="align-items:center">
+      <div style="display:flex;flex-wrap:wrap;gap:22px;align-items:center;padding:20px 0">
+        <span class="sticker tl">Sticker lime</span><span class="sticker st-red tr">42 M$ → 2,25 $</span><span class="sticker st-white tl">Comment la maison gagne</span><span class="sticker st-ink tr mono">Le podcast</span>
+        <span class="chip" style="background:var(--lime)"><b style="font:700 12px var(--mono)">THÉO</b></span><span class="chip" style="background:var(--red)"><b style="font:700 12px var(--mono)">TOM</b></span><span class="chip" style="background:var(--paper)"><b style="font:700 12px var(--mono)">ARTHUR</b></span>
+      </div>
+      <div class="spec">
+        <div><b>Bordures</b> ink, 3 à 8 px selon la taille. Jamais de filet fin.</div>
+        <div><b>Ombres</b> dures, décalées (5 à 14 px), pleines. Jamais de flou. Sur fond ink, l’ombre est lime ou blanche.</div>
+        <div><b>Rayons</b> 20 à 28 px pour les cartes, 12 à 20 px pour les stickers, 999 px pour les pastilles.</div>
+        <div><b>Inclinaison</b> des stickers : −6° à +6°, jamais plus. Un sticker n’en cache jamais un autre.</div>
+        <div><b>Marquee</b> bandeau défilant « ZÉRO VERT · LA MAISON GAGNE TOUJOURS » en haut des pages et des cartes.</div>
+        <div><b>Pastilles de voix</b> Théo lime, Tom rouge, Arthur paper (texte toujours ink).</div>
+      </div>
+    </div>
+    <h3>Formes récurrentes</h3>
+    <p>Le zéro géant en contour (trait ink de 7 px, sans remplissage) derrière le texte ; la bille blanche bordée d’ink ; la case verte lime isolée du reste ; les coins de cadre (⌜ ⌝) autour des cartons typographiques ; les cartons à fond plein avec un mot clé en lime ou en rouge.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="mono">06 · Mouvement</span>
+    <h2>Franc, sec, lisible.</h2>
+    <div class="grid g2">
+      <div class="card"><b class="mono">Grammaire</b><ul><li>Coupes sèches par défaut ; volets lime / rouge / ink aux changements de section.</li><li>Entrées en <i>back-ease</i> (petit rebond), chutes en <i>slam</i> (écrasement + secousse).</li><li>Une idée = un geste visuel, calé sur le mot qui la porte.</li><li>Jamais de fondu mou, de flou ni de lueur.</li></ul></div>
+      <div class="card"><b class="mono">Sécurité</b><ul><li>Aucun clignotement de grande surface au-delà de 3 alternances par seconde.</li><li>Un seul tremblement ou tampon par plan.</li><li>Un plan dure 2 à 10 s ; il bouge au moins 3 fois.</li><li>Sous-titres karaoké en sticker, mot lime au fil de la voix, zone sûre en bas.</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section class="dark">
+  <div class="wrap">
+    <span class="mono" style="color:var(--lime)">07 · Son et voix</span>
+    <h2 style="color:var(--lime)">Une signature sonore.</h2>
+    <div class="grid g3">
+      <div class="card"><b class="mono" style="color:var(--lime)">Les voix</b><p>Théo, Tom (Varxos) et Arthur. Narration seule ou débat à deux ou trois. Ton direct, complice, jamais donneur de leçons.</p></div>
+      <div class="card"><b class="mono" style="color:var(--lime)">Le thème</b><p>Un thème de marque au logo et à la fin de chaque épisode. Des lits musicaux sobres sous la voix, coupés pour les chutes et pour le paragraphe d’aide.</p></div>
+      <div class="card"><b class="mono" style="color:var(--lime)">Le mixage</b><p>Voix −16 LUFS, master −14 LUFS, ducking de la musique sous la parole. Effets d’accent discrets quand la voix parle.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="lime">
+  <div class="wrap">
+    <span class="mono">08 · Miniatures et formats</span>
+    <h2>Un gabarit, dix couvertures.</h2>
+    <p>Toutes les miniatures partent du même gabarit (brand/miniature.html) : un gros titre, le numéro d’épisode en contour, un sticker rouge avec le chiffre-choc, le symbole en pied. Le fond alterne lime, ink et paper. Régénération : <code>node tools/podcast-thumbs.mjs</code>.</p>
+    <div class="thumbs">
+      <img src="miniatures/saison-1-youtube.png" alt="Miniature de la saison 1">
+      <img src="miniatures/episode-00-youtube.png" alt="Bande-annonce"><img src="miniatures/episode-01-youtube.png" alt="Épisode 1"><img src="miniatures/episode-02-youtube.png" alt="Épisode 2"><img src="miniatures/episode-03-youtube.png" alt="Épisode 3">
+      <img src="miniatures/episode-04-youtube.png" alt="Épisode 4"><img src="miniatures/episode-05-youtube.png" alt="Épisode 5"><img src="miniatures/episode-06-youtube.png" alt="Épisode 6"><img src="miniatures/episode-07-youtube.png" alt="Épisode 7">
+      <img src="miniatures/episode-08-youtube.png" alt="Épisode 8"><img src="miniatures/episode-09-youtube.png" alt="Épisode 9">
+    </div>
+    <h3>Formats livrés</h3>
+    <table style="background:var(--paper)">
+      <tr><th>Fichier</th><th>Taille</th><th>Usage</th></tr>
+      <tr><td>cover-3000.png</td><td>3000 × 3000</td><td>Couverture des annuaires de podcasts (Apple, Spotify…)</td></tr>
+      <tr><td>saison-1-youtube.png, episode-NN-youtube.png</td><td>1280 × 720</td><td>YouTube, aperçu des liens</td></tr>
+      <tr><td>saison-1-tiktok.png</td><td>1080 × 1920</td><td>TikTok, Reels, Shorts (visuel vertical)</td></tr>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="mono">09 · Interdits et éthique</span>
+    <h2>Ce qu’on ne fait jamais.</h2>
+    <div class="grid g2">
+      <div class="dont"><b>Visuel</b><ul><li>Dégradés, flou, lueurs, glassmorphism, ombres douces.</li><li>Polices serif, or, filets fins, « look éditorial raffiné ».</li><li>Photos de stock de casino, billets qui pleuvent, jetons dorés.</li><li>Vrais logos, noms de marques, d’applications, de casinos ou de médias.</li></ul></div>
+      <div class="do"><b>Prévention</b><ul><li>Aucun gain n’est désirable à l’écran : le faux gain est creux, le compteur de crédits est le témoin honnête.</li><li>Personnes réelles : nom et rôle seulement, jamais de portrait. Personnages composites ou fictifs : signalés comme tels, silhouettes plates sans visage.</li><li>Le numéro Joueurs Info Service (09 74 75 13 13, tous les jours de 8 h à 2 h, anonyme et non surtaxé) figure dans chaque épisode.</li><li>Aucun appel à jouer, aucun système pour gagner.</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section class="dark" style="border-bottom:0">
+  <div class="wrap">
+    <span class="mono" style="color:var(--lime)">10 · Prompts</span>
+    <h2 style="color:var(--lime)">Pour briefer une IA.</h2>
+    <p style="color:var(--soft)">Prompts prêts à coller. Le texte complet est aussi dans brand/prompts.md.</p>
+    <h3 style="color:var(--paper)">A · Prompt maître (donner la direction artistique à n’importe quel outil)</h3>
+    <pre id="p-master">Direction artistique « Zéro Vert » : néo-brutalisme sticker, moderne et jeune, pas éditorial ni lisse.
+Aplats uniquement : lime #C8FF2E, ink #0A0A0A, paper #F3F0E8, rouge #FF4A36, blanc, avec le noir #161616 pour les cases. Aucun dégradé, aucun flou, aucune lueur, aucune ombre douce, aucune texture photo.
+Typographie : Bricolage Grotesque ExtraBold en MAJUSCULES, interlettrage serré (−4 %), interligne 0,9 ; étiquettes en JetBrains Mono gras MAJUSCULES.
+Éléments : bordures ink épaisses (6 px sur 1080), ombres dures décalées sans flou, coins arrondis (20–28 px), stickers rectangulaires inclinés de −6° à +6° (un chiffre-choc en rouge), un gros « 0 » en simple contour, une petite bille blanche bordée d’ink, une case verte lime. Composition franche, beaucoup de vide, un seul message par image.
+Interdits : photos de casino, jetons dorés, billets, serif, or, vrais logos ou marques, visages réalistes, texte illisible ou coupé.</pre>
+    <h3 style="color:var(--paper)">B · Prompt miniature d’épisode (image 1280 × 720)</h3>
+    <pre id="p-thumb">Miniature YouTube 16:9 pour le podcast « Zéro Vert », épisode [NUMÉRO] « [TITRE] ». Fond uni [lime #C8FF2E | noir #0A0A0A | crème #F3F0E8].
+À gauche, le titre en très gros, ExtraBold, MAJUSCULES, serré, couleur [encre #0A0A0A | lime #C8FF2E]. À droite, le chiffre « [NUMÉRO] » géant, en simple contour de 7 px, sans remplissage, partiellement coupé par le bord.
+Un sticker rectangulaire rouge #FF4A36 incliné de −2°, bordure noire 6 px, ombre dure décalée, avec le texte « [CHIFFRE-CHOC] » en gras.
+En bas à gauche, le petit symbole carré lime avec un 0 noir contenant une bille blanche, et « ZÉRO VERT · SAISON 1 » en police mono gras.
+Style néo-brutaliste à plat : aucun dégradé, aucun flou, aucune lueur, aucune photo, aucun visage. Texte net, entièrement lisible, rien de coupé.</pre>
+    <h3 style="color:var(--paper)">C · Prompt couverture carrée (3000 × 3000)</h3>
+    <pre id="p-cover">Couverture de podcast carrée 1:1, fond lime #C8FF2E. Le titre « ZÉRO VERT » sur deux lignes, en lettres noires ExtraBold géantes, serrées, qui remplissent le carré ; le « O » de ZÉRO est large et contient une petite bille blanche bordée de noir posée en bas du trou. En haut à gauche, une pastille noire arrondie « LE PODCAST » en lime ; en haut à droite, un sticker rouge #FF4A36 incliné « 35:1 » à bordure noire et ombre dure. Aplats uniquement, aucun dégradé, aucun flou, aucune lueur, aucune photo. Très lisible en 100 px de large.</pre>
+    <h3 style="color:var(--paper)">D · Prompt visuel vertical (1080 × 1920, TikTok / Reels)</h3>
+    <pre id="p-vert">Visuel vertical 9:16 pour le podcast « Zéro Vert », fond lime #C8FF2E. En haut, une pastille noire « LE PODCAST » ; dessous, « ZÉRO VERT » en deux lignes, noir, ExtraBold, énorme. En bas à droite, un grand « 0 » en simple contour noir de 7 px avec une petite bille blanche bordée de noir. Au-dessus du bas, deux stickers inclinés : « SAISON 1 · 9 ÉPISODES » (rouge #FF4A36) et « COMMENT LA MAISON GAGNE » (blanc), bordures noires 6 px, ombres dures décalées. Zone de sécurité : garder 250 px libres en bas pour les boutons de l’application. Aplats uniquement, aucun flou, aucune lueur, aucune photo.</pre>
+  </div>
+</section>
+
+<footer><div class="wrap"><p class="mono" style="margin:0">Zéro Vert · charte graphique v1.0 · tokens : css/podcast.css · logo : tools/podcast-brand.mjs · miniatures : tools/podcast-thumbs.mjs</p></div></footer>
+</body>
+</html>
